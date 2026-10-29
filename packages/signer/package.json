@@ -1,0 +1,22 @@
+{
+  "name": "@oms/signer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "oms-signer: Safe Send boundary",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "start": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@solana/kit": "^8.5.0"
+  }
+}
