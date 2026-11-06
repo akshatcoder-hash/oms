@@ -1,0 +1,25 @@
+{
+  "name": "@oms/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Cache segment hashing, trace, Sealevel routing, settle gate, budget and model catalog/usage accounting",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./budget": "./src/budget/index.ts",
+    "./catalog": "./src/models/catalog.ts",
+    "./usage": "./src/models/usage.ts",
+    "./dispatch": "./src/models/dispatch.ts"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.4.0"
+  }
+}
