@@ -1,0 +1,13 @@
+node_modules/
+.tmp/
+.oms/
+*.log
+.next/
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example
+# Local operator wallets (never commit key material)
+.keys/
+__pycache__/
