@@ -1,0 +1,12 @@
+{
+  "comment": "Patterns that mean generated Solana client code targets an API that was renamed, replaced or deprecated before the Kit 8.6 / Anchor 1.x era. Short on purpose: every rule names its source in the knowledge corpus. Applied to each run's final client.ts.",
+  "rules": [
+    { "id": "web3js-package", "pattern": "@solana/web3\\.js", "why": "2.x was renamed @solana/kit; 1.x is the legacy SDK (kit-docs)" },
+    { "id": "web3js-v1-classes", "pattern": "\\bnew (Connection|PublicKey|Transaction)\\(|\\bKeypair\\.(generate|fromSecretKey|fromSeed)\\b|\\bsendAndConfirmTransaction\\b|\\bSystemProgram\\.", "why": "web3.js 1.x class API; Kit uses addresses, signers and pipe()" },
+    { "id": "legacy-spl-token", "pattern": "@solana/spl-token\\b", "why": "legacy JS helpers; clients are @solana-program/token and @solana-program/token-2022 (solana-dev-skill)" },
+    { "id": "old-anchor-ts", "pattern": "@coral-xyz/anchor|@project-serum/anchor", "why": "renamed @anchor-lang/core in Anchor 1.0 (anchor-docs compatibility table)" },
+    { "id": "kit-plugin-umbrella", "pattern": "@solana/kit-plugins\\b|@solana/kit-plugin-airdrop|@solana/kit-plugin-payer", "why": "deprecated plugin packages (kit-docs)" },
+    { "id": "solana-bankrun", "pattern": "solana-bankrun", "why": "deprecated in favour of LiteSVM (litesvm-docs)" },
+    { "id": "build-bpf", "pattern": "build-bpf", "why": "cargo build-bpf is deprecated; use cargo build-sbf (anchor-docs)" }
+  ]
+}
