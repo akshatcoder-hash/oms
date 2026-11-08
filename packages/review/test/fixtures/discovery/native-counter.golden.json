@@ -1,0 +1,22 @@
+{
+  "programs": [
+    {
+      "name": "native-counter",
+      "programId": "11111111111111111111111111111111",
+      "framework": "native",
+      "manifest": "Cargo.toml",
+      "sources": [
+        "src/lib.rs"
+      ],
+      "handlers": [
+        {
+          "name": "process_instruction",
+          "file": "src/lib.rs",
+          "line": 4
+        }
+      ],
+      "handlerSource": "syntax"
+    }
+  ],
+  "issues": []
+}

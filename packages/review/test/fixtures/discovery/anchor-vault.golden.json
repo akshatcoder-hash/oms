@@ -1,0 +1,28 @@
+{
+  "programs": [
+    {
+      "name": "anchor-vault",
+      "programId": "11111111111111111111111111111111",
+      "framework": "anchor",
+      "manifest": "Cargo.toml",
+      "sources": [
+        "src/lib.rs"
+      ],
+      "handlers": [
+        {
+          "name": "withdraw",
+          "file": "src/lib.rs",
+          "line": 6,
+          "accountStruct": {
+            "file": "src/lib.rs",
+            "line": 8,
+            "endLine": 9
+          }
+        }
+      ],
+      "handlerSource": "idl",
+      "idl": "idl/vault.json"
+    }
+  ],
+  "issues": []
+}

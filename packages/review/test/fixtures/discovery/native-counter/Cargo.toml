@@ -1,0 +1,5 @@
+[package]
+name="native-counter"
+version="0.1.0"
+[dependencies]
+solana-program="1"

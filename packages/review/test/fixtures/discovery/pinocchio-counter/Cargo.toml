@@ -1,0 +1,5 @@
+[package]
+name="pinocchio-counter"
+version="0.1.0"
+[dependencies]
+pinocchio="1"
