@@ -1,0 +1,38 @@
+#!/usr/bin/python3 -I
+"""Use immutable platform tools and locked, offline dependency resolution."""
+import os
+import subprocess
+import sys
+
+args = sys.argv[1:]
+if args[:1] == ["build-sbf"]:
+    args = args[1:]
+separator = args.index('--') if '--' in args else len(args)
+build, cargo = args[:separator], args[separator + 1:]
+filtered = []
+while build:
+    arg = build.pop(0)
+    if arg == '--tools-version':
+        if not build or build.pop(0) != 'v1.58':
+            sys.exit('E_TOOLCHAIN_PIN: platform-tools are pinned to v1.58')
+    elif arg.startswith('--tools-version='):
+        if arg != '--tools-version=v1.58':
+            sys.exit('E_TOOLCHAIN_PIN: platform-tools are pinned to v1.58')
+    elif arg.split('=')[0] in ('--force-tools-install', '--install-only', '--sbf-sdk', '--no-rustup-override', '--skip-tools-install'):
+        sys.exit('E_TOOLCHAIN_PIN: platform-tools are pinned to v1.58')
+    elif arg not in ('--locked', '--offline'):
+        filtered.append(arg)
+build = filtered
+command = ['/opt/agave/bin/cargo-build-sbf', *build, '--tools-version', 'v1.58',
+           '--skip-tools-install', '--no-rustup-override', '--offline', '--', *cargo, '--locked']
+environment = dict(os.environ, RUSTC='/opt/platform-tools/rust/bin/rustc')
+child = subprocess.Popen(command, stderr=subprocess.PIPE, env=environment)
+tail = b''
+for chunk in iter(lambda: child.stderr.read(4096), b''):
+    sys.stderr.buffer.write(chunk)
+    sys.stderr.buffer.flush()
+    tail = (tail + chunk)[-65536:]
+code = child.wait()
+if code and any(marker in tail for marker in (b'no matching package', b'attempting to make an HTTP request', b'failed to download')):
+    print('E_DEPS_NOT_FETCHED: run deps_fetch with the committed lockfile before building offline', file=sys.stderr)
+sys.exit(code)

@@ -1,0 +1,26 @@
+#!/usr/bin/python3 -I
+"""Pin Anchor before its native toolchain-switching code can run."""
+import os
+from pathlib import Path
+import sys
+import tomllib
+
+for parent in (Path.cwd(), *Path.cwd().parents):
+    manifest = parent / 'Anchor.toml'
+    if manifest.exists():
+        try:
+            config = tomllib.loads(manifest.read_text()).get('toolchain', {})
+            if 'solana_version' in config:
+                sys.exit('E_SOLANA_VERSION_UNSUPPORTED: the runtime pins Solana 4.4.1')
+            if config.get('anchor_version', '1.2.2') != '1.2.2':
+                sys.exit('E_ANCHOR_VERSION_UNSUPPORTED: the runtime pins Anchor 1.2.2')
+        except (OSError, ValueError, TypeError) as error:
+            sys.exit(f'E_ANCHOR_CONFIG: {error}')
+        break
+args = sys.argv[1:]
+if args[:1] == ['build']:
+    if any(arg.startswith('--tools-version') for arg in args):
+        sys.exit('E_TOOLCHAIN_PIN: Anchor build platform-tools are pinned to v1.58')
+    position = args.index('build') + 1
+    args[position:position] = ['--tools-version', 'v1.58']
+os.execv('/opt/anchor/anchor-1.2.2', ['anchor', *args])
