@@ -1,0 +1,10 @@
+{
+  "name": "@oms/review",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "node --test", "typecheck": "tsc --noEmit" },
+  "dependencies": { "typebox": "1.3.27" }
+}
