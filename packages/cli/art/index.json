@@ -1,0 +1,34 @@
+[
+  {
+    "number": 22,
+    "title": "Ignition",
+    "file": "22-ignition.ycc",
+    "image": "22-ignition.jpg",
+    "width": 640,
+    "height": 320
+  },
+  {
+    "number": 28,
+    "title": "Kyoto after rain",
+    "file": "28-kyoto-after-rain.ycc",
+    "image": "28-kyoto-after-rain.jpg",
+    "width": 640,
+    "height": 351
+  },
+  {
+    "number": 59,
+    "title": "After the monsoon \u2014 Chiang Mai",
+    "file": "59-after-the-monsoon-chiang-mai.ycc",
+    "image": "59-after-the-monsoon-chiang-mai.jpg",
+    "width": 640,
+    "height": 367
+  },
+  {
+    "number": 62,
+    "title": "A city in the sunlight \u2014 Victorian",
+    "file": "62-a-city-in-the-sunlight-victorian.ycc",
+    "image": "62-a-city-in-the-sunlight-victorian.jpg",
+    "width": 640,
+    "height": 360
+  }
+]
