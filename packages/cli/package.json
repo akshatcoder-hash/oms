@@ -1,0 +1,33 @@
+{
+  "name": "@oms/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "oms command line and local agent Harness",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit",
+    "start": "node src/bin.ts"
+  },
+  "bin": {
+    "oms": "./src/bin.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@oms/engine": "*",
+    "@oms/core": "*",
+    "@xterm/headless": "6.0.0",
+    "@xterm/addon-unicode-graphemes": "0.4.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.4.0"
+  }
+}

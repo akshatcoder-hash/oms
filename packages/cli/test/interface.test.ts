@@ -1,0 +1,1463 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
+import type { HarnessSession, HarnessVerification } from '@oms/engine';
+import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
+import type { AuthInteraction } from '@earendil-works/pi-ai';
+import { getKeybindings, resetCapabilitiesCache, setCapabilities } from '@earendil-works/pi-tui';
+import { runOmsInterface } from '../src/tui/interface.ts';
+import { getTheme } from '../src/tui/theme.ts';
+import { Conversation } from '../src/tui/transcript.ts';
+import { barrier, InterfaceTerminal } from '../test-support/interface-terminal.ts';
+
+// The startup art's colour tier comes from the environment: pin it so the screen is the same everywhere.
+Object.assign(process.env, { COLORTERM: 'truecolor', TERM: 'xterm-256color' });
+delete process.env.NO_COLOR; delete process.env.TMUX;
+
+function fixture() {
+  const listeners = new Set<(event: AgentSessionEvent) => void>();
+  const prompts: string[] = [];
+  const commands: string[] = [];
+  const verified: string[] = [];
+  const items = [{ id: 'R1', title: 'Calculate rent exactly', status: 'active', done: [], reopenCount: 0 },
+    { id: 'R2', title: 'Reject duplicate deposits', status: 'open', done: [], reopenCount: 0 }];
+  const promptGate = barrier<void>();
+  const commandGate = barrier<unknown>();
+  const abortGate = barrier<void>();
+  let hasModel = true;
+  const configuredProviders = new Set(['local']);
+  let modelIdentity = { id: 'test-model', provider: 'local' };
+  let abortRequested = false;
+  let commandSignal: AbortSignal | undefined;
+  let promptFailure: Error | undefined;
+  let closed = false;
+  const messages: unknown[] = [];
+  const emit = (event: unknown) => { for (const listener of listeners) listener(event as AgentSessionEvent); };
+  const session = {
+    messages, get model() { return hasModel ? modelIdentity : undefined; },
+    sessionManager: { getSessionId: () => 'session-fixture' }, isStreaming: false,
+    subscribe(listener: (event: AgentSessionEvent) => void) { listeners.add(listener); return () => listeners.delete(listener); },
+    async prompt(text: string) {
+      if (promptFailure) throw promptFailure;
+      prompts.push(text); messages.push({ role: 'user', content: text }); emit({ type: 'agent_start' });
+      await promptGate.promise;
+      emit({ type: 'agent_settled', aborted: abortRequested });
+    },
+    async abort() { abortRequested = true; await abortGate.promise; },
+  };
+  const harness = {
+    workspace: { root: '/fixtures/rental-ledger' }, task: { id: 'rent', codeRoot: '/fixtures/task', branch: 'oms/rent' },
+    session, evaluator: { read: () => ({ ok: true, value: { items } }) },
+    listModels: () => [
+      { provider: 'local', id: 'test-model', name: 'Local model', configured: true },
+      { provider: 'other', id: 'other-model', name: 'Other model', configured: configuredProviders.has('other') },
+    ],
+    listProviders: () => [
+      { id: 'local', name: 'Local provider', configured: true, apiKey: true, oauth: false },
+      { id: 'other', name: 'Other provider', configured: configuredProviders.has('other'), apiKey: true, oauth: false },
+    ],
+    async selectModel(provider: string, id: string) {
+      if (!configuredProviders.has(provider)) throw new Error('Provider is not configured');
+      modelIdentity = { provider, id }; hasModel = true;
+    },
+    async connectProvider(provider: string, _key: string) { configuredProviders.add(provider); },
+    async loginProvider(provider: string, _method: string, interaction: AuthInteraction) {
+      await interaction.prompt({ type: 'secret', message: 'Provider API key', signal: interaction.signal });
+      configuredProviders.add(provider);
+    },
+    budget: { receipts: () => [], routerRecords: () => [], reservations: () => [], snapshot: () => ({ caps: { tokens: 9000, spendMicroUsd: 3000000, wallClockMs: 120000 },
+      used: { tokens: 200, spendMicroUsd: 2999999, wallClockMs: 1000 },
+      remaining: { tokens: 8800, spendMicroUsd: 1, wallClockMs: 119000 }, accounting: 'known', exhausted: false }) },
+    async verify(id?: string) { verified.push(id ?? 'R1'); items[0]!.status = 'closed'; return { itemId: id ?? 'R1', result: { closed: true } }; },
+    async runCommand(command: string, signal?: AbortSignal) { commands.push(command); commandSignal = signal; return commandGate.promise; },
+    async close() { closed = true; },
+  } as unknown as HarnessSession;
+  return { harness, listeners, prompts, commands, verified, messages, emit, promptGate, commandGate, abortGate,
+    model(value: boolean) { hasModel = value; }, failPrompt(error: Error) { promptFailure = error; },
+    identity(value: { id: string; provider: string }) { modelIdentity = value; },
+    abortRequested: () => abortRequested, commandSignal: () => commandSignal, closed: () => closed };
+}
+async function quit(terminal: InterfaceTerminal, run: Promise<void>) {
+  terminal.send('\x11');
+  await run;
+  assert.equal(terminal.active, false);
+  assert.equal(terminal.drained, true);
+}
+
+function clickText(terminal: InterfaceTerminal, screen: string, text: string): void {
+  const rows = screen.split('\n');
+  const y = rows.findIndex(row => row.includes(text));
+  assert.ok(y >= 0, `Missing control ${text}`);
+  const x = rows[y]!.indexOf(text);
+  terminal.send(`\x1b[<0;${x + 2};${y + 1}M`);
+  terminal.send(`\x1b[<0;${x + 2};${y + 1}m`);
+}
+
+test('pointer navigation controls switch the same session without submitting its draft', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const session = f.harness.session;
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('Harness'));
+    terminal.send('preserve pointer draft');
+    const before = await terminal.until(screen => screen.includes('Workbench') && screen.includes('Commands'));
+    clickText(terminal, before, 'Workbench');
+    const editor = await terminal.until(screen => screen.includes('No file open'));
+    assert.equal(f.harness.session, session);
+    assert.equal(editor.includes('preserve pointer draft'), false);
+    clickText(terminal, editor, 'Harness');
+    await terminal.until(screen => screen.includes('preserve pointer draft'));
+    assert.deepEqual(f.prompts, []);
+    assert.equal(f.closed(), false);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('cancelled workbench toolbar SGR gestures preserve composer focus and draft typing', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const run = runOmsInterface(f.harness, { terminal, view: 'workbench' });
+  try {
+    await terminal.until(screen => screen.includes('No file open'));
+    terminal.send('\x0c');
+    terminal.send('composer draft');
+    const before = await terminal.until(screen => screen.includes('composer draft'));
+    const rows = before.split('\n');
+    const y = rows.findIndex(row => row.includes('New') && row.includes('Save'));
+    assert.ok(y >= 0, 'workbench toolbar is visible alongside the composer');
+    const x = rows[y]!.indexOf('New') + 1;
+    terminal.send(`\x1b[<0;${x + 1};${y + 1}M`);
+    terminal.send(' after press');
+    await terminal.until(screen => screen.includes('composer draft after press'));
+    terminal.send(`\x1b[<32;${x + 2};${y + 1}M`);
+    terminal.send(`\x1b[<0;${x + 2};${y + 1}m`);
+    terminal.send(' after drag');
+    await terminal.until(screen => screen.includes('composer draft after press after drag'));
+    assert.deepEqual(f.prompts, []);
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.deepEqual(f.prompts, ['composer draft after press after drag']);
+  } finally {
+    f.abortGate.resolve(); f.promptGate.resolve();
+    await quit(terminal, run); terminal.vt.dispose();
+  }
+});
+
+test('compact-start resize restores visible and usable composer controls', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('Harness'));
+    terminal.send('resized composer draft');
+    await terminal.until(screen => screen.includes('resized composer draft'));
+    terminal.setSize(80, 24);
+    const expanded = await terminal.until(screen => screen.includes('[ ↑ Send ]') && screen.includes('[ × Cancel ]'));
+    assert.ok(expanded.includes('resized composer draft'));
+    clickText(terminal, expanded, 'Send');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.deepEqual(f.prompts, ['resized composer draft']);
+    const running = await terminal.until(screen => screen.includes('[ × Cancel ]') && screen.split('\n')[0]?.includes('agent') === true);
+    clickText(terminal, running, 'Cancel');
+    await terminal.until(() => f.abortRequested());
+    f.abortGate.resolve(); f.promptGate.resolve();
+    await terminal.until(screen => screen.split('\n')[0]?.includes('idle') === true);
+    terminal.setSize(40, 12);
+    await terminal.until(screen => !screen.includes('[ ↑ Send ]'));
+    terminal.send('compact typing');
+    await terminal.until(screen => screen.includes('compact typing'));
+  } finally {
+    f.abortGate.resolve(); f.promptGate.resolve();
+    await quit(terminal, run); terminal.vt.dispose();
+  }
+});
+
+for (const [columns, rows] of [[40, 12], [80, 24], [120, 36]] as const) {
+  test(`global slash navigation preserves editor text and hidden agent draft at ${columns}x${rows}`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal(columns, rows);
+    let saved = '';
+    f.harness.files = { ...f.harness.files,
+      read: async () => ({ bytes: Buffer.from('SOURCE\nsecond\nthird'), revision: 'r1' }),
+      write: async (_path, bytes) => { saved = Buffer.from(bytes).toString('utf8'); return 'r2'; } };
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.until(screen => screen.split('\n')[0]?.includes('Harness') === true);
+      terminal.send('agent draft 界');
+      terminal.send('\x0b'); terminal.send('open file.ts'); terminal.send('\r');
+      const editor = await terminal.until(screen => screen.includes('SOURCE'));
+      assert.ok(!editor.includes('agent draft 界'), 'inactive composer must not occupy editor space');
+      assert.ok(editor.includes('Ctrl+K'), 'global command entry stays discoverable');
+      terminal.send('/'); terminal.send('\t');
+      terminal.send('\x0b'); terminal.send('theme'); terminal.send('\r');
+      await terminal.until(screen => screen.includes('Filter:'));
+      terminal.send('\x1b'); terminal.send('X'); terminal.send('\x13');
+      await terminal.until(() => saved.includes('X'));
+      assert.equal(saved, '/\tXSOURCE\nsecond\nthird');
+      terminal.send('\x0b'); terminal.send('harness'); terminal.send('\r');
+      await terminal.until(screen => screen.includes('agent draft 界'));
+      terminal.send('!'); terminal.send('\r');
+      await terminal.until(() => f.prompts.length === 1);
+      assert.deepEqual(f.prompts, ['agent draft 界!']);
+    } finally { f.abortGate.resolve(); f.promptGate.resolve(); terminal.send('\x11'); terminal.send('\x11'); await run; terminal.vt.dispose(); }
+  });
+}
+
+test('read-only status and help remain reachable during work without dispatching or replacing the draft', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(80, 24);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('running'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('retained draft');
+    terminal.send('\x1b/'); terminal.send('status'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('8800') && screen.includes('known'));
+    terminal.send('\x1b/'); terminal.send('help'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Ctrl+K'));
+    terminal.send('\x1b'); terminal.send('!');
+    await terminal.until(screen => screen.includes('retained draft!'));
+    assert.deepEqual(f.prompts, ['running']);
+    assert.equal(f.abortRequested(), false);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('terminal slash, Tab, Escape and Ctrl+C stay child input while global navigation is isolated', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+  const exit = barrier<{ exitCode: number; stdout: string; stderr: string; cancelled: boolean; timedOut: boolean; truncated: boolean }>();
+  const bytes: Buffer[] = [];
+  f.harness.startTerminal = async () => ({
+    write: data => { bytes.push(Buffer.from(data)); }, resize() {}, subscribe: () => () => {}, exited: exit.promise, close: async () => {},
+  });
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/terminal'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('running'));
+    terminal.send('/'); terminal.send('\t'); terminal.send('\x1b'); terminal.send('\x03');
+    terminal.send('\x1b/'); terminal.send('help'); terminal.send('\x1b');
+    terminal.send('x');
+    await terminal.until(() => Buffer.concat(bytes).toString('utf8').endsWith('x'));
+    assert.equal(Buffer.concat(bytes).toString('utf8'), '/\t\x1b\x03x');
+    assert.equal(f.closed(), false);
+    assert.deepEqual(f.prompts, []);
+  } finally {
+    exit.resolve({ exitCode: 0, stdout: '', stderr: '', cancelled: false, timedOut: false, truncated: false });
+    await quit(terminal, run); terminal.vt.dispose();
+  }
+});
+
+test('short workbench keeps focused file content visible while editing', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+  f.harness.files = { ...f.harness.files, read: async () => ({ bytes: Buffer.from('VISIBLE_SOURCE'), revision: 'r1' }) };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/open file.ts'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('VISIBLE_SOURCE'));
+    terminal.send('X');
+    await terminal.until(screen => screen.includes('XVISIBLE_SOURCE'));
+    terminal.send('\x11'); await terminal.screen();
+    assert.equal(f.closed(), false);
+    terminal.send('\x11'); await run;
+  } finally { terminal.send('\x11'); terminal.send('\x11'); await run; terminal.vt.dispose(); }
+});
+
+test('late file opening cannot steal the newer composer focus', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const gate = barrier<void>();
+  f.harness.files = { ...f.harness.files, read: async () => {
+    await gate.promise; return { bytes: Buffer.from('ORIGINAL_SOURCE'), revision: 'r1' };
+  } };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/open file.ts'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Opening file.ts'));
+    terminal.send('\x0c'); terminal.send('new prompt');
+    gate.resolve();
+    await terminal.until(screen => screen.includes('ORIGINAL_SOURCE'));
+    terminal.send('!'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.deepEqual(f.prompts, ['new prompt!']);
+  } finally { gate.resolve(); f.abortGate.resolve(); f.promptGate.resolve(); terminal.send('\x11'); terminal.send('\x11'); await run; terminal.vt.dispose(); }
+});
+
+test('view switching during agent work preserves the live session, pending draft and request count', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const session = f.harness.session;
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('running request'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('next draft 界🙂');
+    terminal.send('\x1b[13~');
+    await terminal.until(screen => screen.includes('Workbench') && !screen.includes('next draft 界🙂'));
+    assert.equal(f.harness.session, session);
+    assert.equal(f.closed(), false);
+    assert.equal(f.abortRequested(), false);
+    assert.deepEqual(f.prompts, ['running request']);
+    terminal.send('\x1b[13~');
+    await terminal.until(screen => screen.includes('Harness') && screen.includes('next draft 界🙂'));
+    f.promptGate.resolve(); await terminal.until(screen => screen.includes('idle'));
+    terminal.send('\r'); await terminal.until(() => f.prompts.length === 2);
+    assert.deepEqual(f.prompts, ['running request', 'next draft 界🙂']);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('slash command discovery works without a model and never dispatches the draft', async () => {
+  const f = fixture(); f.model(false);
+  const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    terminal.send('/');
+    await terminal.until(screen => screen.includes('/model') && screen.includes('/connect') && screen.includes('/workbench'));
+    assert.deepEqual(f.prompts, []);
+    assert.deepEqual(f.messages, []);
+    assert.equal(f.closed(), false);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('multiline setup searches stay in the single-line picker without closing the task', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  const outcome = run.then(() => undefined, error => error);
+  try {
+    await terminal.screen(); terminal.send('\x1b[200~/model Local\nprovider\x1b[201~'); terminal.send('\r');
+    await Promise.race([
+      terminal.until(screen => screen.includes('Local provider') && screen.includes('Filter: Local provider')),
+      outcome.then(error => { throw error ?? new Error('Setup unexpectedly closed the task'); }),
+    ]);
+    assert.equal(f.closed(), false);
+    assert.deepEqual(f.prompts, []);
+  } finally { terminal.send('\x11'); await outcome; terminal.vt.dispose(); }
+});
+
+test('slash filtering and Tab completion open setup without a model request', async () => {
+  const f = fixture(); f.model(false);
+  const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/co'); terminal.send('\t');
+    await terminal.until(screen => screen.includes('/connect '));
+    terminal.send('\r');
+    await terminal.until(screen => screen.includes('Other provider'));
+    terminal.send('\x1b');
+    terminal.send('returned draft');
+    await terminal.until(screen => screen.includes('returned draft'));
+    assert.deepEqual(f.prompts, []);
+    assert.deepEqual(f.messages, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('picker page navigation reaches catalog boundaries without wrapping at a narrow size', async () => {
+  const f = fixture(); f.model(false);
+  f.harness.listModels = () => Array.from({ length: 9 }, (_, index) =>
+    ({ provider: 'local', id: `variant-${index}`, name: `Variant ${index}`, configured: true }));
+  const terminal = new InterfaceTerminal(40, 12);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('\x1bOS');
+    await terminal.until(screen => screen.includes('Local provider'));
+    terminal.send('\r');
+    await terminal.until(screen => screen.includes('variant-0'));
+    for (let index = 0; index < 20; index++) terminal.send('\x1b[6~');
+    terminal.send('\r');
+    await terminal.until(() => f.harness.session.model?.id === 'variant-8');
+    terminal.send('\x1bOS');
+    await terminal.until(screen => screen.includes('Local provider'));
+    terminal.send('\r');
+    await terminal.until(screen => screen.includes('variant-0'));
+    for (let index = 0; index < 20; index++) terminal.send('\x1b[5~');
+    terminal.send('\r');
+    await terminal.until(() => f.harness.session.model?.id === 'variant-0');
+    assert.deepEqual(f.prompts, []);
+    assert.deepEqual(f.messages, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+for (const dismissal of ['\x1b', '\x0b']) {
+test(`narrow setup dismissal ${JSON.stringify(dismissal)} preserves the draft without leaking keys into undo`, async () => {
+  const f = fixture(); f.model(false);
+  const terminal = new InterfaceTerminal(40, 12);
+  const run = runOmsInterface(f.harness, { terminal });
+  const secret = 'synthetic-discarded-provider-key';
+  try {
+    await terminal.screen(); terminal.send('retain draft 界🙂'); terminal.send('\x1bOS');
+    await terminal.until(screen => screen.includes('Local provider'));
+    terminal.send('other'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Secret:') && screen.includes('other'));
+    terminal.send(`\x1b[200~${secret}\x1b[201~`);
+    await terminal.until(screen => screen.includes('••••'));
+    assert.equal(terminal.output.includes(secret), false);
+    terminal.send(dismissal);
+    if (dismissal === '\x0b') {
+      await terminal.until(screen => screen.includes('/workbench'));
+      terminal.send('\x1b');
+    }
+    await terminal.until(screen => screen.includes('retain draft 界🙂'));
+    terminal.send('\x1a'); await terminal.screen();
+    assert.equal(terminal.output.includes(secret), false);
+    terminal.send('\x19'); await terminal.until(screen => screen.includes('retain draft 界🙂'));
+    terminal.send('!'); terminal.send('\x1bOS');
+    await terminal.until(screen => screen.includes('Local provider'));
+    terminal.send('local'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('local/test-model'));
+    terminal.send('\r');
+    await terminal.until(screen => screen.includes('retain draft 界🙂!'));
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.deepEqual(f.prompts, ['retain draft 界🙂!']);
+    assert.equal(JSON.stringify(f.messages).includes(secret), false);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+}
+
+test('Escape dismisses slash discovery without aborting the running session', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('current request'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('/'); await terminal.until(screen => screen.includes('/workbench'));
+    terminal.send('\x1b'); await terminal.screen();
+    assert.equal(f.abortRequested(), false);
+    assert.deepEqual(f.prompts, ['current request']);
+    terminal.send('\x01'); terminal.send('next request');
+    f.promptGate.resolve(); await terminal.until(screen => screen.includes('idle'));
+    terminal.send('\r'); await terminal.until(() => f.prompts.length === 2);
+    assert.deepEqual(f.prompts, ['current request', 'next request']);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('credential-bearing setup failures cannot appear in the terminal or conversation', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const secret = 'synthetic-provider-key-in-upstream-error';
+  let refused = false;
+  f.harness.loginProvider = async (_provider, _method, interaction) => {
+    await interaction.prompt({ type: 'secret', message: 'Provider API key', signal: interaction.signal });
+    refused = true;
+    throw new Error(secret);
+  };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/connect other'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Other provider'));
+    terminal.send('\r');
+    await terminal.until(screen => screen.includes('Secret:'));
+    terminal.send(`\x1b[200~${secret}\x1b[201~`); terminal.send('\r');
+    await terminal.until(() => refused);
+    assert.equal(terminal.output.includes(secret), false);
+    assert.equal(JSON.stringify(f.messages).includes(secret), false);
+    terminal.send('\x1b');
+    terminal.send('ordinary prompt'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.deepEqual(f.prompts, ['ordinary prompt']);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('task and session state render from the live consumer and verification updates actual requirement state', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/status'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('Calculate rent exactly'));
+    assert.ok(screen.includes('rental-ledger') && screen.includes('rent') && screen.includes('test-model'));
+    assert.ok(screen.includes('8800') && screen.includes('known') && screen.includes('$0.000001'));
+    terminal.send('/verify R1'); terminal.send('\r');
+    await terminal.until(s => s.includes('closed'));
+    assert.deepEqual(f.verified, ['R1']);
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+  assert.equal(f.listeners.size, 0);
+});
+
+test('multiline paste and modified Enter submit losslessly; busy submit preserves the next draft', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    terminal.send('\x1b[200~first\r\n\t界🙂\x1b[201~');
+    terminal.send('\x1b\r'); terminal.send('last'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.equal(f.prompts[0], 'first\r\n\t界🙂\nlast');
+    terminal.send('next draft'); terminal.send('\r');
+    await terminal.until(s => s.includes('next draft'));
+    assert.equal(f.prompts.length, 1);
+    f.promptGate.resolve();
+    await terminal.until(s => s.includes('idle'));
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 2);
+    assert.equal(f.prompts[1], 'next draft');
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('missing model and failed dispatch preserve the editable prompt', async () => {
+  const f = fixture(); f.model(false); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('retain this requirement'); terminal.send('\r');
+    await terminal.until(s => s.includes('retain this requirement') && /unavailable|no model/i.test(s));
+    assert.deepEqual(f.prompts, []);
+    f.model(true); f.failPrompt(new Error('Admission refused')); terminal.send('\r');
+    await terminal.until(s => s.includes('Admission refused') && s.includes('retain this requirement'));
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('stream snapshots and contextual tool results are visible without terminal control injection', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('inspect'); terminal.send('\r'); await terminal.until(() => f.prompts.length === 1);
+    const message = { role: 'assistant', content: [{ type: 'text', text: 'Investigating totals' }] };
+    f.emit({ type: 'message_start', message });
+    f.emit({ type: 'message_update', message: { ...message, content: [{ type: 'text', text: 'Investigating totals now' }] } });
+    await terminal.until(s => s.includes('Investigating totals now'));
+    f.emit({ type: 'tool_execution_start', toolCallId: 'tool1', toolName: 'read', args: { path: 'rent.ts' } });
+    await terminal.until(s => s.includes('rent.ts'));
+    f.emit({ type: 'tool_execution_end', toolCallId: 'tool1', toolName: 'read', isError: false,
+      result: { content: [{ type: 'text', text: '\x1b]52;c;INJECT\x07safe result\x1b[2J' }] } });
+    await terminal.until(s => s.includes('safe result'));
+    assert.ok(!terminal.output.includes('\x1b]52;c;INJECT'));
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+for (const tab of ['\t', '\x1b[Z']) {
+  test(`closed requirements at 40x12 are skipped by ${JSON.stringify(tab)} focus traversal`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.screen(); terminal.send('draft');
+      terminal.send(tab); terminal.send(tab); terminal.send('!');
+      terminal.send('\x1b[200~ pasted\x1b[201~');
+      await terminal.until(s => s.includes('draft! pasted'));
+      assert.deepEqual(f.prompts, []);
+      assert.deepEqual(f.messages, []);
+      assert.equal(f.closed(), false);
+    } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+for (const awaitFrame of [false, true]) {
+  test(`narrow resize repairs focused requirements before ${awaitFrame ? 'the next frame' : 'immediate input'}`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal(110, 30);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.screen(); terminal.send('draft survives');
+      terminal.send('\x1b[12~'); terminal.send('\t');
+      await terminal.until(s => s.split('\n').at(-1)?.startsWith('requirements') === true);
+      terminal.setSize(40, 12);
+      if (awaitFrame) await terminal.until(s => s.split('\n').at(-1)?.startsWith('input') === true);
+      terminal.send('!');
+      await terminal.until(s => s.includes('draft survives!'));
+      terminal.setSize(110, 30);
+      await terminal.until(s => s.includes('draft survives!') && s.includes('Reject duplicate deposits'));
+      assert.deepEqual(f.prompts, []);
+      assert.deepEqual(f.messages, []);
+      assert.equal(f.closed(), false);
+    } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+    assert.equal(f.closed(), true);
+  });
+}
+
+test('agent cancellation stays busy until abort and the actual prompt both settle', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('long request'); terminal.send('\r'); await terminal.until(() => f.prompts.length === 1);
+    terminal.send('\x1b'); await terminal.until(() => f.abortRequested());
+    f.abortGate.resolve();
+    terminal.send('after cancel'); terminal.send('\r');
+    await terminal.until(s => s.includes('after cancel'));
+    assert.equal(f.prompts.length, 1);
+    f.promptGate.resolve(); await terminal.until(s => s.includes('idle'));
+    terminal.send('\r'); await terminal.until(() => f.prompts.length === 2);
+    assert.equal(f.prompts[1], 'after cancel');
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('sandbox command cancellation uses the controller signal and quit awaits its true completion', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  let ended = false; void run.then(() => { ended = true; });
+  try {
+    await terminal.screen(); terminal.send('/run sleep 3'); terminal.send('\r'); await terminal.until(() => f.commands.length === 1);
+    terminal.send('\x03'); await terminal.until(() => !!f.commandSignal()?.aborted);
+    assert.equal(ended, false); assert.equal(terminal.active, true);
+    f.commandGate.resolve({ exitCode: 130, stdout: '', stderr: 'cancelled', timedOut: false });
+    await run; assert.equal(terminal.active, false); assert.equal(f.listeners.size, 0);
+  } finally { terminal.send('\x03'); f.commandGate.resolve({ exitCode: 130, stdout: '', stderr: '', timedOut: false }); await run; terminal.vt.dispose(); }
+});
+
+test('terminal startup failure rejects while removing session subscriptions and restoring owned resources', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  terminal.start = () => { terminal.active = true; throw new Error('terminal unavailable'); };
+  await assert.rejects(runOmsInterface(f.harness, { terminal }), /terminal unavailable/);
+  assert.equal(terminal.active, false);
+  assert.equal(f.listeners.size, 0);
+  terminal.vt.dispose();
+});
+
+test('unsupported actions never dispatch and retain their draft for correction', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/unrecognized'); terminal.send('\r');
+    await terminal.until(s => s.includes('/unrecognized') && /unsupported|unknown/i.test(s));
+    assert.deepEqual(f.prompts, []); assert.deepEqual(f.commands, []); assert.deepEqual(f.verified, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('quit during verification awaits the backend outcome rather than pretending it was cancelled', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const verification = barrier<{ itemId: string; result: { closed: true } }>();
+  f.harness.verify = async () => await verification.promise as HarnessVerification;
+  const run = runOmsInterface(f.harness, { terminal });
+  let ended = false; void run.then(() => { ended = true; });
+  try {
+    await terminal.screen(); terminal.send('/verify R1'); terminal.send('\r');
+    await terminal.until(s => /verif/i.test(s));
+    terminal.send('\x03'); await terminal.screen();
+    assert.equal(ended, false); assert.equal(terminal.active, true);
+    verification.resolve({ itemId: 'R1', result: { closed: true } });
+    await run; assert.equal(terminal.active, false);
+  } finally { terminal.send('\x03'); verification.resolve({ itemId: 'R1', result: { closed: true } }); await run; terminal.vt.dispose(); }
+});
+
+test('an admitted provider error restores the submitted draft after the prompt settles', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('retry the precise request'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    f.emit({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'Provider interrupted' } });
+    f.promptGate.resolve();
+    await terminal.until(s => s.includes('idle') && s.includes('retry the precise request') && s.includes('Provider interrupted'));
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('explicit quit invokes authoritative cleanup and rejects cleanup failure after terminal restoration', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  f.harness.close = async () => { throw new Error('Lease recovery required'); };
+  const run = runOmsInterface(f.harness, { terminal });
+  await terminal.screen(); terminal.send('\x03');
+  await assert.rejects(run, /Lease recovery required/);
+  assert.equal(terminal.active, false);
+  assert.equal(f.listeners.size, 0);
+  terminal.vt.dispose();
+});
+
+test('editing and resize preserve last-checked requirements while an explicit status refresh reports unavailable proof', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/requirements'); terminal.send('\r');
+    await terminal.until(s => s.includes('Calculate rent exactly'));
+    f.harness.evaluator.read = () => ({ ok: false, issues: [] });
+    terminal.send('draft during write'); terminal.setSize(100, 28);
+    await terminal.until(s => s.includes('draft during write'));
+    assert.ok((await terminal.screen()).includes('Calculate rent exactly'));
+    terminal.send('\x01'); terminal.send('/status'); terminal.send('\r');
+    await terminal.until(s => /unavailable/i.test(s));
+    assert.ok(!(await terminal.screen()).includes('0/0 verified'));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('document navigation stays in the input pane and the prior global bindings return after quit', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const previousBindings = getKeybindings();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    terminal.send('\x1b[200~first\nlast\x1b[201~');
+    terminal.send('\x1b[1;5H'); terminal.send('START ');
+    terminal.send('\x1b[1;5F'); terminal.send(' END');
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.equal(f.prompts[0], 'START first\nlast END');
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+  assert.equal(getKeybindings(), previousBindings);
+});
+
+test('leaving the interface restores the main screen without dumping conversation or drafts', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  f.messages.push({ role: 'user', content: 'PRIVATE-CONVERSATION-MARKER' });
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('PRIVATE-CONVERSATION-MARKER'));
+    terminal.send('UNSENT-PRIVATE-DRAFT');
+    await terminal.until(screen => screen.includes('UNSENT-PRIVATE-DRAFT'));
+    await quit(terminal, run);
+    const main = Array.from({ length: terminal.vt.buffer.normal.length }, (_, row) =>
+      terminal.vt.buffer.normal.getLine(row)?.translateToString(true) ?? '').join('\n');
+    assert.ok(!main.includes('PRIVATE-CONVERSATION-MARKER'));
+    assert.ok(!main.includes('UNSENT-PRIVATE-DRAFT'));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('a rendering failure stops an active verifier through the controller before leaving', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const started = barrier<void>(); const backend = barrier<void>();
+  f.harness.verify = async () => { started.resolve(); await backend.promise; throw new Error('Verification stopped'); };
+  let closed = false;
+  f.harness.close = async () => { closed = true; backend.resolve(); };
+  const run = runOmsInterface(f.harness, { terminal });
+  const outcome = run.then(() => undefined, error => error);
+  try {
+    await terminal.screen(); terminal.send('/verify R1'); terminal.send('\r'); await started.promise;
+    f.harness.budget.snapshot = () => { throw new Error('Render state failed'); };
+    terminal.setSize(100, 29);
+    await terminal.until(() => closed);
+    const error = await outcome;
+    assert.ok(error instanceof Error && error.message.includes('Render state failed'));
+    assert.equal(terminal.active, false);
+  } finally { backend.resolve(); terminal.send('\x11'); await outcome; terminal.vt.dispose(); }
+});
+
+test('buffered submit and Escape retain the draft without starting a prompt', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    terminal.send('do not dispatch'); terminal.send('\r'); terminal.send('\x1b');
+    await terminal.until(s => s.includes('idle') && s.includes('do not dispatch'));
+    assert.deepEqual(f.prompts, []);
+    terminal.send('\x01'); terminal.send('corrected request'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.equal(f.prompts[0], 'corrected request');
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('cancellation during delayed prompt preflight aborts the actual agent and remains busy through abort settlement', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const preflight = barrier<void>(); const entered = barrier<void>(); const stopped = barrier<void>();
+  let streaming = false; let effectiveAborts = 0; let calls = 0;
+  f.harness.session.prompt = async () => {
+    calls++; entered.resolve(); await preflight.promise;
+    streaming = true; f.emit({ type: 'agent_start' });
+    await stopped.promise;
+    streaming = false; f.emit({ type: 'agent_settled' });
+  };
+  f.harness.session.abort = async () => {
+    // Like the SDK, abort before agent_start has no effect on a later run.
+    if (!streaming) return;
+    effectiveAborts++; stopped.resolve(); await f.abortGate.promise;
+  };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('delayed request'); terminal.send('\r'); await entered.promise;
+    terminal.send('\x1b');
+    await terminal.until(s => s.includes('cancelling'));
+    terminal.send('\x01'); terminal.send('newer draft');
+    preflight.resolve();
+    await terminal.until(() => effectiveAborts === 1);
+    terminal.send('\r');
+    await terminal.until(s => s.split('\n')[0]?.includes('cancelling') === true && s.includes('newer draft'));
+    assert.equal(calls, 1);
+    f.abortGate.resolve(); await terminal.until(s => s.includes('idle') && s.includes('newer draft'));
+  } finally { preflight.resolve(); stopped.resolve(); f.abortGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+for (const newline of ['\x1b[13;2u', '\x1b\r']) {
+  test(`modified Enter ${JSON.stringify(newline)} refuses a full draft without closing or losing subsequent edits`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal();
+    const run = runOmsInterface(f.harness, { terminal });
+    const outcome = run.then(() => undefined, error => error);
+    const draft = 'x'.repeat(64 * 1024);
+    try {
+      await terminal.screen(); terminal.send(`\x1b[200~${draft}\x1b[201~`); terminal.send(newline);
+      await terminal.until(s => /refused|limit/i.test(s));
+      assert.equal(f.closed(), false);
+      terminal.send('\x7f'); terminal.send('y'); terminal.send('\r');
+      await terminal.until(() => f.prompts.length === 1);
+      assert.equal(f.prompts[0], draft.slice(0, -1) + 'y');
+    } finally {
+      f.abortGate.resolve(); f.promptGate.resolve(); terminal.send('\x11');
+      assert.equal(await outcome, undefined); terminal.vt.dispose();
+    }
+  });
+}
+
+test('real SDK missing-auth preflight hides internal guidance while retaining an editable draft', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'oms-ui-auth-'));
+  let session: HarnessSession['session'] | undefined;
+  let terminal: InterfaceTerminal | undefined; let run: Promise<void> | undefined;
+  try {
+    const runtime = await ModelRuntime.create({ authPath: join(base, 'auth.json'), modelsPath: null, refreshOnCreate: false });
+    runtime.registerProvider('oms-missing-auth', {
+      api: 'openai-completions', baseUrl: 'http://127.0.0.1:1',
+      models: [{ id: 'missing-auth', name: 'Missing auth', reasoning: false, input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 1024 }],
+    });
+    const loader = new DefaultResourceLoader({ cwd: base, agentDir: base, noExtensions: true, noSkills: true,
+      noPromptTemplates: true, noThemes: true, noContextFiles: true });
+    await loader.reload();
+    ({ session } = await createAgentSession({ cwd: base, agentDir: base, modelRuntime: runtime,
+      model: runtime.getModel('oms-missing-auth', 'missing-auth')!, resourceLoader: loader, tools: [],
+      sessionManager: SessionManager.inMemory(base),
+      settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }) }));
+    const f = fixture(); f.harness.session = session;
+    terminal = new InterfaceTerminal(); run = runOmsInterface(f.harness, { terminal });
+    await terminal.screen(); terminal.send('keep the auth-refused draft'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('idle') && s.includes('keep the auth-refused draft'));
+    assert.ok(!screen.includes('/login') && !screen.includes('pi-coding-agent') && !screen.includes('providers.md'));
+    assert.equal(session.messages.length, 0);
+    terminal.send('!'); await terminal.until(s => s.includes('keep the auth-refused draft!'));
+  } finally {
+    terminal?.send('\x11'); await run; session?.dispose(); terminal?.vt.dispose();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('the real SDK default placeholder cannot dispatch, mutate conversation, or prevent local work', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'oms-ui-unconfigured-'));
+  let session: HarnessSession['session'] | undefined;
+  let terminal: InterfaceTerminal | undefined; let run: Promise<void> | undefined;
+  try {
+    const runtime = await ModelRuntime.create({ authPath: join(base, 'auth.json'), modelsPath: null, refreshOnCreate: false });
+    // Isolate this no-model startup from credentials present in the test runner's environment.
+    runtime.getAvailable = async () => [];
+    runtime.streamSimple = () => { throw new Error('Unconfigured startup must never reach a provider'); };
+    const loader = new DefaultResourceLoader({ cwd: base, agentDir: base, noExtensions: true, noSkills: true,
+      noPromptTemplates: true, noThemes: true, noContextFiles: true });
+    await loader.reload();
+    ({ session } = await createAgentSession({ cwd: base, agentDir: base, modelRuntime: runtime,
+      resourceLoader: loader, tools: [], sessionManager: SessionManager.inMemory(base),
+      settingsManager: SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } }) }));
+    assert.equal(session.model?.provider, 'unknown');
+    assert.equal(session.model?.id, 'unknown');
+    let promptCalls = 0;
+    const prompt = session.prompt.bind(session);
+    session.prompt = async (...args) => { promptCalls++; return prompt(...args); };
+    const f = fixture(); f.harness.session = session;
+    terminal = new InterfaceTerminal(); run = runOmsInterface(f.harness, { terminal });
+    const startup = await terminal.screen();
+    assert.ok(!startup.includes('unknown/unknown'));
+    terminal.send('retain default-model draft'); terminal.send('\r');
+    await terminal.until(s => s.includes('retain default-model draft'));
+    terminal.send('\r'); terminal.send('!');
+    const retained = await terminal.until(s => s.includes('retain default-model draft!'));
+    assert.equal(promptCalls, 0);
+    assert.equal(session.messages.length, 0);
+    assert.ok(!retained.includes('agent failed') && !terminal.output.includes('/login'));
+    terminal.send('\x1b[12~'); terminal.send('\t'); terminal.send('\t'); terminal.send('\x1b[H');
+    const conversation = await terminal.screen();
+    assert.equal(conversation.split('retain default-model draft!').length - 1, 1, 'the retained draft must not also be appended to conversation');
+    terminal.send('\t'); terminal.send('\x01'); terminal.send('/status'); terminal.send('\r');
+    await terminal.until(s => s.includes('task status'));
+    terminal.send('/verify R1'); terminal.send('\r');
+    await terminal.until(() => f.verified.length === 1);
+    assert.deepEqual(f.verified, ['R1']);
+    assert.equal(promptCalls, 0);
+    assert.equal(session.messages.length, 0);
+  } finally {
+    terminal?.send('\x11'); await run; session?.dispose(); terminal?.vt.dispose();
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+for (const identity of [
+  { provider: '', id: 'configured-id' }, { provider: 'local', id: '' },
+  { provider: 'unknown', id: 'configured-id' }, { provider: 'local', id: 'unknown' },
+]) {
+  test(`unconfigured model identity ${JSON.stringify(identity)} retains the editable draft`, async () => {
+    const f = fixture(); f.identity(identity); const terminal = new InterfaceTerminal();
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.screen(); terminal.send('draft'); terminal.send('\r');
+      terminal.send('!'); await terminal.until(s => s.includes('draft!'));
+      assert.deepEqual(f.prompts, []);
+      assert.deepEqual(f.messages, []);
+    } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+for (const diagnostic of [
+  'No API key found for the selected model.\n\nUse /login to log into a provider via OAuth or API key. See:\n  /internal/node_modules/pi-coding-agent/docs/providers.md\n  /internal/node_modules/pi-coding-agent/docs/models.md',
+  'Authentication failed for "local". Credentials may have expired or network is unavailable. Run \'/login local\' to re-authenticate.',
+]) {
+  test(`known SDK authentication refusal is projected as supported configuration guidance: ${diagnostic.split('\n')[0]}`, async () => {
+    const f = fixture(); f.failPrompt(new Error(diagnostic)); const terminal = new InterfaceTerminal();
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.screen(); terminal.send('auth draft'); terminal.send('\r');
+      const screen = await terminal.until(s => s.includes('idle') && s.includes('auth draft'));
+      assert.ok(!screen.includes('/login') && !screen.includes('/internal/') && !screen.includes('providers.md'));
+      terminal.send('!'); await terminal.until(s => s.includes('auth draft!'));
+      assert.deepEqual(f.messages, []);
+    } finally { await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+test('a large multiline diagnostic stays once in contextual conversation, not in physical chrome rows', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(110, 30);
+  const diagnostic = ['DIAGNOSTIC-BEGIN /project/login/problem.ts', ...Array.from({ length: 55 }, (_, i) => `detail-${i}`),
+    'DIAGNOSTIC-END /project/models.md'].join('\n');
+  f.failPrompt(new Error(diagnostic));
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('editable diagnostic draft'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('DIAGNOSTIC-END'));
+    const rows = screen.split('\n');
+    assert.ok(rows[0]?.includes('rental-ledger'), 'workspace header must remain at the top of the parsed viewport');
+    assert.ok(screen.includes('Budget low') && screen.includes('/status'));
+    assert.ok(screen.includes('editable diagnostic draft'));
+    assert.equal(screen.split('DIAGNOSTIC-END').length - 1, 1);
+    assert.ok(!rows.at(-1)?.includes('detail-') && !rows.at(-1)?.includes('DIAGNOSTIC'));
+    terminal.send('!'); await terminal.until(s => s.includes('editable diagnostic draft!'));
+    terminal.send('\x1b[12~'); terminal.send('\t'); terminal.send('\t'); terminal.send('\x1b[H');
+    const start = await terminal.until(s => s.includes('DIAGNOSTIC-BEGIN'));
+    assert.ok(start.includes('/project/login/problem.ts'), 'unrelated user paths must remain available');
+    terminal.send('\x1b[F');
+    assert.ok((await terminal.until(s => s.includes('DIAGNOSTIC-END'))).includes('/project/models.md'));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('untrusted metadata cannot add physical rows to the header, model badge, or requirement chrome', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(110, 30);
+  f.identity({ provider: 'local\nprovider', id: 'test\nmodel' });
+  Object.assign(f.harness.workspace, { root: '/fixtures/repo\nmetadata' });
+  Object.assign(f.harness.task, { id: 'rent\ntask' });
+  f.harness.session.sessionManager.getSessionId = () => 'session\nmetadata';
+  const state = f.harness.evaluator.read();
+  assert.ok(state.ok);
+  Object.assign(state.value.items[0]!, { title: 'Calculate\nrent exactly', id: 'R1\nmetadata' });
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/requirements'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('Calculate'));
+    assert.ok(screen.split('\n')[0]?.includes('repo metadata'));
+    assert.ok(screen.includes('local provider/test model'));
+    assert.ok(screen.includes('Calculate rent exactly'));
+    assert.ok(screen.includes('Ctrl+K'));
+    terminal.send('usable composer'); await terminal.until(s => s.includes('usable composer'));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('an admitted error is displayed once and cannot replace a newer editable draft', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(110, 36);
+  const diagnostic = 'ONCE-DIAGNOSTIC\n/project/login/source.ts\noriginal provider detail';
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('submitted request'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('newer draft');
+    f.emit({ type: 'message_start', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: diagnostic } });
+    f.emit({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: diagnostic } });
+    f.promptGate.resolve();
+    const screen = await terminal.until(s => s.includes('idle') && s.includes('newer draft') && s.includes('original provider detail'));
+    assert.equal(screen.split('ONCE-DIAGNOSTIC').length - 1, 1);
+    assert.ok(!screen.split('\n').at(-1)?.includes('ONCE-DIAGNOSTIC'));
+    terminal.send('!'); await terminal.until(s => s.includes('newer draft!'));
+    assert.deepEqual(f.prompts, ['submitted request']);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('palette switching during live work preserves the session, editable draft and request count', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const changes: string[] = [];
+  const run = runOmsInterface(f.harness, { terminal, onThemeChange: theme => changes.push(theme) });
+  const liveSession = f.harness.session;
+  const foreground = () => terminal.vt.buffer.active.getLine(0)?.getCell(terminal.columns - 1)?.getFgColor();
+  try {
+    await terminal.until(screen => screen.includes('rental-ledger'));
+    assert.equal(foreground(), Number.parseInt(getTheme('gruvbox')!.colors.foreground.slice(1), 16));
+    terminal.send('long request'); terminal.send('\r'); await terminal.until(() => f.prompts.length === 1);
+    terminal.send('next draft 界🌱');
+    const messages = JSON.stringify(f.messages);
+    terminal.send('\x1b[19~');
+    const screen = await terminal.until(s => s.includes('next draft 界🌱') &&
+      foreground() === Number.parseInt(getTheme('catppuccin')!.colors.foreground.slice(1), 16));
+    assert.ok(screen.includes('test-model'));
+    assert.equal(f.harness.session, liveSession);
+    assert.equal(JSON.stringify(f.messages), messages);
+    assert.deepEqual(f.prompts, ['long request']);
+    assert.equal(f.closed(), false);
+    assert.deepEqual(changes, ['catppuccin']);
+    terminal.send('!'); await terminal.until(s => s.includes('next draft 界🌱!'));
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('theme commands and requirement toggles are local actions and invalid themes retain their editable command', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal, theme: 'nord' });
+  const foreground = () => terminal.vt.buffer.active.getLine(0)?.getCell(terminal.columns - 1)?.getFgColor();
+  try {
+    await terminal.screen();
+    terminal.send('/theme dracula'); terminal.send('\r');
+    await terminal.until(() => foreground() === Number.parseInt(getTheme('dracula')!.colors.foreground.slice(1), 16));
+    terminal.send('/theme not-a-theme'); terminal.send('\r');
+    await terminal.until(s => s.includes('/theme not-a-theme'));
+    terminal.send('!'); await terminal.until(s => s.includes('/theme not-a-theme!'));
+    assert.equal(foreground(), Number.parseInt(getTheme('dracula')!.colors.foreground.slice(1), 16));
+    terminal.send('\x01'); terminal.send('/requirements'); terminal.send('\r');
+    await terminal.until(s => s.includes('Reject duplicate deposits'));
+    terminal.send('/requirements'); terminal.send('\r');
+    await terminal.until(s => !s.includes('Reject duplicate deposits'));
+    assert.deepEqual(f.prompts, []);
+    assert.deepEqual(f.messages, []);
+    assert.equal(f.closed(), false);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+for (const [columns, rows] of [[40, 12], [80, 24], [120, 40]] as const) {
+  test(`themed frame at ${columns}x${rows} keeps workspace, budget warnings and the composer usable`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal(columns, rows);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.screen(); terminal.send('viewport draft');
+      const screen = await terminal.until(s => s.includes('viewport draft'));
+      assert.ok(screen.split('\n')[0]?.includes('rental-ledger'));
+      assert.ok(screen.includes('Budget low') && screen.includes('/status'));
+      for (let row = 0; row < rows; row++) {
+        const edge = terminal.vt.buffer.active.getLine(row)?.getCell(columns - 1);
+        assert.ok(edge?.isBgDefault(), `row ${row} overrides the terminal background`);
+      }
+      terminal.send('\x1b[19~'); terminal.send('!');
+      await terminal.until(s => s.includes('viewport draft!'));
+      assert.deepEqual(f.prompts, []);
+    } finally { await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+test('resumed authentication diagnostics are projected without rewriting canonical session history', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const diagnostic = 'No API key found for the selected model.\n\nUse /login to log into a provider via OAuth or API key. See:\n/internal/node_modules/pi-coding-agent/docs/providers.md';
+  f.messages.push({ role: 'assistant', content: [], stopReason: 'error', errorMessage: diagnostic });
+  const history = JSON.stringify(f.messages);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until(s => s.includes('rental-ledger'));
+    assert.ok(!screen.includes('/login') && !screen.includes('/internal/') && !screen.includes('providers.md'));
+    assert.equal(JSON.stringify(f.messages), history);
+    terminal.send('history remains editable'); await terminal.until(s => s.includes('history remains editable'));
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+for (const restored of [false, true]) {
+  test(`${restored ? 'restored' : 'streamed'} long assistant content reserves space for its failure diagnostic`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal();
+    const message = { role: 'assistant', provider: 'local', content: [{ type: 'text', text: 'body detail\n'.repeat(2400) }],
+      stopReason: 'error', errorMessage: 'RESERVED-FAILURE: provider interrupted this request' };
+    if (restored) f.messages.push(message);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      if (!restored) {
+        await terminal.screen(); terminal.send('retry long output'); terminal.send('\r');
+        await terminal.until(() => f.prompts.length === 1);
+        const canonical = JSON.stringify(f.messages);
+        f.emit({ type: 'message_start', message: { ...message, errorMessage: undefined } });
+        f.emit({ type: 'message_end', message });
+        f.promptGate.resolve();
+        await terminal.until(s => s.includes('idle'));
+        assert.equal(JSON.stringify(f.messages), canonical);
+      }
+      const screen = await terminal.until(s => s.includes('RESERVED-FAILURE:'));
+      assert.ok(screen.includes('provider interrupted this request'));
+      assert.equal(screen.split('RESERVED-FAILURE:').length - 1, 1);
+      if (restored) assert.deepEqual(f.messages, [message]);
+    } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+test('assistant failure projection stays bounded while preserving body and diagnostic context', () => {
+  const message = { role: 'assistant', content: [{ type: 'text', text: 'BODY-CONTEXT ' + 'x'.repeat(24_000) }],
+    errorMessage: 'FAILURE-CONTEXT ' + 'y'.repeat(24_000) };
+  const canonical = JSON.stringify(message);
+  const display = new Conversation([message]).render(20_000).join('\n');
+  assert.ok(display.includes('BODY-CONTEXT'));
+  assert.ok(display.includes('FAILURE-CONTEXT'));
+  assert.ok(display.includes('[display truncated]'));
+  assert.ok(display.length <= 12_100, `one displayed entry must remain bounded, received ${display.length} characters`);
+  assert.equal(JSON.stringify(message), canonical);
+});
+
+for (const diagnostic of [
+  'No API key found for anthropic.\n\nUse /login to log into a provider via OAuth or API key. See:\n/internal/node_modules/pi-coding-agent/docs/providers.md',
+  'Authentication failed for "anthropic". Credentials may have expired or network is unavailable. Run \'/login anthropic\' to re-authenticate.',
+]) {
+  for (const restored of [false, true]) {
+    test(`${restored ? 'restored' : 'live'} assistant authentication uses its recorded provider rather than the current model: ${diagnostic.split('\n')[0]}`, async () => {
+      const f = fixture(); f.identity({ provider: 'openai', id: 'current-model' });
+      const terminal = new InterfaceTerminal(110, 36);
+      const message = { role: 'assistant', provider: 'anthropic', content: [], stopReason: 'error', errorMessage: diagnostic };
+      if (restored) f.messages.push(message);
+      const run = runOmsInterface(f.harness, { terminal });
+      try {
+        if (!restored) {
+          await terminal.screen(); terminal.send('current provider draft'); terminal.send('\r');
+          await terminal.until(() => f.prompts.length === 1);
+          f.emit({ type: 'message_end', message }); f.promptGate.resolve();
+        }
+        const screen = await terminal.until(s => s.includes('anthropic'));
+        assert.ok(screen.includes('openai/current-model'), 'the current model badge remains unchanged');
+        assert.ok(!screen.includes('/login') && !screen.includes('/internal/') && !screen.includes('providers.md'));
+        if (restored) assert.deepEqual(f.messages, [message]);
+        else assert.deepEqual(f.messages, [{ role: 'user', content: 'current provider draft' }]);
+        terminal.send('!'); await terminal.until(s => s.includes(restored ? '!' : 'current provider draft!'));
+      } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+    });
+  }
+}
+
+for (const accounting of ['unknown', 'exhausted'] as const) {
+  test(`critical budget ${accounting} remains visible in a narrow focused editor`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+    const original = f.harness.budget.snapshot();
+    f.harness.budget.snapshot = () => ({ ...original, accounting: accounting === 'unknown' ? 'unknown' : 'known', exhausted: accounting === 'exhausted' });
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.screen(); terminal.send('/workbench'); terminal.send('\r');
+      const screen = await terminal.until(value => value.includes('Workbench'));
+      assert.ok(screen.toLowerCase().includes(accounting));
+      assert.ok(screen.includes('/status'));
+      terminal.send('\x0b'); terminal.send('harness'); terminal.send('\r');
+      terminal.send('still editable'); await terminal.until(value => value.includes('still editable'));
+      assert.deepEqual(f.prompts, []);
+    } finally { await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+test('palette commands cannot consume an identical pending composer draft', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/workbench');
+    terminal.send('\x0b'); terminal.send('workbench'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Workbench'));
+    terminal.send('\x0b'); terminal.send('harness'); terminal.send('\r');
+    terminal.send('!');
+    await terminal.until(screen => screen.includes('/workbench!'));
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('Codex authentication choices stay visible inside the 40x12 interface viewport', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+  const hold = barrier<void>();
+  let selected = '';
+  f.harness.listProviders = () => [{ id: 'openai-codex', name: 'Codex', configured: false, apiKey: false, oauth: true }];
+  f.harness.loginProvider = async (_provider, _method, interaction) => {
+    selected = await interaction.prompt({ type: 'select', message: 'Choose login method', options: [
+      { id: 'browser', label: 'Browser sign-in' }, { id: 'device', label: 'Device code' },
+    ] });
+    await hold.promise;
+  };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('/ commands'));
+    terminal.send('/connect'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Codex'));
+    terminal.send('\r');
+    let page = await terminal.until(screen => screen.includes('Browser sign-in') && screen.includes('Device code'));
+    for (let attempt = 0; attempt < 10 && !page.includes('invoice'); attempt++) {
+      const previous = page;
+      terminal.send('\x1b[6~');
+      page = await terminal.until(screen => screen !== previous);
+      assert.ok(page.includes('Browser sign-in') && page.includes('Device code'));
+    }
+    assert.ok(page.includes('invoice'), 'billing disclosure remains reachable without hiding authentication choices');
+    terminal.send('\x1b[B'); terminal.send('\r');
+    await terminal.until(() => selected === 'device');
+    assert.deepEqual(f.prompts, []);
+  } finally { hold.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('dismissed slash discovery reopens after clearing and retyping before another frame', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(80, 24);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('/ commands'));
+    terminal.send('/');
+    await terminal.until(screen => screen.includes('/files') && screen.includes('Navigate'));
+    terminal.send('\x1b');
+    await terminal.until(screen => !screen.includes('/files'));
+    terminal.send('\x01'); terminal.send('\x7f'); terminal.send('/');
+    await terminal.until(screen => screen.includes('/files') && screen.includes('Navigate'));
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('dirty quit at 40 columns shows its confirmation key before allowing discard', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+  f.harness.files = { ...f.harness.files, read: async () => ({ bytes: Buffer.from('source'), revision: 'r1' }) };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('/ commands'));
+    terminal.send('/open file.ts'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('source'));
+    terminal.send('X'); terminal.send('\x11');
+    const screen = await terminal.until(value => /unsaved/i.test(value));
+    assert.ok(screen.includes('Ctrl+Q'), 'discard confirmation must expose its actionable key');
+    assert.equal(f.closed(), false);
+    terminal.send('\x1b'); terminal.send('\x11');
+    await terminal.screen(); assert.equal(f.closed(), false);
+    terminal.send('\x11'); await run;
+  } finally { terminal.send('\x11'); terminal.send('\x11'); await run; terminal.vt.dispose(); }
+});
+
+test('plain slash navigates an empty workbench and file browser without consuming the agent draft', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(40, 12);
+  f.harness.files = { ...f.harness.files, list: async () => [{ path: 'one.ts', kind: 'file' }] };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('/ commands'));
+    terminal.send('keep this draft');
+    terminal.send('\x0b'); terminal.send('workbench'); terminal.send('\r');
+    await terminal.until(screen => screen.split('\n')[0]?.includes('Workbench') === true);
+    terminal.send('/'); terminal.send('files'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('one.ts'));
+    terminal.send('/'); terminal.send('harness'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('keep this draft'));
+    terminal.send('!');
+    await terminal.until(screen => screen.includes('keep this draft!'));
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('account controls retain the same session and draft, and login cannot interrupt active work', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(110, 30);
+  let logins = 0;
+  f.harness.account = {
+    snapshot: () => ({ state: 'signed-out', origin: 'https://oms.barestate.xyz' }),
+    async refresh() {}, searchCredential: () => undefined,
+    async login() { logins++; }, async logout() { return { serverRevoked: false }; },
+  };
+  const session = f.harness.session;
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('retained account draft');
+    terminal.send('\x0b'); terminal.send('account'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('OMS account: signed-out'));
+    terminal.send('\x1b'); await terminal.until(screen => screen.includes('retained account draft'));
+    terminal.send('\x0b'); terminal.send('logout'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('revocation unconfirmed'));
+    terminal.send('\x1b'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('\x0b'); terminal.send('login'); terminal.send('\r');
+    await terminal.until(screen => screen.includes('Wait for current work before signing in'));
+    assert.equal(logins, 0); assert.equal(f.harness.session, session); assert.deepEqual(f.prompts, ['retained account draft']);
+  } finally { f.promptGate.resolve(); f.abortGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+const ART_INDEX = (JSON.parse(readFileSync(new URL('../art/index.json', import.meta.url), 'utf8')) as
+  { number: number; title: string; width: number; height: number }[]).map(entry => ({ ...entry, label: `${entry.number} / ${entry.title}` }));
+
+/** The startup art on screen: its title row, picture and glyph span, found from the title line under it. */
+function artOnScreen(terminal: InterfaceTerminal, screen: string) {
+  const rows = screen.split('\n');
+  const entry = ART_INDEX.find(candidate => screen.includes(candidate.label));
+  if (!entry) return undefined;
+  const titleRow = rows.findIndex(row => row.includes(entry.label));
+  const left = rows[titleRow]!.indexOf(entry.label);
+  const buffer = terminal.vt.buffer.active;
+  let top = titleRow - 1, right = left, glyphs = 0, coloured = 0;
+  const colours = new Set<number>();
+  for (let y = titleRow - 2; y >= 0 && !rows[y]!.startsWith('╭'); y--) {
+    const line = buffer.getLine(y)!;
+    let rowGlyphs = 0;
+    for (let x = left; x < terminal.columns - 2; x++) { // inside the frame and its scrollbar
+      const cell = line.getCell(x)!;
+      if (cell.getChars().trim() === '' && !cell.isBgRGB()) continue;
+      rowGlyphs++; right = Math.max(right, x);
+      if (cell.isBgRGB()) { coloured++; colours.add(cell.getBgColor()); }
+    }
+    if (!rowGlyphs) break;
+    glyphs += rowGlyphs; top = y;
+  }
+  return { entry, titleRow, rows: titleRow - 1 - top, left, width: right - left + 1, glyphs, coloured, colours: colours.size };
+}
+
+function distinctColours(terminal: InterfaceTerminal): number {
+  const colours = new Set<number>();
+  for (let y = 0; y < terminal.rows; y++) {
+    for (let x = 0; x < terminal.columns; x++) {
+      const cell = terminal.vt.buffer.active.getLine(y)!.getCell(x)!;
+      if (cell.isFgRGB() && cell.getChars().trim()) colours.add(cell.getFgColor());
+      if (cell.isBgRGB()) colours.add(cell.getBgColor());
+    }
+  }
+  return colours.size;
+}
+
+test('an empty session opens with startup art above the placeholder, and the art scrolls away with the conversation', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(160, 50);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until(s => !!artOnScreen(terminal, s) && s.includes('What are we building?'));
+    const art = artOnScreen(terminal, screen)!;
+    assert.ok(art.titleRow < screen.split('\n').findIndex(row => row.includes('What are we building?')));
+    assert.ok(art.rows >= 20, `art is ${art.rows} rows`);
+    assert.ok(Math.abs(Math.round(art.width * art.entry.height / art.entry.width / 2) - art.rows) <= 1,
+      `a ${art.width}-column art block should be about ${art.rows} rows`);
+    assert.ok(art.width <= 156 && Math.abs(art.left - (160 - art.left - art.width)) <= 4, `art at ${art.left}+${art.width} is not centred`);
+    assert.ok(art.coloured > 0.95 * art.glyphs && art.colours > 100, `${art.coloured}/${art.glyphs} glyphs coloured, ${art.colours} colours`);
+
+    const text = Array.from({ length: 60 }, (_, line) => `conversation line ${line + 1}`).join('\n');
+    const message = { role: 'assistant', content: [{ type: 'text', text }] };
+    f.emit({ type: 'message_start', message }); f.emit({ type: 'message_end', message });
+    const after = await terminal.until(s => s.includes('conversation line 60'));
+    assert.equal(artOnScreen(terminal, after), undefined);
+    assert.ok(distinctColours(terminal) < 30, `${distinctColours(terminal)} colours remain on screen`);
+
+    terminal.send('/help'); terminal.send('\r'); await terminal.until(s => s.includes('Keyboard'));
+    terminal.send('\x1b[H');
+    await terminal.until(s => s.includes(art.entry.label));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('startup art follows the window size and is hidden when under 60 columns of picture fit in half the window', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(160, 50);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const wide = artOnScreen(terminal, await terminal.until(s => !!artOnScreen(terminal, s)))!;
+    terminal.setSize(100, 50);
+    const narrow = artOnScreen(terminal, await terminal.until(s => (artOnScreen(terminal, s)?.width ?? 999) < wide.width))!;
+    assert.ok(narrow.width <= 98 && narrow.rows >= 10, `${narrow.width}x${narrow.rows}`);
+    for (const [columns, rows] of [[59, 40], [100, 15], [120, 24]] as const) {
+      terminal.setSize(columns, rows);
+      const screen = await terminal.until(s => s.includes('/workbench') && !s.includes(wide.entry.label));
+      assert.ok(distinctColours(terminal) < 30, `art still drawn at ${columns}x${rows}:\n${screen}`);
+    }
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/art names the picture, /art next changes it, /art off and on change the setting', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(160, 50);
+  const changes: string[] = [];
+  const run = runOmsInterface(f.harness, { terminal, onStartupArtChange: mode => changes.push(mode) });
+  try {
+    const first = artOnScreen(terminal, await terminal.until(s => !!artOnScreen(terminal, s)))!;
+    terminal.send('/art'); terminal.send('\r');
+    await terminal.until(s => s.includes(`${first.entry.label} · /art next · /art off`));
+    terminal.send('/art next'); terminal.send('\r');
+    const second = artOnScreen(terminal, await terminal.until(s => !!artOnScreen(terminal, s) && !s.includes(first.entry.label)))!;
+    assert.notEqual(second.entry.number, first.entry.number);
+    terminal.send('/art off'); terminal.send('\r');
+    await terminal.until(s => s.includes('Startup art off') && !artOnScreen(terminal, s));
+    terminal.send('/art on'); terminal.send('\r');
+    await terminal.until(s => s.includes('Startup art on') && artOnScreen(terminal, s)?.entry.number === second.entry.number);
+    for (const mode of ['256', 'truecolor', 'auto']) {
+      terminal.send(`/art ${mode}`); terminal.send('\r');
+      await terminal.until(s => s.includes(`Startup art ${mode}`) && !!artOnScreen(terminal, s));
+    }
+    terminal.send('/art toString'); terminal.send('\r');
+    assert.deepEqual(changes, ['off', 'auto', '256', 'truecolor', 'auto']);
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/art image uploads the real picture once over Kitty graphics, places what is left of it as it scrolls, and /art off removes it', async () => {
+  setCapabilities({ images: 'kitty', trueColor: true, hyperlinks: false });
+  const f = fixture(); const terminal = new InterfaceTerminal(160, 50);
+  const run = runOmsInterface(f.harness, { terminal, startupArt: 'image' });
+  const uploads = () => terminal.output.split('\x1b_Ga=T,f=100').length - 1;
+  try {
+    const art = artOnScreen(terminal, await terminal.until(s => !!artOnScreen(terminal, s) && uploads() === 1))!;
+    const label = art.entry.label;
+    assert.equal(art.coloured, 0, 'no mosaic under the picture');
+
+    const text = Array.from({ length: 20 }, (_, line) => `conversation line ${line + 1}`).join('\n');
+    const message = { role: 'assistant', content: [{ type: 'text', text }] };
+    f.emit({ type: 'message_start', message }); f.emit({ type: 'message_end', message });
+    await terminal.until(s => s.includes('conversation line 20'));
+    assert.equal(uploads(), 1, 'scrolling re-places the uploaded picture instead of sending it again');
+    // The picture's top scrolled away: the rest is placed again, cropped (the frame keeps pi-tui from doing it).
+    assert.match(terminal.output, /\x1b_Ga=p,q=2,C=1,c=\d+,i=\d+,y=\d+,h=\d+,r=\d+\x1b\\/);
+
+    const before = terminal.output.length;
+    terminal.send('/art off'); terminal.send('\r');
+    await terminal.until(s => s.includes('Startup art off') && !s.includes(label));
+    assert.ok(terminal.output.slice(before).includes('\x1b_Ga=d,d=a'), 'the placement is deleted');
+  } finally { await quit(terminal, run); terminal.vt.dispose(); resetCapabilitiesCache(); }
+});
+
+for (const [key, expected] of [['y', true], ['n', false], ['\x1b', false]] as const) {
+  test(`host approval waits in the TUI and handles ${JSON.stringify(key)}`, async () => {
+    const f = fixture(); const terminal = new InterfaceTerminal(100, 30);
+    let approve: Parameters<NonNullable<HarnessSession['setHostApproval']>>[0];
+    f.harness.setHostApproval = handler => { approve = handler; };
+    const run = runOmsInterface(f.harness, { terminal, view: 'workbench' });
+    try {
+      await terminal.until(screen => screen.includes('Workbench'));
+      assert.ok(approve);
+      let settled = false;
+      const pending = approve({ command: 'cat ~/.ssh/example', reasons: ['credential or wallet files'] }).then(value => { settled = true; return value; });
+      await terminal.until(screen => screen.includes('Allow host command?') && screen.includes('Y = allow'));
+      assert.equal(settled, false);
+      terminal.send(key);
+      assert.equal(await pending, expected);
+      assert.deepEqual(f.prompts, []);
+    } finally { await quit(terminal, run); terminal.vt.dispose(); }
+  });
+}
+
+test('host approval denies on cancellation and shutdown', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(100, 30);
+  let approve: Parameters<NonNullable<HarnessSession['setHostApproval']>>[0];
+  f.harness.setHostApproval = handler => { approve = handler; };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(screen => screen.includes('Harness'));
+    assert.ok(approve);
+    const controller = new AbortController();
+    const pending = approve({ command: 'sudo true', reasons: ['sudo'] }, controller.signal);
+    await terminal.until(screen => screen.includes('Allow host command?'));
+    controller.abort();
+    assert.equal(await pending, false);
+    const onShutdown = approve({ command: 'sudo true', reasons: ['sudo'] });
+    await terminal.until(screen => screen.includes('Allow host command?'));
+    terminal.send('\x11');
+    assert.equal(await onShutdown, false);
+    await run;
+  } finally { if (terminal.active) await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/review runs keyless Phase A and opens counts and disclaimer in a read-only report', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const requests: string[][] = [];
+  let writes = 0;
+  f.harness.files = { ...f.harness.files, write: async () => { writes++; return 'r2'; } };
+  const run = runOmsInterface(f.harness, { terminal, review: async (args, io) => {
+    requests.push([...args]);
+    io!.stderr('Static checks complete.');
+    io!.report!({ reviewId: 'fixture-review', confirmed: 0, suspected: 2,
+      markdown: 'Not a professional audit\nSecurity report fixture' });
+    return 0;
+  } });
+  try {
+    await terminal.until(screen => screen.includes('Harness'));
+    terminal.send('/review'); terminal.send('\r');
+    const screen = await terminal.until(screen => screen.includes('Security report fixture'));
+    assert.match(screen, /Confirmed 0 · Suspected 2/);
+    assert.match(screen, /Not a professional audit/);
+    assert.deepEqual(requests, [['/fixtures/task', '--phase', 'A']]);
+    terminal.send('EDIT'); terminal.send('\x13');
+    await terminal.until(screen => screen.includes('read-only'));
+    assert.equal(writes, 0);
+    assert.deepEqual(f.prompts, []);
+    assert.deepEqual(f.commands, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/web off and /web on switch the session web tools and report the call counts; no web reports unavailable', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal();
+  let enabled = true;
+  const sets: boolean[] = [];
+  (f.harness as { web?: HarnessSession['web'] }).web = { enabled: () => enabled, set(on) { sets.push(on); enabled = on; },
+    usage: () => ({ webSearch: 2, webFetch: 1, solanaMcp: 3, searchBy: {}, fetchBy: {} }) };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/web off'); terminal.send('\r');
+    await terminal.until(s => s.includes('Web off · 2 searches, 1 fetches, 3 Solana MCP calls'));
+    terminal.send('/web on'); terminal.send('\r');
+    await terminal.until(s => s.includes('Web on ·'));
+    assert.deepEqual(sets, [false, true]);
+    assert.deepEqual(f.prompts, [], 'the switch never prompts the model');
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+
+  const g = fixture(); const plain = new InterfaceTerminal();
+  const other = runOmsInterface(g.harness, { terminal: plain });
+  try {
+    await plain.screen(); plain.send('/web on'); plain.send('\r');
+    await plain.until(s => s.includes('Web access is not available in this session.'));
+  } finally { await quit(plain, other); plain.vt.dispose(); }
+});
