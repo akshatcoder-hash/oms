@@ -1,0 +1,18 @@
+{
+  "name": "@oms/surfnet",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Surfpool lifecycle: spawn, checkpoint, rewind, error normalization",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  }
+}
