@@ -1,0 +1,31 @@
+{
+  "schema": "oms.runtime/2",
+  "surfpoolVersion": "1.7.0",
+  "nodeImages": {
+    "arm64": "node@sha256:fd4a97c1630a4a0a70117dd7b393e322db316d0489bdf36a0e776e7b235341b0",
+    "x64": "node@sha256:025b8e975a61d94e33abeafaad1255ef44e4898cf1a1b6446860009c72e6d284"
+  },
+  "surfpoolArchives": {
+    "darwin-arm64": {
+      "url": "https://github.com/solana-foundation/surfpool/releases/download/v1.7.0/surfpool-darwin-arm64.tar.gz",
+      "sha256": "32c309e3b79bfa3913e384b3c9b109000720cfe7f346d145feb6693fccfb202f"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/solana-foundation/surfpool/releases/download/v1.7.0/surfpool-darwin-x64.tar.gz",
+      "sha256": "b9724b6a67ac33b9cc94fb41adaf47bd638269142c7ddc6a0dae7ca77fd9e760"
+    },
+    "linux-x64": {
+      "url": "https://github.com/solana-foundation/surfpool/releases/download/v1.7.0/surfpool-linux-x64.tar.gz",
+      "sha256": "5bef2b0b186a74622508f104b6d2e4e2db040932b6d8f3a811172e241f802a63"
+    }
+  },
+  "toolchainImages": {
+    "x64": null,
+    "arm64": null
+  },
+  "reviewTools": {
+    "cargoAudit": "0.22.2",
+    "omsSast": "0.1.0",
+    "advisoryDbCommit": "309392b18f6b17022f82c701f300433126901068"
+  }
+}
