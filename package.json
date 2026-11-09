@@ -1,0 +1,29 @@
+{
+  "name": "oms-monorepo",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "node packages/cli/src/bin.ts",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "pack:release": "node scripts/pack-release.mjs"
+  },
+  "overrides": {
+    "undici": "8.12.2"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-tui": "1.4.0",
+    "@xterm/headless": "6.0.0",
+    "@xterm/addon-unicode-graphemes": "0.4.0",
+    "typescript": "^5.9.3",
+    "@types/node": "^22.10.0"
+  }
+}
