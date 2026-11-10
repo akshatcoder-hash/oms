@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+// ./submit-tx <base64 transaction> | ./submit-tx --status. Talks to the environment at $SOLANA_RPC_URL; it holds no key.
+const arg = process.argv[2];
+if (!arg || process.argv.length > 3) { console.error('usage: ./submit-tx <base64 transaction> | ./submit-tx --status'); process.exit(2); }
+const url = process.env.SOLANA_RPC_URL;
+if (!url) { console.error('SOLANA_RPC_URL is not set'); process.exit(2); }
+const body = arg === '--status' ? { jsonrpc: '2.0', id: 1, method: 'solbench_status' } : { jsonrpc: '2.0', id: 1, method: 'solbench_submit', params: [arg] };
+const answer = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+console.log(JSON.stringify(answer.result ?? { error: answer.error?.message }, null, 2));
+process.exit(answer.result && answer.result.ok !== false ? 0 : 1);

@@ -1,0 +1,22 @@
+{
+  "name": "solbench-harness-workspace-deps",
+  "private": true,
+  "type": "module",
+  "description": "Mounted read-only at /work/node_modules for every harness. Core SDKs plus the swap variant's DeFi SDKs.",
+  "dependencies": {
+    "@anchor-lang/core": "1.2.2",
+    "@meteora-ag/dlmm": "1.9.14",
+    "@orca-so/whirlpools": "8.0.1",
+    "@raydium-io/raydium-sdk-v2": "0.2.84-alpha",
+    "@solana-program/address-lookup-table": "0.16.0",
+    "@solana-program/compute-budget": "0.20.0",
+    "@solana-program/memo": "0.16.0",
+    "@solana-program/stake": "0.11.0",
+    "@solana-program/system": "0.16.0",
+    "@solana-program/token": "0.18.0",
+    "@solana-program/token-2022": "0.20.1",
+    "@solana/kit": "8.6.0",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.99.0"
+  }
+}
