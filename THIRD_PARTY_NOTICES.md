@@ -1,0 +1,49 @@
+# Third-party notices
+
+OMS maps selected original palette tokens to terminal UI roles and includes a compact, reviewed static Solana/Helius reference prefix. No upstream editor implementation, raw skill bundle, executable loader or installer is copied into the product.
+
+## MIT / MIT-X11 sources
+
+- **Gruvbox** — Author: morhetz <morhetz@gmail.com>; package author: Pavel Pertsev <morhetz@gmail.com>. [Source](https://github.com/morhetz/gruvbox/blob/ef8864bb42bf244f0295d1c5a403b27e3d139695/colors/gruvbox.vim), [MIT/X11 declaration](https://github.com/morhetz/gruvbox/blob/ef8864bb42bf244f0295d1c5a403b27e3d139695/README.md), [author/license metadata](https://github.com/morhetz/gruvbox/blob/ef8864bb42bf244f0295d1c5a403b27e3d139695/package.json). Upstream supplies no standalone license file or copyright year; none is invented here.
+- **Catppuccin Mocha** — Copyright (c) 2021 Catppuccin. [Palette](https://github.com/catppuccin/palette/blob/07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd/palette.json), [license](https://github.com/catppuccin/palette/blob/07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd/LICENSE).
+- **Nord** — Copyright (c) 2016-present Sven Greb <development@svengreb.de> (https://www.svengreb.de). [Palette](https://github.com/nordtheme/nord/blob/1cef71605416a222e57225b544540ce0fcec18d4/src/swatches/nord.gpl), [license](https://github.com/nordtheme/nord/blob/1cef71605416a222e57225b544540ce0fcec18d4/license). The `.gpl` extension here denotes a GIMP palette, not a GPL license.
+- **Dracula Classic** — Copyright (c) 2023 Dracula Theme. [Specification](https://draculatheme.com/spec), [license](https://github.com/dracula/dracula-theme/blob/main/LICENSE).
+- **Rosé Pine main** — Copyright (c) mvllow. [Palette](https://github.com/rose-pine/rose-pine-palette/blob/92af52b465ab6e47437aca223c9b8d3009a2023b/dist/css/rose-pine.css), [license](https://github.com/rose-pine/rose-pine-palette/blob/92af52b465ab6e47437aca223c9b8d3009a2023b/LICENSE).
+- **Solana Foundation solana-dev 2.7.0** — literal upstream notice: Copyright (c) 2026. [Reference source](https://github.com/solana-foundation/solana-dev-skill/blob/a265d11fcc1b0cfbbbe9dfe9deda57fd3c210eee/skills/solana-dev/SKILL.md), [license](https://github.com/solana-foundation/solana-dev-skill/blob/a265d11fcc1b0cfbbbe9dfe9deda57fd3c210eee/LICENSE). OMS's version-1 prefix is a concise curation, not the complete original skill.
+- **Helius Labs helius 1.1.5 / svm 1.2.0** — Copyright (c) 2026 Helius Labs. [Helius reference](https://github.com/helius-labs/core-ai/blob/80bee664d1c2e32abbb1f765e7096ce162c83482/helius-skills/helius/SKILL.md), [SVM reference](https://github.com/helius-labs/core-ai/blob/80bee664d1c2e32abbb1f765e7096ce162c83482/helius-skills/svm/SKILL.md), [license](https://github.com/helius-labs/core-ai/blob/80bee664d1c2e32abbb1f765e7096ce162c83482/LICENSE). OMS excludes live MCP/account/billing/trading/setup instructions.
+
+The following MIT permission and warranty terms are retained for the MIT/MIT-X11 sources above:
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Tokyo Night — Apache License 2.0
+
+Source: folke/tokyonight.nvim, commit `cdc07ac78467a233fd62c493de29a17e0cf2b2b6`; [Night palette](https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/night.lua) with [Storm palette inheritance](https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/storm.lua).
+
+OMS adapts selected palette tokens into its semantic terminal roles. The inspected upstream tree supplied no separate NOTICE file. Retain this attribution and the full license copy in [`licenses/tokyo-night-apache-2.0.txt`](licenses/tokyo-night-apache-2.0.txt) with distributions containing this palette. [Pinned upstream license](https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/LICENSE).
+
+## Solana program reference data
+
+`packages/engine/src/runtime/program-reference.json` is generated by `scripts/gen-program-reference.ts` from public program interfaces pinned in `scripts/program-reference/sources.ts`. Each program entry records its source URL, pinned commit or package version, and licence. The interface facts used are program ids, instruction names, discriminators, account names and order, signer and writable flags, and argument types. No source text beyond short account descriptions taken from Rust doc comments is copied.
+
+- **Apache-2.0 sources**, retained under that licence: solana-program/{system, stake, config, compute-budget, address-lookup-table, loader-v3, loader-v4, token, token-2022, associated-token-account, memo, feature-gate, stake-pool}, anza-xyz/solana-sdk (vote, loader-v2 and precompile interfaces), solana-labs/solana-program-library (governance, name service), raydium-io/raydium-amm, drift-labs/protocol-v2, tensor-foundation/marketplace and the `@pythnetwork/pyth-solana-receiver` package. Each repository's LICENSE at the pinned commit is the licence text.
+- **MIT sources**: the `@pump-fun/pump-sdk`, `@meteora-ag/dynamic-amm-sdk` and `@mrgnlabs/marginfi-client-v2` packages and Ellipsis-Labs/phoenix-v1, each under the MIT licence its package or repository declares.
+- **Facts only.** Where the interface source is under a licence outside the project allowlist or none is declared (Orca Whirlpools, Raydium CLMM, CPMM and Launchpad, Meteora DLMM, OpenBook v2, Jupiter Aggregator and Lend, Kamino Lend and Vaults, Marinade, Sanctum S Controller, Squads v4 and the three Metaplex programs), the entry keeps only program id, instruction names, discriminators and account names in order, marked `factsOnly`. No argument types, flags or documentation are copied.
