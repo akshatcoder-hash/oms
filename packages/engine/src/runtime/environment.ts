@@ -23,12 +23,18 @@ export function configuredToolchainImage(): string | undefined {
 }
 
 /** Installed host configuration, never project-discovered executable configuration. */
+/** OMS_BENCH_AGENT_IMAGE (a local sha256 image id) runs the Solana Bench OMS cell's sandbox on the shared bench agent image. */
+export function benchAgentImage(): string | undefined {
+  const image = process.env.OMS_BENCH_AGENT_IMAGE;
+  return image?.startsWith('sha256:') ? image : undefined;
+}
+
 export function defaultHarnessEnvironment(binary?: string, backend: 'host' | 'docker' = configuredBackend(), programs = false): HarnessEnvironment {
   // Program builds use the pinned toolchain image, so they always run in Docker.
   if (programs) backend = 'docker';
   const manifest = JSON.parse(readFileSync(new URL("../../runtime-manifest.json", import.meta.url), "utf8")) as RuntimeManifest;
   if (manifest.schema !== "oms.runtime/2" || manifest.surfpoolVersion !== "1.7.0") throw new Error("Installed OMS runtime manifest is invalid");
-  const image = programs ? configuredToolchainImage() : manifest.nodeImages[process.arch];
+  const image = programs ? configuredToolchainImage() : benchAgentImage() ?? manifest.nodeImages[process.arch];
   if (programs && !image) throw new Error("No local OMS toolchain image configured; run scripts/build-toolchain.sh or set OMS_TOOLCHAIN_IMAGE to an immutable image");
   if (!image || !["darwin", "linux"].includes(process.platform)) throw new Error(`OMS runs on macOS and Linux (${process.platform}-${process.arch} is not supported). On Windows, install and run OMS inside WSL 2.`);
   requirePinnedImage(image, "approved runtime image");
@@ -39,7 +45,9 @@ export function defaultHarnessEnvironment(binary?: string, backend: 'host' | 'do
     ...(programs ? { buildProfile: true } : {}),
     forwarderImage: manifest.nodeImages[process.arch]!,
     // The pinned Linux verifier can spawn the same trusted Surfpool as the dev grader.
-    ...(process.platform === "linux" && process.arch === "x64" ? { dependencies: fileURLToPath(new URL("../../../../", import.meta.url)) } : {}),
+    // OMS_BENCH_DEPENDENCIES: one read-only dependency set for every cell of the Solana Bench harness.
+    ...(process.env.OMS_BENCH_DEPENDENCIES ? { dependencies: resolve(process.env.OMS_BENCH_DEPENDENCIES) }
+      : process.platform === "linux" && process.arch === "x64" ? { dependencies: fileURLToPath(new URL("../../../../", import.meta.url)) } : {}),
   };
 }
 

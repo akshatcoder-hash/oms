@@ -10,7 +10,7 @@ export * from "./runtime/verifier-backend.ts";
 export * from "./runtime/usage.ts";
 export * from "./runtime/run-record.ts";
 export { registerOmsCatalog } from "./runtime/catalog.ts";
-export { configuredBackend, defaultHarnessEnvironment } from "./runtime/environment.ts";
+export { benchAgentImage, configuredBackend, defaultHarnessEnvironment } from "./runtime/environment.ts";
 export * from "./runtime/task-files.ts";
 export { TerminalStoppedError, type TaskTerminal } from "./runtime/task-terminal.ts";
 export * from "./runtime/provider-controls.ts";
