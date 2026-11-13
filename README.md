@@ -99,6 +99,10 @@ Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeou
 - Custom `models.json` loading and third-party Claude subscription login are disabled in the current direct runtime.
 - Verification covers pinned checks, not mainnet readiness, production capacity, or a professional security audit.
 
+## Benchmark
+
+The harness behind our published Solana Bench numbers is in this repository; see [docs/solana-bench.md](docs/solana-bench.md) to rerun a cell.
+
 ## License
 
 MIT. See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md). Built over Pi.

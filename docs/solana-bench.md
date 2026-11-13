@@ -1,0 +1,82 @@
+# Solana Bench (solbench-harness)
+
+`solbench-harness` is our own harness-level environment, not the Solana Foundation's published Solana Bench, so its numbers are not comparable to the Foundation's tables. It reimplements their scoring rule and compares whole agent harnesses as shipped, each online. Everything needed to rerun it is in this repository: `scripts/solbench-harness.ts`, `packages/engine/src/bench/`, `packages/cli/src/bench-*.ts` and `bench/`. The harness is source-checkout only; it is not part of the npm package.
+
+## What it measures
+
+One agent gets one goal (`bench/solbench-harness/workspace/GOAL.md`, identical for every harness): maximise the number of unique (program id, first instruction-data byte) pairs in successfully executed transactions on a fresh Surfpool 0.10.4 mainnet fork. The agent has at most 50 `submit-tx` calls and 30 minutes of wall clock per run. It never holds a key: the environment signs with a fresh fork-only wallet, and the agent's only Solana endpoint is the environment's RPC (`$SOLANA_RPC_URL`), which refuses everything except reads, `simulateTransaction` and the `solbench_submit` and `solbench_status` methods behind `./submit-tx`.
+
+There are two variants. `basic` funds the wallet with SOL. `swap` also funds it with USDC and USDT for DeFi paths.
+
+The three cells compared:
+
+| Cell | Harness | Model and login |
+| --- | --- | --- |
+| `oms3-web:gpt-sol` | OMS headless, web tools on the hosted search service, knowledge-service injection if a token is set | GPT-6.1 Sol through the Codex (ChatGPT) subscription |
+| `codex-web:gpt-sol` | Codex CLI 0.167.0, live web search, Solana MCP | GPT-6.1 Sol, Codex subscription |
+| `claude-code-web:opus-sub` | Claude Code 2.1.319, its own WebSearch and WebFetch, Solana MCP | Claude Opus 5.5 on the Claude Code subscription |
+
+Only subscription logins are used. The staged login files have their refresh tokens removed and any API key deleted, so a run can never rotate your login or spend a provider key.
+
+## Prerequisites
+
+- Linux or macOS with Node 22.19 or newer, and `npm ci --ignore-scripts` done in this repository.
+- Docker, with a running daemon (every cell runs in a container on an internal network).
+- The Surfpool 0.10.4 binary, whose SHA-256 the runner checks (`3c4a22f4376d007141cc6ac709f60c766a678af24c5224c26ddb78df3566ffd9`). Point `SOLBENCH_HARNESS_SURFPOOL` at it; the default is `.tmp/solbench-harness/surfpool-0.10.4`.
+- A login for each cell you run: `codex login` (ChatGPT sign-in) for the Codex and OMS cells, `claude` login for the Claude Code cell. Credentials are read from `~/.codex/auth.json` and `~/.claude/.credentials.json`.
+- For the OMS cell: `OMS_SEARCH_URL` (https, or loopback) and `OMS_SEARCH_TOKEN` for an oms-search service. No other search key may be set, because the cell's label names oms-search only. Optional: `OMS_KNOWLEDGE_TOKEN` turns on the knowledge service with injection; `OMS_KNOWLEDGE_URL` defaults to `https://knowledge.barestate.xyz/mcp`.
+- A workspace SDK set, installed once and mounted read-only into every cell:
+
+```sh
+mkdir -p .tmp/solbench-harness && cp -R bench/solbench-harness/deps .tmp/solbench-harness/deps
+(cd .tmp/solbench-harness/deps && npm ci --ignore-scripts)
+export SOLBENCH_HARNESS_DEPS="$PWD/.tmp/solbench-harness/deps"
+```
+
+## Build the images
+
+```sh
+docker build -t oms-bench-agents:1 bench/agents
+docker build -t oms-solbench-harness:1 bench/solbench-harness
+```
+
+## Run one cell
+
+Start the open-HTTPS tunnel the online cells need, in its own terminal (it admits only public HTTPS addresses; the host, private networks and cloud metadata stay unreachable):
+
+```sh
+node scripts/solbench-harness.ts egress --log .tmp/solbench-harness/egress.log
+```
+
+Then run, for example, five basic runs of the Codex cell:
+
+```sh
+export SOLBENCH_HARNESS_SURFPOOL=/path/to/surfpool-0.10.4
+node scripts/solbench-harness.ts --cell codex-web:gpt-sol --variant basic --runs 5 --out-root ./runs
+```
+
+Pass several `--cell` flags to run cells interleaved, run by run (cell A run 0, cell B run 0, cell A run 1, ...). A run directory that already has a `result.json` is skipped, so the command resumes. A usage limit stops the series and sets that run aside as `paused.json`; rerun the same command after the limit resets. Scored series use 50 submissions; series whose prefix starts with `dev` are for tuning and may use at most 10 (`--prefix dev1 --max-submissions 10`). Create a file named `STOP` in the out-root to stop between runs.
+
+Each run directory holds `result.json`, `submissions.jsonl` (every signed transaction), the Surfpool log, the agent's logs and a workspace trace.
+
+Print the tables:
+
+```sh
+node scripts/solbench-harness.ts report --out-root ./runs
+```
+
+## How scoring works
+
+A pair is the program id of a top-level instruction plus the first byte of its data; each pair counts once per run, and only transactions that executed successfully count. Instructions with empty data have no first byte and count nothing.
+
+The headline score is the count of the remaining pairs after three exclusions: Memo and Memo v1, which accept any data; SPL Noop and Metaplex Noop, whose entrypoints accept any data; and any program the run deployed or upgraded itself (detected from the loader instructions in its own transactions), since a deployed program can be written to accept any data. These are reported in separate columns (`raw`, `arbitrary-data`, `memo`) and never in the headline. A second column drops the signature-verifying precompiles (Keccak, Ed25519, Secp256r1), which treat `data[0]` as a count. The rules are stated in `GOAL.md`, which every harness receives, and its SHA-256 is recorded in each result.
+
+## Comparing cells
+
+- **Same batch.** Cells are compared only on runs from one interleaved series: run i of each cell, in the same variant, run back to back against forks taken minutes apart. The fork is not slot-pinned and fetches accounts lazily, so DeFi state moves between batches; scores from different batches or prefixes are not pooled or compared. The paired comparison matches run i of one cell to run i of the other in the same variant, and the report records the fork slots and the code commit of every run.
+- **Forks whose node is unhealthy.** If the mainnet fork fails during a run (submissions fail with "Node is unhealthy" or the Surfpool process dies), that is an infrastructure failure of the fork, not a result. Such a run is excluded from every table and test and the slot is rerun on a fresh fork, in the same batch. A run is not excluded for any reason that depends on its score. Excluded runs are listed with their reason, not silently dropped. The runner sets aside usage-limit stops and OMS infrastructure endings before any submission the same way (`paused.json`); a run that an OMS provider error cut short after submissions is listed as truncated, outside the tables and the tests.
+- **Tests.** The report prints an exact two-sided sign test on the paired headline scores (run i against run i). For independent groups it also prints an exact permutation test on the difference of medians: every way to split the pooled scores into groups of the observed sizes is enumerated, and p is the share of splits whose absolute difference of medians is at least the observed one, ties included. There is no Monte Carlo. With five runs per cell and variant these are small samples; read the direction, not the decimals.
+
+## Which OMS build the published numbers came from
+
+The published results were produced by the build used for the published results, an internal pre-release build of OMS with the hosted search and knowledge-service tools enabled. This repository is the cleaned public history of the same code. The harness records the code commit and the agent image id in every `result.json` so any series can be traced to the build that ran it.
