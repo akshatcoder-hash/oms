@@ -28,7 +28,8 @@ import { assertPrivate, isMissing, privateDirectory, readPrivateJson, writePriva
 import { createSandboxTools, type SandboxTools } from "./sandbox-tools.ts";
 import { OMS_REFERENCE_PREFIX } from "./knowledge.ts";
 import { PROGRAM_REFERENCE_TOOL, installedProgramClients, programReferenceExtension, programReferenceIndex } from "./program-reference.ts";
-import { createKnowledgeExtension, KNOWLEDGE_TOOL_NAMES, type KnowledgeConfig } from "./knowledge-service.ts";
+import { createKnowledgeExtension, fetchMcpText, KNOWLEDGE_RESULT_LIMIT, KNOWLEDGE_TOOL_NAMES, type KnowledgeConfig } from "./knowledge-service.ts";
+import { createChainControls, type ChainControls } from "./chain.ts";
 import { createDiagnosisExtension, RAW_OUTPUT_TOOL } from "./solana-diagnosis.ts";
 import { createEdgeCheck, gitChangedPaths, type EdgeCheckSummary } from "./edge-check.ts";
 import { createWeb, elideOldFetches, WEB_PROMPT, type WebConfig, type WebUsage } from "./web.ts";
@@ -131,6 +132,10 @@ export interface HarnessSession extends ProviderControls {
   setHostApproval?(approve: import('./host-approval.ts').HostApproval | undefined): void;
   /** Present only when the session was opened with `web`; `set` is the `/web on|off` switch. */
   web?: { enabled(): boolean; set(on: boolean): void; usage(): WebUsage };
+  /** The task's local Surfpool, for chain commands (never another network). */
+  chain?: ChainControls;
+  /** Present only when the knowledge service is configured: decode_error text for a program error code. */
+  knowledge?: { decodeError(code: string, program?: string, signal?: AbortSignal): Promise<string> };
   /** Present only when the session was opened with `edgeCheck`. */
   edgeCheck?: { summary(): EdgeCheckSummary };
   close(): Promise<void>;
@@ -586,6 +591,12 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
     return { workspace, task, runtime, session, evaluator, budget, settings, verify, runCommand,
       account, ...providerControls,
       setHostApproval: approve => sandboxTools.setHostApproval(approve),
+      chain: createChainControls({ surfnet: surf, withUserOperation }),
+      ...(options.knowledge?.token ? { knowledge: { async decodeError(code: string, program?: string, signal?: AbortSignal) {
+        const { text, isError } = await fetchMcpText(options.knowledge!, "decode_error", { code, ...(program ? { program } : {}) }, signal);
+        if (isError) throw new Error(text.slice(0, 500));
+        return text.slice(0, KNOWLEDGE_RESULT_LIMIT);
+      } } } : {}),
       ...(webControls ? { web: webControls } : {}),
       ...(edgeCheck ? { edgeCheck: { summary: edgeCheck.summary } } : {}),
       files: sandboxTools.files, startTerminal: (columns, rows) => withUserOperation(() => sandboxTools.startTerminal(columns, rows)),

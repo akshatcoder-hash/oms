@@ -43,6 +43,7 @@ function fixture(t: TestContext) {
         rpc: { url: 'http://127.0.0.1:18899', call: () => onRpc() },
         checkpoint: async () => { throw new Error('not used'); },
         rewind: async () => { throw new Error('not used'); },
+        rewindToStart: async () => { throw new Error('not used'); },
         restoreAccounts: async () => { throw new Error('not used'); },
         health: async () => ({ ok: running }),
         ensureAlive: async () => ({ restarted: false, fromCheckpoint: undefined }),

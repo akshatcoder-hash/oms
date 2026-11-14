@@ -58,7 +58,8 @@ export interface OmsExtensions {
   budget: Pick<BudgetMeter, "snapshot">;
 }
 
-const DEFAULT_MAX_ATTEMPTS = 5;
+/** Verifier runs one retry loop may use; shared by the settle gate and the TUI `/goal` loop. */
+export const DEFAULT_MAX_ATTEMPTS = 5;
 
 function activeItemId(proposer: Proposer): string | null {
   const read = proposer.read();

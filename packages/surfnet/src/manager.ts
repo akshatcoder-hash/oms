@@ -82,6 +82,12 @@ export interface Surfnet {
    */
   rewind(name: string): Promise<void>;
   /**
+   * Rewind to how this surfnet started: stop the process and start it again on the
+   * same ports from the original startup snapshot (or empty, when it had none).
+   * Everything done since start() is lost, including deployed programs.
+   */
+  rewindToStart(): Promise<void>;
+  /**
    * Fast path: re-apply named accounts on the live surfnet via
    * surfnet_setAccount. Does not rewind slot, blockhashes, programs,
    * history, or remove accounts created after the checkpoint.
@@ -298,6 +304,10 @@ export function createSurfnet(options: SurfnetOptions): Surfnet {
         if (!checkpoint) throw new Error(`unknown checkpoint: ${JSON.stringify(name)}`);
         await restart(checkpoint);
       });
+    },
+
+    rewindToStart() {
+      return changeLifecycle(() => restart(original));
     },
 
     async restoreAccounts(accounts) {
