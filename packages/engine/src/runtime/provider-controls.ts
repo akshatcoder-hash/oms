@@ -3,9 +3,10 @@ import type { Api, Model, AuthInteraction, AuthPrompt, LoginOptions } from '@ear
 import { modelReservationBound } from '@oms/core/usage';
 import { importProviderEnvironment, type ImportSummary } from './provider-import.ts';
 import { readInferencePreferences, writeInferencePreferences, TOKEN_PLAN_PROVIDERS, type MimoProvider } from './inference-preferences.ts';
+import { CLAUDE_CODE_PROVIDER, getClaudeCodeStatus, inspectClaudeCode, type ClaudeCodeStatus } from './claude-code.ts';
 
 // https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use
-const CLAUDE_SUBSCRIPTION_UNAVAILABLE = 'Anthropic does not permit third-party Claude subscription login. Use an Anthropic API key.';
+const CLAUDE_SUBSCRIPTION_UNAVAILABLE = 'Direct third-party Claude subscription OAuth is unavailable. In /connect choose the local Claude Code login, or use an Anthropic API key for direct API access.';
 
 export interface ProviderChoice {
   id: string;
@@ -42,6 +43,7 @@ interface ProviderControlsOptions {
   flushSettings?(): Promise<void>;
   inferencePreferencesPath?: string;
   modelReadiness?(model: Model<Api>): { ready: boolean; detail: string };
+  claudeCodeAccess?: { status(): ClaudeCodeStatus; inspect(signal?: AbortSignal): Promise<ClaudeCodeStatus> };
   withUserOperation<T>(action: () => Promise<T>): Promise<T>;
   checkAuthFile(): void;
 }
@@ -79,22 +81,25 @@ async function promptWithCancellation(interaction: AuthInteraction, prompt: Auth
 /** Operator-only controls over the existing runtime; credentials never enter session messages. */
 export function createProviderControls(options: ProviderControlsOptions): ProviderControls {
   const { modelRuntime, session, maxOutputTokens, signal, withUserOperation, checkAuthFile } = options;
+  const claudeCode = options.claudeCodeAccess ?? { status: getClaudeCodeStatus, inspect: inspectClaudeCode };
+  const configured = (provider: string) => provider === CLAUDE_CODE_PROVIDER ? claudeCode.status().configured : modelRuntime.hasConfiguredAuth(provider);
   const supportedModels = () => modelRuntime.getModels().filter(model => modelReservationBound(model, maxOutputTokens) !== null);
   const modelChoice = (model: Model<Api>): ProviderModelChoice => {
-    const configured = modelRuntime.hasConfiguredAuth(model.provider);
-    const readiness = configured ? options.modelReadiness?.(model) ?? { ready: true, detail: 'Connected' }
-      : { ready: false, detail: 'Needs setup · /connect this provider first' };
-    return { provider: model.provider, id: model.id, name: model.name, configured, selectable: readiness.ready, detail: readiness.detail };
+    const connected = configured(model.provider);
+    const readiness = connected ? options.modelReadiness?.(model) ?? { ready: true, detail: 'Connected' }
+      : { ready: false, detail: model.provider === CLAUDE_CODE_PROVIDER ? claudeCode.status().detail : 'Needs setup · /connect this provider first' };
+    return { provider: model.provider, id: model.id, name: model.name, configured: connected, selectable: readiness.ready, detail: readiness.detail };
   };
   const listModels: ProviderControls['listModels'] = () => supportedModels().map(modelChoice);
   const listProviders: ProviderControls['listProviders'] = () => {
     const supported = new Set(supportedModels().map(model => model.provider));
     return modelRuntime.getProviders().filter(provider => supported.has(provider.id)).map(provider => ({
-      id: provider.id, name: provider.name, configured: modelRuntime.hasConfiguredAuth(provider.id),
-      apiKey: typeof provider.auth.apiKey?.login === 'function',
-      oauth: provider.id !== 'anthropic' && typeof provider.auth.oauth?.login === 'function',
+      id: provider.id, name: provider.name, configured: configured(provider.id),
+      apiKey: provider.id !== CLAUDE_CODE_PROVIDER && typeof provider.auth.apiKey?.login === 'function',
+      oauth: provider.id === CLAUDE_CODE_PROVIDER || (provider.id !== 'anthropic' && typeof provider.auth.oauth?.login === 'function'),
       ...(provider.auth.apiKey ? { apiKeyLabel: provider.auth.apiKey.name } : {}),
       ...(provider.auth.oauth ? { oauthLabel: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name } : {}),
+      ...(provider.id === CLAUDE_CODE_PROVIDER ? { oauthLabel: 'Check local Claude Code subscription login' } : {}),
       ...(provider.id === 'anthropic' ? { oauthUnavailable: CLAUDE_SUBSCRIPTION_UNAVAILABLE } : {}),
     }));
   };
@@ -102,7 +107,11 @@ export function createProviderControls(options: ProviderControlsOptions): Provid
     signal.throwIfAborted();
     const model = supportedModels().find(candidate => candidate.provider === provider && candidate.id === id);
     if (!model) throw new Error('Select a supported model from the installed catalog');
-    if (!modelRuntime.hasConfiguredAuth(provider)) throw new Error('This provider is not configured; connect it first');
+    if (provider === CLAUDE_CODE_PROVIDER) {
+      const status = await claudeCode.inspect(signal);
+      signal.throwIfAborted();
+      if (!status.configured) throw new Error(status.detail);
+    } else if (!configured(provider)) throw new Error('This provider is not configured; connect it first');
     const choice = modelChoice(model);
     if (!choice.selectable) throw new Error(choice.detail);
     try { await session.setModel(model, { persist: true }); await options.flushSettings?.(); }
@@ -117,6 +126,14 @@ export function createProviderControls(options: ProviderControlsOptions): Provid
       throw new Error(method === 'api_key' ? 'This provider does not support literal API-key setup' : 'This provider does not support OAuth setup in OMS');
     }
     const loginSignal = interaction.signal ? AbortSignal.any([signal, interaction.signal]) : signal;
+    if (provider === CLAUDE_CODE_PROVIDER) {
+      interaction.notify({ type: 'info', message: 'Authentication stays in Claude Code. Install the official CLI and run claude auth login in another terminal, then return here. OMS checks the existing subscription login without copying credentials or sending a model request.',
+        links: [{ label: 'Install Claude Code', url: 'https://code.claude.com/docs/en/setup' }] });
+      const status = await claudeCode.inspect(loginSignal);
+      loginSignal.throwIfAborted();
+      if (!status.configured) throw new Error(status.detail);
+      return;
+    }
     try {
       loginSignal.throwIfAborted();
       checkAuthFile();

@@ -1,13 +1,23 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { HarnessSessionOptions } from '@oms/engine';
+import type { HarnessSession, HarnessSessionOptions } from '@oms/engine';
 import { openHarnessWithOwnership } from './ownership.ts';
 import { runOmsInterface } from './tui/interface.ts';
 import { DEFAULT_THEME_ID } from './tui/theme.ts';
 
 function shellWord(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** Resume the OMS owner and its current selection, including a bound native Claude chat. */
+export function resumeHarnessArguments(options: HarnessSessionOptions, harness: Pick<HarnessSession, 'workspace' | 'task' | 'session'>,
+  sessionId: string, capArgs: string[]): string[] {
+  const model = harness.session.model;
+  return [process.execPath, fileURLToPath(new URL('./bin.ts', import.meta.url)), 'run',
+    '--workspace', harness.workspace.root, '--state-root', dirname(dirname(harness.workspace.stateDir)),
+    '--task', harness.task.id, '--session', sessionId, '--surfpool-binary', options.environment.binary,
+    ...(model ? ['--provider', model.provider, '--model', model.id] : []), ...capArgs];
 }
 
 /** `web` from `<state root>/config.json` (default on). A malformed file is an error, never a silent default. */
@@ -52,9 +62,7 @@ export async function runInteractiveHarness(options: HarnessSessionOptions, laun
 
   const conversation = harness.session.sessionManager.getSessionFile();
   if (conversation && existsSync(conversation)) {
-    const args = [process.execPath, fileURLToPath(new URL('./bin.ts', import.meta.url)), 'run',
-      '--workspace', harness.workspace.root, '--state-root', dirname(dirname(harness.workspace.stateDir)),
-      '--task', harness.task.id, '--session', sessionId, '--surfpool-binary', options.environment.binary, ...capArgs];
+    const args = resumeHarnessArguments(options, harness, sessionId, capArgs);
     process.stdout.write(`Resume this OMS session:\n${args.map(shellWord).join(' ')}\n`);
   }
 }

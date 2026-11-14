@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessSession } from '@oms/engine';
-import { OMS_COMMANDS, commandHelp } from '../src/tui/commands.ts';
+import { OMS_COMMANDS, commandHelp, commandMatches } from '../src/tui/commands.ts';
 import { READ_ONLY_COMMANDS, prepareSlash } from '../src/tui/slash-commands.ts';
 import {
   base58Decode, base58Encode, describeTokenData, describeTransactionError, isBase58Bytes, type CommandOutput, type Prepared,
@@ -64,15 +64,21 @@ const refusal = (prepared: Prepared | undefined): string => {
 
 test('the menu and help list every new command, with Solana after Work, and no planned ones', () => {
   const names: string[] = OMS_COMMANDS.map(command => command.name);
-  for (const name of ['goal', 'clear', 'diff', 'usage', 'test', 'chain', 'rewind', 'airdrop', 'account', 'tx', 'program', 'error']) {
+  for (const name of ['model', 'goal', 'clear', 'diff', 'usage', 'test', 'chain', 'rewind', 'airdrop', 'account', 'tx', 'program', 'error']) {
     assert.ok(names.includes(name), name);
   }
-  for (const name of ['deploy', 'undo', 'compact', 'resume']) assert.equal(names.includes(name), false, name);
+  for (const name of ['claude', 'deploy', 'undo', 'compact', 'resume']) assert.equal(names.includes(name), false, name);
   assert.equal(new Set(names).size, names.length, 'no duplicate command names');
   const help = commandHelp();
   assert.ok(help.indexOf('\nWork\n') < help.indexOf('\nSolana\n'));
   assert.match(help, /\/airdrop <address> \[sol\]/);
   assert.match(help, /\/account <address>/);
+  assert.doesNotMatch(help, /\/claude/);
+  assert.deepEqual(commandMatches('/claude'), []);
+  for (const argument of ['', 'status', 'reconnect', 'reset']) {
+    assert.equal(prepareSlash('claude', argument, harnessFake(), ''), undefined);
+    assert.equal(READ_ONLY_COMMANDS.has('claude'), false);
+  }
   assert.equal(OMS_COMMANDS.find(command => command.name === 'goal')?.group, 'Work');
   assert.equal(OMS_COMMANDS.find(command => command.name === 'diff')?.group, 'Inspect');
   assert.equal(prepareSlash('unknown', '', harnessFake(), ''), undefined);

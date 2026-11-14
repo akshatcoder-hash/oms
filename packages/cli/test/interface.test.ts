@@ -1564,6 +1564,114 @@ test('while work is running only the read-only commands run; every other new com
   } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
 });
 
+for (const model of ['sonnet', 'opus', 'haiku']) test(`/model groups Claude Code separately and selects ${model} without sending a model request`, async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const selections: string[] = [];
+  f.harness.listProviders = () => [
+    { id: 'anthropic', name: 'Claude API', configured: true, apiKey: true, oauth: false },
+    { id: 'claude-code', name: 'Claude Code', configured: true, apiKey: false, oauth: true },
+  ];
+  f.harness.listModels = () => [
+    { provider: 'anthropic', id: 'api-sonnet', name: 'Claude API Sonnet', configured: true },
+    ...['sonnet', 'opus', 'haiku'].map(id => ({ provider: 'claude-code', id, name: `Claude Code ${id}`, configured: true })),
+  ];
+  f.harness.selectModel = async (provider, id) => { selections.push(`${provider}/${id}`); f.identity({ provider, id }); };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/model'); terminal.send('\r');
+    await terminal.until(s => s.includes('Claude Code') && s.includes('Claude API models'));
+    terminal.send('Claude Code'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('claude-code/sonnet') && s.includes('Claude owns a native chat'));
+    for (const id of ['sonnet', 'opus', 'haiku']) assert.ok(screen.includes(`claude-code/${id}`));
+    assert.equal(screen.includes('anthropic/api-sonnet'), false);
+    terminal.send(model); terminal.send('\r');
+    await terminal.until(s => s.includes(`Native Claude chat selected: claude-code/${model}`));
+    assert.deepEqual(selections, [`claude-code/${model}`]);
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('removed Claude commands never select a model or reach native lifecycle controls', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const calls: string[] = [];
+  f.harness.selectModel = async () => { calls.push('model'); };
+  f.harness.nativeChat = { status: () => ({ sessionId: 'native-old', state: 'disconnected' }),
+    async reconnect() { calls.push('reconnect'); }, async reset() { calls.push('reset'); } };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    for (const command of ['/claude', '/claude status', '/claude reconnect', '/claude reset']) {
+      terminal.send('\x01'); terminal.send(command); terminal.send('\r');
+      await terminal.until(s => s.includes('Unknown or invalid OMS command') && s.includes(command));
+    }
+    assert.deepEqual(calls, []);
+    assert.deepEqual(f.prompts, []);
+    assert.equal(f.clears(), 0);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/session reports native Claude identity while a turn runs and /clear keeps its busy guard', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.identity({ provider: 'claude-code', id: 'sonnet' });
+  const calls: string[] = [];
+  f.harness.nativeChat = { status: () => ({ sessionId: 'native-thread-one', state: 'ready' }),
+    async reconnect() { calls.push('reconnect'); }, async reset() { calls.push('reset'); } };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until(s => s.includes('Native chat') && s.includes('claude-code/sonnet'));
+    terminal.send('long native request'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('/session'); terminal.send('\r');
+    await terminal.until(s => s.includes('native-thread-one') && s.includes('State: ready'));
+    for (const command of ['/clear']) {
+      terminal.send('\x01'); terminal.send(command); terminal.send('\r');
+      await terminal.until(s => s.includes('Work is running') && s.includes(command));
+    }
+    assert.deepEqual(calls, []);
+    assert.equal(f.clears(), 0);
+    assert.equal(f.prompts.length, 1);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('native clear awaits native reset before dropping the OMS branch', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.identity({ provider: 'claude-code', id: 'sonnet' });
+  f.messages.push({ role: 'user', content: 'Earlier native conversation' });
+  const resetGate = barrier<void>(); let resets = 0;
+  f.harness.nativeChat = { status: () => ({ sessionId: resets ? 'native-new' : 'native-old', state: 'new' }),
+    async reconnect() {}, async reset() { resets++; await resetGate.promise; } };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/clear'); terminal.send('\r');
+    await terminal.until(() => resets === 1);
+    assert.equal(f.messages.length, 1);
+    assert.equal(f.clears(), 0);
+    resetGate.resolve();
+    const screen = await terminal.until(s => s.includes('Fresh native chat boundary') && s.includes('verification are retained'));
+    await terminal.until(() => f.clears() === 1);
+    assert.equal(screen.includes('Earlier native conversation'), false);
+    assert.equal(f.messages.length, 0);
+    assert.deepEqual(f.verified, []);
+    assert.deepEqual(f.prompts, []);
+  } finally { resetGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('failed native clear preserves the OMS transcript and session branch', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.identity({ provider: 'claude-code', id: 'sonnet' });
+  f.messages.push({ role: 'user', content: 'Keep this native history' });
+  f.harness.nativeChat = { status: () => ({ sessionId: 'native-old', state: 'disconnected' }),
+    async reconnect() {}, async reset() { throw new Error('Native reset refused'); } };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/clear'); terminal.send('\r');
+    await terminal.until(s => s.includes('Native reset refused') && s.includes('Keep this native history'));
+    assert.equal(f.clears(), 0);
+    assert.equal(f.messages.length, 1);
+    assert.equal(f.harness.nativeChat.status().sessionId, 'native-old');
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
 test('/clear starts a fresh conversation in the same task, keeping the session and dropping the goal', async () => {
   const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
   f.promptGate.resolve();

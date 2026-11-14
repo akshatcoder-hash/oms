@@ -138,7 +138,7 @@ export async function runHeadlessHarness(options: HarnessSessionOptions, jsonOut
       privateVerdict: null, dispatches, accounting: budget?.accounting ?? 'known',
       settledMicroUsd: dispatches.reduce((sum, d) => sum + (d.settledMicroUsd ?? 0), 0),
       heldMicroUsd: dispatches.reduce((sum, d) => sum + d.heldMicroUsd, 0),
-      funding: selection.provider === 'openai-codex' ? 'subscription' : 'api',
+      funding: selection.provider === 'openai-codex' || selection.provider === 'claude-code' ? 'subscription' : 'api',
       wallMs: Math.max(0, clock() - startedAt), transcriptPath: harness?.session.sessionFile ?? null,
       firstVisiblePass,
       identities: { task: digest(readFileSync(options.task.pinFile)), harness: harnessDigest(),

@@ -10,7 +10,7 @@ import {
   AgentSessionRuntime, createAgentSession, DefaultResourceLoader, ModelRuntime,
   SessionManager, type AgentSession, type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
-import { type Api, type Model } from "@earendil-works/pi-ai";
+import { normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import {
   createEvaluator, createProposer, createVerifierCache,
@@ -42,6 +42,7 @@ import type { TaskTerminal } from "./task-terminal.ts";
 import { createProviderControls, type ProviderControls } from "./provider-controls.ts";
 import { createHarnessSettings, createHarnessSettingsControls, flushHarnessSettings, type HarnessSettingsControls } from "./settings-controls.ts";
 import { registerOmsCatalog } from "./catalog.ts";
+import { createClaudeCodeProvider, type ClaudeCodeSession, type NativeChatControls } from './claude-code.ts';
 import { createDispatchAllocator } from "@oms/core/dispatch";
 import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { createOmsAccountControls, type OmsAccountControls } from "./oms-account.ts";
@@ -119,6 +120,7 @@ export interface HarnessVerification {
   result: EvaluateResult;
 }
 export interface HarnessSession extends ProviderControls {
+  nativeChat?: NativeChatControls;
   workspace: Workspace;
   task: Task;
   runtime: AgentSessionRuntime;
@@ -248,6 +250,7 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
   let taskTools: SandboxTools | undefined;
   let runtime: AgentSessionRuntime | undefined;
   let liveSession: AgentSession | undefined;
+  let nativeSession: ClaudeCodeSession | undefined;
   let cleanup: Promise<void> | undefined;
   let deadline: NodeJS.Timeout | undefined;
   let userOperation: Promise<unknown> | undefined;
@@ -265,7 +268,7 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
       clearTimeout(deadline);
       controller.abort();
       executionController?.abort();
-      const outcomes = await Promise.allSettled([liveSession?.abort(), taskTools?.dispose(), backend?.dispose(), surf?.stop()]);
+      const outcomes = await Promise.allSettled([liveSession?.abort(), nativeSession?.close(), taskTools?.dispose(), backend?.dispose(), surf?.stop()]);
       // User failures still reach their callers; finish their state writes before releasing ownership.
       if (userOperation) await Promise.allSettled([userOperation]);
       const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
@@ -293,7 +296,7 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
     const context = taskContext(workspace, task);
     const ownership = inspectMutationLease(task.leaseFile);
     if (ownership.status !== "live" || ownership.owner.token !== lease.token) throw new Error("Task ownership changed before runtime startup");
-    processes = trackRuntimeProcesses(task.leaseFile, ownership.owner, context.workDir, environment.backend === 'host' ? [task.codeRoot] : [], environment.backend === 'host');
+    processes = trackRuntimeProcesses(task.leaseFile, ownership.owner, context.workDir, [...(environment.backend === 'host' ? [task.codeRoot] : []), join(workspace.stateDir, 'sessions', task.id)], environment.backend === 'host');
     writePrivateJson(join(context.stateDir, 'runtime-backend.json'), { backend: environment.backend ?? 'docker' });
     const pinned = verifyPin(task.pinFile, context.roots);
     if (!pinned.ok) throw new Error("Task requirements or verifier inputs do not match their pin");
@@ -492,6 +495,7 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
     const modelRuntime = options.modelRuntime ?? await ModelRuntime.create({ authPath,
       modelsPath: null, allowModelNetwork: false, refreshOnCreate: true });
     registerOmsCatalog(modelRuntime);
+    nativeSession = await createClaudeCodeProvider(modelRuntime, { statePath: join(taskSessions, `${id}.claude.json`), signal: controller.signal, onSpawn: processes.onSpawn });
     const account = createOmsAccountControls({ agentRoot, signal: controller.signal, withUserOperation });
     // Registration queues auth snapshot updates; finish canonical offline restoration before selection.
     await modelRuntime.refresh({ allowNetwork: false, signal: controller.signal });
@@ -512,6 +516,28 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
       tools: [...sessionToolNames(environment.buildProfile, options.outputMode), ...KNOWLEDGE_TOOL_NAMES, ...(web?.toolNames ?? [])] });
     const { session } = created;
     liveSession = session;
+    const native = nativeSession;
+    const originalAbort = session.abort.bind(session);
+    session.abort = async () => { await Promise.all([originalAbort(), native.disconnect()]); };
+    const originalSetModel = session.setModel.bind(session);
+    session.setModel = async (...args: Parameters<AgentSession['setModel']>) => {
+      if (session.model?.provider === 'claude-code') await native.disconnect();
+      return originalSetModel(...args);
+    };
+    const nativeChat: NativeChatControls = {
+      status: () => native.status(),
+      reconnect: () => withUserOperation(async () => {
+        if (session.model?.provider !== 'claude-code') throw new Error('Select Claude Code before reconnecting its native chat');
+        native.configure(session.model, normalizeContext({ systemPrompt: session.agent.state.systemPrompt,
+          tools: session.agent.state.tools, messages: await session.agent.convertToLlm(session.agent.state.messages) }), session.model.maxTokens);
+        await native.reconnect();
+      }),
+      reset: () => withUserOperation(async () => {
+        if (session.model?.provider !== 'claude-code') throw new Error('Select Claude Code before resetting its native chat');
+        await native.reset();
+        manager.appendCustomEntry('oms.claude.native-boundary', { sessionId: native.status().sessionId, reason: 'reset', at: Date.now() });
+      }),
+    };
     session.agent.toolExecution = "parallel";
     const originalSdkStream: StreamFn = session.agent.streamFunction;
     const directStream = createMeteredStream({ streamFunction: originalSdkStream,
@@ -602,7 +628,7 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
       void session.abort().catch(() => {});
     };
     if (executionMode === "bounded") enforceDeadline();
-    return { workspace, task, runtime, session, evaluator, budget, settings, verify, runCommand,
+    return { workspace, task, runtime, session, evaluator, budget, settings, verify, runCommand, nativeChat,
       account, ...providerControls,
       setHostApproval: approve => sandboxTools.setHostApproval(approve),
       chain: createChainControls({ surfnet: surf, withUserOperation }),

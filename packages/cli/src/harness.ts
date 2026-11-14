@@ -74,6 +74,15 @@ export const headlessCaps = (parsed: CommandFlags & LaunchOptions) => ({ ...pars
   spendMicroUsd: parsed.values.has("--spend-usd") ? parsed.caps.spendMicroUsd : 4_000_000,
   wallClockMs: parsed.values.has("--minutes") ? parsed.caps.wallClockMs : 40 * 60_000 });
 
+/** Claude Code constructs its own request, so a serialized-input token cap cannot be enforced. */
+export function headlessInputTokens(parsed: Pick<CommandFlags, 'values'>, provider: string | undefined): number | undefined {
+  if (provider === 'claude-code') {
+    if (parsed.values.has('--input-tokens')) throw new Error('--input-tokens is unavailable for Claude Code; its native CLI constructs the request. Total token and time limits still apply.');
+    return undefined;
+  }
+  return Math.min(integer(parsed.values.get('--input-tokens'), 65_536, '--input-tokens'), 1_000_000);
+}
+
 function stateOptions(values: Map<string, string>): OpenWorkspaceOptions {
   const stateRoot = values.get("--state-root");
   return stateRoot === undefined ? {} : { stateRoot: resolve(stateRoot) };
@@ -138,6 +147,7 @@ export async function runHarnessCommand(command: string, args: string[], runtime
     const provider = parsed.values.get("--provider");
     const model = parsed.values.get("--model");
     if (!!provider !== !!model) throw new Error("Provide --provider and --model together");
+    const inputTokens = headless || provider === 'claude-code' ? headlessInputTokens(parsed, provider) : undefined;
     const workspace = openWorkspace(resolve(parsed.values.get("--workspace") ?? process.cwd()), stateOptions(parsed.values));
     const task = selectedTask(workspace, parsed.values.get("--task"));
     const sessionId = parsed.values.get("--session");
@@ -150,7 +160,7 @@ export async function runHarnessCommand(command: string, args: string[], runtime
       executionMode: headless ? "bounded" : parsed.executionMode,
       caps: headless ? headlessCaps(parsed) : parsed.caps,
       maxOutputTokens: parsed.maxOutputTokens,
-      ...(headless ? { maxInputTokens: Math.min(integer(parsed.values.get("--input-tokens"), 65_536, "--input-tokens"), 1_000_000), outputMode: "head-tail" as const } : {}),
+      ...(headless ? { ...(inputTokens === undefined ? {} : { maxInputTokens: inputTokens }), outputMode: "head-tail" as const } : {}),
       // Subscription-backed calls spend no API credit; opt in only when the provider is a ChatGPT subscription.
       ...(headless && parsed.values.has("--subscription-spend-exempt") ? { subscriptionSpendExempt: true } : {}),
       ...runtime,

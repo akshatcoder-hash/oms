@@ -12,7 +12,7 @@ import { thinkingBudgetForLevel, MIN_ANSWER_TOKENS } from '@earendil-works/pi-ai
 import { isRetryableAssistantError } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createBudgetLedger, type BudgetLedgerEvent } from '@oms/core';
-import { createMeteredStream, openBudgetJournal } from '../src/runtime/usage.ts';
+import { createMeteredStream, openBudgetJournal, modelReadiness } from '../src/runtime/usage.ts';
 import { modelReservationBound, normalizePiUsage } from '@oms/core/usage';
 import { createDispatchAllocator } from '@oms/core/dispatch';
 
@@ -86,6 +86,91 @@ test('Codex unknown outcomes retain full output reservation and prevent another 
   assert.equal(f.ledger.snapshot().accounting, 'unknown');
   await consume(f.stream, codex);
   assert.equal(calls, 1);
+});
+
+const nativeClaude: Model<Api> = { ...model, provider: 'claude-code', api: 'claude-code',
+  baseUrl: 'claude-code://local', id: 'sonnet' };
+
+test('native Claude subscription keeps token reservations and accounts receipts at zero API spend in both modes', async () => {
+  for (const executionMode of ['interactive', 'bounded'] as const) {
+    const events: BudgetLedgerEvent[] = [];
+    const ledger = createBudgetLedger({ caps, executionMode, clock: Date.now, persist: event => { events.push(event); } });
+    assert.equal(ledger.beginOperation(`native-${executionMode}`).ok, true);
+    const stream = createMeteredStream({ ledger, executionMode, allocate: createDispatchAllocator(),
+      maxOutputTokens: 5, logicalTurnId: () => `native-${executionMode}`,
+      streamFunction: (selected, _context, options) => {
+        assert.equal(options?.maxTokens, selected.maxTokens);
+        const source = createAssistantMessageEventStream();
+        source.push({ type: 'done', reason: 'stop', message: { ...message(), api: selected.api,
+          provider: selected.provider, model: selected.id } });
+        return source;
+      } });
+    const readiness = modelReadiness(nativeClaude, ledger, 5, executionMode);
+    assert.equal(readiness.ready, true);
+    assert.match(readiness.detail, /Claude Code subscription/);
+    assert.equal((await consume(stream, nativeClaude)).result.stopReason, 'stop');
+    assert.equal(ledger.snapshot().used.tokens, 20);
+    assert.equal(ledger.snapshot().used.spendMicroUsd, 0);
+    const reservation = events.find(event => event.type === 'budget_reserve')!;
+    assert.equal(reservation.reservation.tokens, 1_100);
+    assert.equal(reservation.reservation.spendMicroUsd, 0);
+    assert.equal(events.filter(event => event.type === 'budget_settle').length, 1);
+  }
+});
+
+test('native Claude refuses an unenforceable local input cap before reserving or dispatching', async () => {
+  const ledger = createBudgetLedger({ caps, clock: Date.now, persist() {} });
+  let calls = 0;
+  const stream = createMeteredStream({ ledger, allocate: createDispatchAllocator(),
+    maxOutputTokens: 5, maxInputTokens: 500, logicalTurnId: () => 'native-input-cap',
+    streamFunction: () => { calls++; throw new Error('must not dispatch'); } });
+  assert.match(modelReadiness(nativeClaude, ledger, 5, 'bounded', 500).detail, /cannot enforce a local input cap/);
+  const result = (await consume(stream, nativeClaude)).result;
+  assert.match(result.errorMessage!, /cannot enforce a local input cap/);
+  assert.equal(calls, 0);
+  assert.equal(ledger.reservations().length, 0);
+});
+
+test('native Claude missing usage or cancellation retains the full token reservation and blocks later calls', async () => {
+  for (const outcome of ['missing', 'cancelled'] as const) {
+    const ledger = createBudgetLedger({ caps, clock: Date.now, persist() {} });
+    const controller = new AbortController();
+    let calls = 0;
+    const stream = createMeteredStream({ ledger, allocate: createDispatchAllocator(), maxOutputTokens: 5,
+      logicalTurnId: () => `native-${outcome}`, streamFunction: selected => {
+        calls++;
+        const source = createAssistantMessageEventStream();
+        if (outcome === 'cancelled') controller.abort();
+        else source.push({ type: 'done', reason: 'stop', message: { ...message(), api: selected.api,
+          provider: selected.provider, model: selected.id,
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } });
+        return source;
+      } });
+    const result = (await consume(stream, nativeClaude, controller.signal)).result;
+    assert.equal(result.stopReason, outcome === 'cancelled' ? 'aborted' : 'error');
+    assert.equal(ledger.snapshot().accounting, 'unknown');
+    assert.equal(ledger.snapshot().used.tokens, 1_100);
+    assert.equal(ledger.snapshot().used.spendMicroUsd, 0);
+    await consume(stream, nativeClaude);
+    assert.equal(calls, 1);
+  }
+});
+
+test('custom native Claude identities never gain the subscription transport exemption', async () => {
+  const f = fixture();
+  for (const candidate of [
+    { ...nativeClaude, provider: 'custom' }, { ...nativeClaude, baseUrl: 'https://example.test' },
+    { ...nativeClaude, api: 'unproved-api' }, { ...nativeClaude, id: 'unrecognized' },
+  ]) assert.equal((await consume(f.stream, candidate)).result.stopReason, 'error');
+  assert.equal(f.calls(), 0);
+});
+
+test('native Claude keeps the existing bounded-run stop when the explicit API budget is exhausted', async () => {
+  const f = fixture(undefined, { ...caps, spendMicroUsd: 0 });
+  assert.equal((await consume(f.stream, nativeClaude)).result.stopReason, 'error');
+  assert.equal(f.calls(), 0);
+  assert.equal(f.ledger.reservations().length, 0);
 });
 
 test('budget refusal produces a terminal Pi error without dispatch', async () => {

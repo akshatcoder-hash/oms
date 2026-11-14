@@ -17,7 +17,7 @@ import {
 } from '@oms/core';
 
 import { BYTES_PER_TOKEN } from './context-trim.ts';
-import { modelOutputCap, modelReservationBound, normalizePiUsage, enforceCachePolicy } from '@oms/core/usage';
+import { modelOutputCap, modelReservationBound, normalizePiUsage, enforceCachePolicy, isClaudeCodeModel } from '@oms/core/usage';
 import type { DispatchAllocator, DispatchRole } from '@oms/core/dispatch';
 
 function count(value: unknown): value is number {
@@ -53,11 +53,14 @@ function cleanMessage(message: AssistantMessage): AssistantMessage {
 
 /** `exempt`: a trusted caller on a ChatGPT subscription also lifts the API-dollar bound for bounded runs. */
 function subscriptionUsage(model: Model<Api>, mode: ExecutionMode | undefined, exempt = false): boolean {
-  return (mode === 'interactive' || exempt) && model.provider === 'openai-codex' &&
-    model.api === 'openai-codex-responses' && model.baseUrl === 'https://chatgpt.com/backend-api';
+  // The native adapter verifies a first-party claude.ai login for every call and refuses API/3p credentials.
+  return isClaudeCodeModel(model) || ((mode === 'interactive' || exempt) && model.provider === 'openai-codex' &&
+    model.api === 'openai-codex-responses' && model.baseUrl === 'https://chatgpt.com/backend-api');
 }
 
 function requestBound(model: Model<Api>, maxOutputTokens: number, mode: ExecutionMode | undefined, maxInputTokens?: number, exempt = false) {
+  // Claude Code adds its own native prompt and protocol overhead outside OMS's payload hook.
+  if (isClaudeCodeModel(model) && maxInputTokens !== undefined) return null;
   const priced = maxInputTokens === undefined ? model : { ...model, contextWindow: maxInputTokens };
   const bound = modelReservationBound(priced, maxOutputTokens);
   if (bound && subscriptionUsage(model, mode, exempt)) bound.spendMicroUsd = 0;
@@ -107,7 +110,7 @@ function readinessForBound(
       (executionMode === 'bounded' && snapshot.remaining.spendMicroUsd === 0)) return { ready: false,
     detail: `The remaining API limit (${formatMicroUsd(snapshot.remaining.spendMicroUsd)}) cannot cover this model's maximum request cost (${formatMicroUsd(bound.spendMicroUsd)}). Choose another model or change the explicit spending limit.` };
   return { ready: true, detail: subscriptionUsage(model, executionMode, exempt)
-    ? 'ChatGPT subscription · provider usage limits apply; no OMS API-dollar charge'
+    ? `${isClaudeCodeModel(model) ? 'Claude Code' : 'ChatGPT'} subscription · provider usage limits apply; no OMS API-dollar charge`
     : 'Ready · paid API usage remains protected by the spending limit' };
 }
 
@@ -116,6 +119,8 @@ export function modelReadiness(
   model: Model<Api>, ledger: BudgetLedger, maxOutputTokens: number, executionMode: ExecutionMode = 'bounded',
   maxInputTokens?: number, subscriptionExempt = false,
 ): { ready: boolean; detail: string } {
+  if (isClaudeCodeModel(model) && maxInputTokens !== undefined) return { ready: false,
+    detail: 'Claude Code cannot enforce a local input cap. Omit the input cap or choose a direct API model.' };
   return readinessForBound(model, ledger, requestBound(model, maxOutputTokens, executionMode, maxInputTokens, subscriptionExempt), executionMode, subscriptionExempt);
 }
 
@@ -201,7 +206,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           return;
         }
         const bound = requestBound(model, config.maxOutputTokens, config.executionMode, config.maxInputTokens, config.subscriptionExempt);
-        const readiness = readinessForBound(model, config.ledger, bound, config.executionMode ?? 'bounded', config.subscriptionExempt);
+        const readiness = modelReadiness(model, config.ledger, config.maxOutputTokens, config.executionMode ?? 'bounded', config.maxInputTokens, config.subscriptionExempt);
         if (!bound || !readiness.ready) {
           failed(`${readiness.detail} No provider request sent.`);
           return;
@@ -274,7 +279,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
         const providerOptions = {
           ...options,
           signal: controller.signal,
-          maxTokens: model.api === 'openai-codex-responses' ? model.maxTokens : modelCap,
+          maxTokens: model.api === 'openai-codex-responses' || isClaudeCodeModel(model) ? model.maxTokens : modelCap,
           transport: 'sse' as const,
           maxRetries: 0,
           // Leave an absent timeout to Pi's per-request settings resolver (including its

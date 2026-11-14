@@ -6,9 +6,27 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { DEFAULT_BUDGET_CAPS } from "@oms/core";
-import { headlessCaps, parseLaunchOptions } from "../src/harness.ts";
+import type { HarnessSession, HarnessSessionOptions } from '@oms/engine';
+import { resumeHarnessArguments } from '../src/interactive.ts';
+import { headlessCaps, headlessInputTokens, parseLaunchOptions, runHarnessCommand } from "../src/harness.ts";
 
 const bin = fileURLToPath(new URL("../src/bin.ts", import.meta.url));
+
+test('resume command binds the OMS session and current native model instead of the original launch selection', () => {
+  const options = { environment: { binary: '/trusted/surfpool' }, modelSelection: { provider: 'openai', id: 'old-model' } } as HarnessSessionOptions;
+  const harness = { workspace: { root: '/repo with spaces', stateDir: '/private/state/workspaces/w' }, task: { id: 'task-one' },
+    session: { model: { provider: 'claude-code', id: 'sonnet' } } } as HarnessSession;
+  const args = resumeHarnessArguments(options, harness, 'oms-owner-id', ['--tokens', '123']);
+  const value = (flag: string) => args[args.indexOf(flag) + 1];
+  assert.equal(value('--session'), 'oms-owner-id');
+  assert.equal(value('--provider'), 'claude-code');
+  assert.equal(value('--model'), 'sonnet');
+  assert.equal(value('--workspace'), '/repo with spaces');
+  assert.equal(value('--task'), 'task-one');
+  assert.equal(value('--surfpool-binary'), '/trusted/surfpool');
+  assert.equal(value('--tokens'), '123');
+  assert.equal(args.includes('old-model'), false);
+});
 
 test("local workspace initialization records an ignored repository and external state without a model request", t => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "oms-cli-workspace-")));
@@ -79,6 +97,21 @@ test("headless caps default to $4 and 40 minutes but honor explicit flags", () =
   const explicit = headlessCaps(parseLaunchOptions(["--spend-usd", "10", "--minutes", "90"]));
   assert.equal(explicit.spendMicroUsd, 10_000_000);
   assert.equal(explicit.wallClockMs, 90 * 60_000);
+});
+
+test('headless native Claude omits the default input cap and rejects an explicit unsupported cap before opening a workspace', async t => {
+  assert.equal(headlessInputTokens(parseLaunchOptions([]), 'claude-code'), undefined);
+  for (const provider of ['openai', 'openai-codex', undefined]) {
+    assert.equal(headlessInputTokens(parseLaunchOptions([]), provider), 65_536);
+    const explicit = parseLaunchOptions(['--input-tokens', '128'], ['--input-tokens']);
+    assert.equal(headlessInputTokens(explicit, provider), 128);
+  }
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'oms-claude-input-cap-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  await assert.rejects(runHarnessCommand('run', ['--headless', '--workspace', base, '--task', 'test',
+    '--provider', 'claude-code', '--model', 'sonnet', '--json-out', join(base, 'record.json'), '--input-tokens', '128']), /--input-tokens is unavailable for Claude Code/);
+  assert.equal(existsSync(join(base, '.oms')), false);
+  assert.equal(existsSync(join(base, 'record.json')), false);
 });
 
 test("launch cap parsing refuses malformed, repeated and unsafe values before creating state", () => {

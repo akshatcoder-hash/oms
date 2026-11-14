@@ -181,7 +181,7 @@ export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, 
     const savedBackend = existsSync(backendFile) ? readPrivateJson(backendFile) as { backend?: unknown } : { backend: 'docker' };
     if (savedBackend.backend !== 'host' && savedBackend.backend !== 'docker') throw new WorkspaceError('RECOVERY_PROCESS_UNVERIFIABLE', 'Recorded execution backend is invalid');
     const backend = savedBackend.backend;
-    const extraRoots = backend === 'host' ? [task.codeRoot] : [];
+    const extraRoots = [...(backend === 'host' ? [task.codeRoot] : []), join(workspace.stateDir, 'sessions', task.id)];
     const withinRuntime = (cwd: string) => [context.workDir, ...extraRoots].some(root => contains(root, cwd));
     const directory = join(context.stateDir, 'runtime-processes');
     const records = runtimeRecords(directory, expected, context.workDir, extraRoots, backend === 'host');

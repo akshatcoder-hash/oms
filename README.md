@@ -15,23 +15,25 @@ npx @barestate/oms
 
 `oms --version` prints the version. To run a source checkout instead, use `npm ci --ignore-scripts`, run `node packages/cli/src/bin.ts doctor --install`, then `npm start`. See [quickstart](docs/quickstart.md) for the source setup commands.
 
-In OMS, enter `/connect`, choose your access method, then `/model` to select a connected direct model. Type a request only when you want to send it to the provider. Opening OMS sends no model request. `/help` lists commands; `/quit` closes the session. The starter keeps your files and conversation across launches.
+In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. Type a request only when you want to send it to the provider. Opening OMS sends no model request. `/help` lists commands; `/quit` closes the session. The starter keeps your files and conversation across launches.
 
 See [quickstart](docs/quickstart.md) for each access path and [release checklist](docs/release.md) for the installable archive and clean-machine smoke test.
 
 ## Model access
 
-OMS uses the model access you already have. Provider credentials stay in private OMS configuration and are never placed in chat or task files.
+OMS uses the model access you already have. Provider credentials stay in private configuration and are never placed in chat or task files. Claude Code keeps its own login; OMS checks it through the installed CLI.
 
 | Access you have | Connect in OMS |
 | --- | --- |
 | Codex / ChatGPT subscription | `/connect` → OpenAI Codex subscription; `/model` → Codex model |
-| Claude Code subscription | Third-party Claude subscription login is unavailable in the current TUI; see quickstart |
+| Claude Code subscription | Sign in with `claude auth login`, then `/connect` → local Claude Code login; `/model` → **Claude Code** → Sonnet, Opus or Haiku |
 | MiMo Token Plan | `/connect` → your Xiaomi Token Plan region; `/model` → MiMo |
 | OpenCode Go | `/connect` → OpenCode Go; `/model` → available model |
 | OpenAI or Anthropic API key | `/connect` → the provider; arbitrary custom endpoints are not loaded by this cut |
 
 OMS makes no claim of a higher pass rate than any single model.
+
+Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. The starter and standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining task files and verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription).
 
 ## What “done” means
 
@@ -96,7 +98,7 @@ Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeou
 - OMS never holds mainnet keys. Mainnet work is handed to the user as a transaction to review and sign. This TUI has no signer connection.
 - Host mode has no sandbox on Linux in v0.1. Seatbelt on macOS and Docker isolation do not protect against a compromised kernel or hostile code you run outside OMS.
 - Provider plans have their own limits. OMS retains uncertain usage and does not treat unknown charges as free.
-- Custom `models.json` loading and third-party Claude subscription login are disabled in the current direct runtime.
+- Custom `models.json` loading is disabled. Claude subscriptions use the installed Claude Code CLI and its own login; direct Anthropic access uses an API key.
 - Verification covers pinned checks, not mainnet readiness, production capacity, or a professional security audit.
 
 ## Benchmark

@@ -18,6 +18,7 @@ import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
 import { Conversation, describeValue, displayText } from './transcript.ts';
 import { READ_ONLY_COMMANDS, prepareSlash } from './slash-commands.ts';
+import { claudeChatStatus, nativeChatDisplayHistory } from './claude-chat.ts';
 import type { CommandOutput, Prepared } from './solana-commands.ts';
 import { goalSummary, newGoal, parseGoalArguments, runGoalCheck, runGoalLoop, taskVerifierItem, type Goal } from './goal.ts';
 import { StartupArt, artShow, settleKittyGraphics, type StartupArtMode } from './startup-art.ts';
@@ -160,7 +161,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   const shell = new TerminalPane(harness, { theme: () => theme!, render: requestRender, notice: setNotice,
     requestFocus: () => { if (!setup && !paletteInput) setFocus('terminal'); }, hostRows: () => terminal.rows,
     columns: () => terminal.columns, rows: () => Math.max(3, Math.floor(terminal.rows / 3)) });
-  const conversation = new Conversation(harness.session.messages, (message, provider) => actionError('agent', message, provider));
+  const conversation = new Conversation(nativeChatDisplayHistory(harness), (message, provider) => actionError('agent', message, provider));
   const art = new StartupArt();
   let artMode = options.startupArt ?? 'auto';
   // Chosen from the environment (after the one Kitty graphics query over SSH) and again when /art changes the setting.
@@ -613,7 +614,8 @@ export async function runOmsInterface(harness: HarnessSession, options: {
           checkedItems.slice(0, 12).map(item => `${singleLine(item.id, 80)}  ${singleLine(item.status, 80)}  ${singleLine(item.title, 160)}`).join('\n') +
           `\nModel: ${selectedModelChoice()?.detail ?? 'Use /model to review connected providers and selection.'}\nToken allowance / spend / time: ${budgetSummary()}\n${roleSummary()}`);
       } else if (command === 'session' && !argument) {
-        conversation.note('session', `Session: ${harness.session.sessionManager.getSessionId()}\nRepository: ${harness.workspace.root}\nTask: ${harness.task.id}\nWorktree: ${harness.task.codeRoot}\nBranch: ${harness.task.branch}\nOne live session; changing focus does not dispatch work.`);
+        conversation.note('session', `OMS session: ${harness.session.sessionManager.getSessionId()}\nRepository: ${harness.workspace.root}\nTask: ${harness.task.id}\nWorktree: ${harness.task.codeRoot}\nBranch: ${harness.task.branch}\nChanging focus does not dispatch work.` +
+          (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''));
       } else if (command === 'review' && !argument) {
         if (workbench.dirty || shell.running) {
           setNotice('Save or close unsaved files and stop the terminal before reviewing.'); return;
@@ -665,6 +667,19 @@ export async function runOmsInterface(harness: HarnessSession, options: {
         else conversation.note('goal', goalSummary(goal, budgetSummary()));
       } else if (command === 'clear') {
         if (argument) { setNotice('Usage: /clear; draft retained.'); return; }
+        if (harness.session.model?.provider === 'claude-code') {
+          const chat = harness.nativeChat;
+          if (!chat) { setNotice('Native Claude chat controls are unavailable; the conversation was not cleared.'); return; }
+          begin('command', composerDraft, async () => {
+            await chat.reset();
+            harness.session.agent.reset();
+            harness.session.sessionManager.resetLeaf();
+            goal = undefined;
+            conversation.clear();
+            conversation.note('new native Claude conversation', 'Fresh native chat boundary. Previous chat history is not replayed. Files, worktree and verification are retained.');
+          });
+          return;
+        }
         try {
           harness.session.agent.reset();
           // The session file keeps its history; the next entry starts a new branch, so a resume sees only what follows.
@@ -743,7 +758,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     const model = harness.session.model;
     const choice = selectedModelChoice();
     const modelLabel = model && hasModelConfiguration(model)
-      ? `${singleLine(model.provider, 80)}/${singleLine(model.id, 120)}${choice?.selectable === false ? ' · unavailable · /model' : ''}` : 'No model · /connect or /model';
+      ? `${model.provider === 'claude-code' ? 'Native chat · ' : ''}${singleLine(model.provider, 80)}/${singleLine(model.id, 120)}${choice?.selectable === false ? ' · unavailable · /model' : ''}` : 'No model · /connect or /model';
     const budget = harness.budget.snapshot();
     const scope = budget.executionMode === 'interactive'
       ? (['tokens', 'wallClockMs'] as const) : (['tokens', 'spendMicroUsd', 'wallClockMs'] as const);

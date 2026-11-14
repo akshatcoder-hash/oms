@@ -99,6 +99,81 @@ test('Claude subscription explains the provider restriction and never starts log
   assert.deepEqual(f.starts, []);
 });
 
+for (const available of [false, true]) {
+  test(`local Claude Code setup ${available ? 'checks access and offers models' : 'gives actionable CLI login guidance'} without credential entry`, async () => {
+    let configured = false;
+    let checks = 0;
+    const notices: string[] = [];
+    const selections: string[] = [];
+    const pane = new SetupPane({
+      listProviders: () => [{ id: 'claude-code', name: 'Claude Code', configured, apiKey: false, oauth: true,
+        oauthLabel: 'Check local Claude Code subscription login' }],
+      listModels: () => [{ provider: 'claude-code', id: 'sonnet', name: 'Claude Code Sonnet', configured,
+        selectable: configured, detail: configured ? 'Local subscription' : 'Run claude auth login.' }],
+      async loginProvider(provider, method, interaction) {
+        assert.equal(provider, 'claude-code');
+        assert.equal(method, 'oauth');
+        checks++;
+        interaction.notify({ type: 'info', message: 'Checking local subscription login.' });
+        if (!available) throw new Error('synthetic-private-account-identifier');
+        configured = true;
+      },
+      async selectModel(provider, id) { selections.push(`${provider}/${id}`); },
+      async importEnvironment() { throw new Error('Not available'); },
+    }, { mode: 'connect', theme: () => getTheme('gruvbox')!, rows: () => 35,
+      render() {}, close() {}, notice: message => notices.push(message), selectTheme() { return false; } });
+    const screen = () => pane.body.render(160).map(stripVTControlCharacters).join('\n');
+    assert.match(screen(), /Local Claude Code/);
+    pane.handleInput('\r'); await flush();
+    assert.equal(checks, 1);
+    assert.doesNotMatch(screen(), /Stored only in private OMS configuration|synthetic-private-account-identifier/);
+    assert.deepEqual(selections, []);
+    if (available) {
+      assert.match(screen(), /claude-code\/sonnet/);
+      assert.match(screen(), /Claude owns a native chat for this OMS conversation/);
+      assert.match(screen(), /approvals, sandbox and independent verification/);
+      assert.match(notices.join(' '), /Local Claude Code login checked/);
+      pane.handleInput('\r'); await flush();
+      assert.deepEqual(selections, ['claude-code/sonnet']);
+      assert.match(notices.at(-1)!, /Native Claude chat selected: claude-code\/sonnet/);
+    } else {
+      assert.match(screen(), /Claude Code is not ready/);
+      assert.match(screen(), /claude auth login/);
+      assert.match(screen(), /claude auth status/);
+      assert.doesNotMatch(screen(), /Secret:|credentials may already be saved/);
+      assert.deepEqual(notices, []);
+    }
+    pane.dispose();
+  });
+}
+
+test('unconfigured Claude Code is visible in /model and checks installed CLI login before offering models', async () => {
+  let configured = false; let checks = 0;
+  const selected: string[] = [];
+  const pane = new SetupPane({
+    listProviders: () => [{ id: 'claude-code', name: 'Claude Code', configured, apiKey: false, oauth: true,
+      oauthLabel: 'Check local Claude Code subscription login' }],
+    listModels: () => ['sonnet', 'opus', 'haiku'].map(id => ({ provider: 'claude-code', id, name: `Claude Code ${id}`, configured, selectable: configured })),
+    async loginProvider(provider, method) { assert.equal(provider, 'claude-code'); assert.equal(method, 'oauth'); configured = true; checks++; },
+    async selectModel(provider, id) { selected.push(`${provider}/${id}`); },
+    async importEnvironment() { throw new Error('Not available'); },
+  }, { mode: 'model', theme: () => getTheme('gruvbox')!, rows: () => 35,
+    render() {}, close() {}, notice() {}, selectTheme() { return false; } });
+  const screen = () => pane.body.render(160).map(stripVTControlCharacters).join('\n');
+  assert.match(screen(), /Claude Code/);
+  assert.match(screen(), /check installed CLI and login/);
+  assert.deepEqual(selected, []);
+  pane.handleInput('\r'); await flush();
+  assert.equal(checks, 1);
+  for (const id of ['sonnet', 'opus', 'haiku']) assert.ok(screen().includes(`claude-code/${id}`));
+  assert.match(screen(), /\/session shows the native session/);
+  assert.doesNotMatch(screen(), /\/claude/);
+  assert.deepEqual(selected, []);
+  pane.handleInput('opus'); pane.handleInput('\r'); await flush();
+  assert.deepEqual(selected, ['claude-code/opus']);
+  pane.dispose();
+});
+
 test('theme picker still selects locally without auth', () => {
   const f = fixture('theme');
   f.pane.handleInput('gruvbox'); f.pane.handleInput('\r');

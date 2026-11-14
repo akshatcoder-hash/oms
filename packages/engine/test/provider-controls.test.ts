@@ -214,3 +214,50 @@ test('direct admission readiness gates explicit selection without replacing the 
   await controls.selectModel('openai-codex', 'controlled');
   assert.equal(selected, 'controlled');
 });
+
+test('local Claude Code setup checks native access without storing credentials or changing the selected model', async () => {
+  const f = await fixture();
+  const faux = createFauxCore({ api: 'anthropic-messages', provider: 'claude-code', models: [{
+    id: 'sonnet', contextWindow: 1_000, maxTokens: 100,
+    cost: { input: 1, output: 2, cacheRead: 0.5, cacheWrite: 1 },
+  }] });
+  f.runtime.registerNativeProvider({ ...f.runtime.getProvider('anthropic')!, id: 'claude-code', name: 'Claude Code', auth: {},
+    getModels: () => faux.models, getAllModels: () => faux.models.map(model => ({ ...model, type: 'chat' as const })),
+  });
+  let status = { installed: false, configured: false, detail: 'Install Claude Code, then run claude auth login.' };
+  let inspections = 0;
+  let authChecks = 0;
+  let selected = '';
+  const controls = createProviderControls({ modelRuntime: f.runtime,
+    session: { async setModel(model) { selected = model.id; } },
+    maxOutputTokens: 50, signal: f.controller.signal, checkAuthFile() { authChecks++; },
+    withUserOperation: action => action(),
+    claudeCodeAccess: { status: () => status, async inspect(signal) { signal?.throwIfAborted(); inspections++; return status; } },
+  });
+  const provider = controls.listProviders().find(provider => provider.id === 'claude-code')!;
+  assert.equal(provider.apiKey, false);
+  assert.equal(provider.oauth, true);
+  assert.equal(provider.configured, false);
+  assert.match(provider.oauthLabel!, /local Claude Code/);
+  assert.equal(controls.listModels().find(model => model.provider === 'claude-code')?.selectable, false);
+  const guidance: string[] = [];
+  const interaction: AuthInteraction = {
+    async prompt() { throw new Error('Native setup must not ask for a credential'); },
+    notify(event) { if (event.type === 'info') guidance.push(event.message); },
+  };
+  await assert.rejects(controls.loginProvider('claude-code', 'oauth', interaction), /claude auth login/);
+  await assert.rejects(controls.connectProvider('claude-code', 'synthetic-key'), /literal API-key/);
+  assert.match(guidance.join(' '), /without copying credentials or sending a model request/);
+  status = { installed: true, configured: true, detail: 'Claude Code subscription ready.' };
+  await controls.loginProvider('claude-code', 'oauth', interaction);
+  assert.equal(selected, '', 'a successful access check must not silently select a model');
+  assert.equal(controls.listProviders().find(provider => provider.id === 'claude-code')?.configured, true);
+  await controls.selectModel('claude-code', 'sonnet');
+  assert.equal(selected, 'sonnet');
+  assert.equal(inspections, 3, 'selection refreshes native status rather than trusting cached readiness');
+  assert.equal(authChecks, 0, 'native auth never opens the OMS credential file');
+  assert.equal(f.stored.size, 0);
+  status = { installed: true, configured: false, detail: 'Run claude auth login again.' };
+  await assert.rejects(controls.selectModel('claude-code', 'sonnet'), /claude auth login/);
+  assert.equal(selected, 'sonnet');
+});

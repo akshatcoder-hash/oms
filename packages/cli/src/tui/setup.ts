@@ -104,23 +104,27 @@ export class SetupPane {
     this.models.clear();
     this.selected = '';
     this.list = undefined;
+    const providers = this.harness.listProviders();
     if (this.options.mode === 'model') {
-      for (const provider of this.harness.listProviders().filter(provider => provider.configured)) {
+      for (const provider of providers.filter(provider => provider.configured)) {
         if (!this.harness.listModels().some(model => model.provider === provider.id)) continue;
         this.choices.push({ value: JSON.stringify([provider.id, 'configured']),
-          label: provider.id === 'openai-codex' ? 'Codex models (ChatGPT)' : `${line(provider.name)} models`,
-          description: 'Connected · choose a model explicitly' });
+          label: provider.id === 'openai-codex' ? 'Codex models (ChatGPT)'
+            : provider.id === 'claude-code' ? 'Claude Code' : `${line(provider.name)} models`,
+          description: provider.id === 'claude-code' ? 'Installed CLI · subscription · Sonnet, Opus or Haiku' : 'Connected · choose a model explicitly' });
       }
     }
-    for (const provider of this.harness.listProviders()) {
+    for (const provider of providers) {
       if (this.options.mode === 'model' && provider.configured &&
           this.harness.listModels().some(model => model.provider === provider.id)) continue;
       if (provider.apiKey) this.choices.push({ value: JSON.stringify([provider.id, 'api_key']),
         label: line(provider.apiKeyLabel ?? `${provider.name} API key`),
         description: line(`${provider.id} · ${provider.configured ? 'configured' : 'add API key'} · ${provider.id === 'opencode-go' ? 'subscription limits; optional extra usage billing' : 'usage-based provider billing'}`) });
       if (provider.oauth || provider.oauthUnavailable) this.choices.push({ value: JSON.stringify([provider.id, 'oauth']),
-        label: line(provider.oauthLabel ?? `${provider.name} subscription`),
-        description: provider.oauthUnavailable ? 'Unavailable in third-party OMS · choose for explanation'
+        label: this.options.mode === 'model' && provider.id === 'claude-code' ? 'Claude Code'
+          : line(provider.oauthLabel ?? `${provider.name} subscription`),
+        description: provider.id === 'claude-code' ? `Local Claude Code · ${provider.configured ? 'login checked' : 'check installed CLI and login'} · plan limits apply`
+          : provider.oauthUnavailable ? 'Unavailable in direct model access · choose for explanation'
           : `${provider.id} · ${provider.configured ? 'configured' : 'sign in'} · plan limits apply; not unlimited` });
       if (!provider.apiKey && !provider.oauth && !provider.oauthUnavailable && provider.configured) {
         this.choices.push({ value: JSON.stringify([provider.id, 'configured']), label: line(provider.name),
@@ -194,9 +198,17 @@ export class SetupPane {
     if (this.provider === 'opencode-go') {
       lines.push(...wrapTextWithAnsi('Go: plan limits apply; provider extra-usage settings may allow additional billing. OMS uses catalog-equivalent spend, not your subscription invoice.', Math.max(1, width)));
     }
+    if (this.provider === 'claude-code') {
+      lines.push(...wrapTextWithAnsi('Claude Code uses its own local subscription login. OMS does not copy its credentials. Plan limits apply.', Math.max(1, width)));
+      lines.push(...wrapTextWithAnsi('Claude owns a native chat for this OMS conversation. OMS tools keep their approvals, sandbox and independent verification.', Math.max(1, width)));
+      lines.push(...wrapTextWithAnsi('Returning to Claude resumes its own history. Messages sent to other providers are not imported. /session shows the native session.', Math.max(1, width)));
+      lines.push(...wrapTextWithAnsi('OMS reserves full catalog context and output capacity; Claude Code cannot enforce the local output cap. Total token and time limits still apply.', Math.max(1, width)));
+      if (this.stage === 'auth') lines.push(...wrapTextWithAnsi('Install the official Claude Code CLI, run claude auth login in another terminal, then check claude auth status. Return to /connect after signing in.', Math.max(1, width)));
+    }
     if (this.stage === 'auth') {
-      lines.push(...['Stored only in private OMS configuration; never in chat or task files.',
-        this.method === 'api_key' ? 'Saving a key does not validate it or send a model request.' : 'Open the URL yourself. Sign-in contacts the provider; no model request is sent.',
+      lines.push(...[this.provider === 'claude-code' ? 'Authentication stays in Claude Code; this step checks local access without a model request.'
+        : 'Stored only in private OMS configuration; never in chat or task files.',
+        ...(this.provider === 'claude-code' ? [] : [this.method === 'api_key' ? 'Saving a key does not validate it or send a model request.' : 'Open the URL yourself. Sign-in contacts the provider; no model request is sent.']),
         ...(this.authUrl ? [hyperlink(this.authUrl, this.authUrl), 'Ctrl+X copies the complete link; do not reconstruct it from wrapped text.'] : []),
         ...this.authLines, ...(this.prompt && this.prompt.type !== 'select' ? [line(this.prompt.message)] : [])]
         .flatMap(text => wrapTextWithAnsi(colorText(palette, 'muted', text), Math.max(1, width))));
@@ -329,7 +341,12 @@ export class SetupPane {
     this.options.render();
     try {
       await this.harness.selectModel(model.provider, model.id);
-      if (!this.disposed) { this.options.notice(`Model: ${line(model.provider)}/${line(model.id)}`); this.options.close(); }
+      if (!this.disposed) {
+        this.options.notice(model.provider === 'claude-code'
+          ? `Native Claude chat selected: ${line(model.provider)}/${line(model.id)} · /session`
+          : `Model: ${line(model.provider)}/${line(model.id)}`);
+        this.options.close();
+      }
     } catch {
       const current = this.harness.listModels().find(item => item.provider === model.provider && item.id === model.id);
       this.message = current?.selectable === false && current.detail ? line(current.detail)
@@ -383,12 +400,15 @@ export class SetupPane {
         this.authLines = [];
         this.authUrl = undefined;
         this.showModels(provider);
-        this.options.notice(method === 'api_key' ? `Provider configuration saved for ${line(provider)}; not validated. Select a model.`
+        this.options.notice(provider === 'claude-code' ? 'Local Claude Code login checked; select a model. Plan limits apply.'
+          : method === 'api_key' ? `Provider configuration saved for ${line(provider)}; not validated. Select a model.`
           : `Sign-in completed for ${line(provider)}. Plan limits still apply; select a model.`);
       }
     } catch {
       if (!this.disposed && !this.controller.signal.aborted) {
-        this.message = 'Setup incomplete; credentials may already be saved. Check private configuration before retrying.';
+        this.message = provider === 'claude-code'
+          ? 'Claude Code is not ready. Install the official CLI, run claude auth login and check claude auth status in another terminal, then reopen /connect.'
+          : 'Setup incomplete; credentials may already be saved. Check private configuration before retrying.';
       }
     } finally {
       this.pending = false;

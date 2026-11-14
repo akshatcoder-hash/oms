@@ -192,3 +192,18 @@ test('host recovery tracks worktree children and uses saved backend without Dock
   assert.equal(inspectMutationLease(f.task.leaseFile).status, 'absent');
   assert.equal(readFileSync(join(f.task.codeRoot, 'saved.txt'), 'utf8'), 'saved work\n');
 });
+
+test('host recovery accounts for native session children outside the task mounts', async t => {
+  const f = await fixture(t);
+  writeFileSync(join(f.context.stateDir, 'runtime-backend.json'), JSON.stringify({ backend: 'host' }), { mode: 0o600 });
+  const nativeRoot = join(f.workspace.stateDir, 'sessions', f.task.id);
+  const nativeWork = join(nativeRoot, `${randomUUID()}.claude.json.work`);
+  mkdirSync(nativeWork, { recursive: true, mode: 0o700 });
+  const running = await runtimeChild(t, nativeWork);
+  await assert.rejects(recoverHarnessWorkspace(f.workspace, f.task, f.owner), { code: 'RECOVERY_PROCESS_UNTRACKED' });
+  const tracker = trackRuntimeProcesses(f.task.leaseFile, f.owner, f.context.workDir, [nativeRoot], true);
+  tracker.onSpawn(running.child.pid!, nativeWork);
+  await recoverHarnessWorkspace(f.workspace, f.task, f.owner); await running.exited;
+  assert.equal(inspectMutationLease(f.task.leaseFile).status, 'absent');
+  assert.ok(existsSync(nativeWork)); assert.equal(readFileSync(f.saved, 'utf8'), '{"history":"preserve"}\n');
+});

@@ -16,6 +16,13 @@ function pricingKnown(model: Model<Api>): boolean {
 }
 
 const curated = Object.values(MODEL_CATALOG);
+
+/** This route is implemented by OMS's subscription-only native Claude Code adapter. */
+export function isClaudeCodeModel(model: Model<Api>): boolean {
+  return model.provider === 'claude-code' && model.api === 'claude-code' && model.baseUrl === 'claude-code://local'
+    && ['sonnet', 'opus', 'haiku'].includes(model.id);
+}
+
 function curatedSpec(model: Model<Api>): WorkerSpec | undefined {
   return curated.find(spec => spec.modelId === model.id && spec.api === model.api &&
     ((spec.provider === model.provider && spec.baseUrl === model.baseUrl) ||
@@ -64,15 +71,16 @@ export function normalizePiUsage(model: Model<Api>, usage: Usage): {
 export const modelOutputCap = (model: Model<Api>, maxOutputTokens: number): number => Math.min(maxOutputTokens, model.maxTokens);
 
 export function modelReservationBound(model: Model<Api>, sessionMaxOutputTokens: number): { tokens: number; spendMicroUsd: number } | null {
-  if (!count(sessionMaxOutputTokens) || sessionMaxOutputTokens === 0 || supportedApis[model.api] !== true || !pricingKnown(model) ||
+  if (!count(sessionMaxOutputTokens) || sessionMaxOutputTokens === 0 ||
+      (supportedApis[model.api] !== true && !isClaudeCodeModel(model)) || !pricingKnown(model) ||
       !count(model.contextWindow) || model.contextWindow === 0 || !count(model.maxTokens) || model.maxTokens === 0) return null;
   const maxOutputTokens = modelOutputCap(model, sessionMaxOutputTokens);
   if (maxOutputTokens > model.contextWindow) return null;
   const rates = [model.cost, ...(model.cost.tiers ?? [])];
-  // Codex does not accept a client output cap. Reserve its entire catalog output capacity.
+  // Native Codex and Claude Code do not accept a reliable client output cap. Reserve their entire catalog output capacity.
   // Subscription spend is a conservative catalog-equivalent bound, not an invoice or free usage.
-  const outputTokens = model.api === 'openai-codex-responses' ? model.maxTokens : maxOutputTokens;
-  if (outputTokens === 0) return null;
+  const outputTokens = model.api === 'openai-codex-responses' || isClaudeCodeModel(model) ? model.maxTokens : maxOutputTokens;
+  if (outputTokens === 0 || outputTokens > model.contextWindow) return null;
   // Full context capacity, not a tokenizer guess. This includes long-cache writes.
   const inputRate = Math.max(...rates.flatMap((rate) => [rate.input, rate.cacheRead, rate.cacheWrite, rate.input * 2]));
   const outputRate = Math.max(...rates.map((rate) => rate.output));

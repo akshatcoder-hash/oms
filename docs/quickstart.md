@@ -24,11 +24,45 @@ In `/connect`, choose **OpenAI Codex** subscription sign-in. Open the displayed 
 
 ## Claude Code subscription
 
-```text
-/connect
+Install the [official Claude Code CLI](https://code.claude.com/docs/en/setup), then sign in from your terminal:
+
+```sh
+claude auth login
+claude auth status
 ```
 
-Choose the Anthropic subscription entry to read its availability explanation. The current runtime explicitly rejects third-party Claude subscription login, so there is no successful TUI connection sequence for it.  Do not copy Claude tokens into OMS.
+Choose your Claude subscription when signing in. OMS requires a first-party Claude account login; an API-key, Bedrock, Vertex or other provider login does not configure this connector. Return to OMS:
+
+```text
+/connect
+/model
+```
+
+In `/connect`, choose **Check local Claude Code subscription login**. This checks the installed CLI and its login without sending a model request. In `/model`, choose **Claude Code**, then **Sonnet**, **Opus** or **Haiku** (listed as `claude-code/sonnet`, `claude-code/opus` and `claude-code/haiku`). Selecting it sends no model request; the first message starts the native chat. If you sign in or out in another terminal, reopen `/connect` to refresh the check. Do not copy Claude tokens into OMS; authentication stays with Claude Code.
+
+OMS runs the installed, unmodified CLI as a native Claude chat with a durable session ID bound to this OMS conversation. Claude keeps its own history across user messages and resumes that history when OMS restarts. OMS supplies trusted task instructions and tools; native MCP calls receive the actual results from OMS's guarded executors. Claude's built-in tools, project hooks and additional MCP servers are disabled for this chat, so its operations keep OMS's approvals and sandbox. Claude's own final response cannot close a task without the pinned verification checks passing.
+
+Use the existing session and conversation actions:
+
+- `/session` shows the OMS owner, observed native session ID and state: `new` before initialization, `ready` after the native process initializes, or `disconnected` after it stops. A successful login check alone does not mean the chat is ready.
+- The starter and standard OMS resume command restore the saved native identity. With Claude Code selected in `/model`, the next message resumes that history. If the history cannot be resumed, OMS reports the failure without silently creating a replacement chat.
+- With Claude Code selected, `/clear` starts a fresh native chat with trusted current task context and clears the OMS conversation view. Previous chat messages are not replayed into the new thread. Task files, requirement status and verification remain intact. If the native reset fails, OMS retains the conversation. Wait for the current turn to finish or use `/cancel` first.
+
+If a native tool batch was interrupted or the native protocol failed verification, review the OMS transcript and tool results before proceeding. Select **Claude Code** in `/model`, then use `/clear` to start a fresh native chat and clear the conversation view, retaining task files and verification. Interrupted tools are never replayed automatically; restarting OMS or reselecting the model does not bypass this guard.
+
+Switching to another provider stops the native transport. Switching back resumes Claude's own thread; messages exchanged with other providers are not imported into it. This connector accepts text conversations and OMS tools. Names such as `sonnet` select the connector's cataloged Claude model. Subscription limits and Claude extra-usage settings still apply; OMS does not fall back to an Anthropic API key. Use the Anthropic API-key provider for direct API access.
+
+For a repository task, launch a native chat explicitly:
+
+```sh
+oms run --workspace /path/to/repo --task first --provider claude-code --model sonnet
+```
+
+After quitting, use the printed resume command, or add `--session <OMS-session-id>` to that launch. `--session` takes the OMS identity from `/session`, which selects the bound native Claude history; it does not take an arbitrary Claude session ID. The bare `oms` starter reopens its saved OMS conversation and native binding on the next launch.
+
+OMS reserves the model's full catalog context and output capacity because Claude Code cannot enforce OMS's local per-request output cap. Total token and time limits remain active. Headless runs can select `--provider claude-code --model sonnet`; they omit the input cap that other headless providers use by default. An explicit `--input-tokens` is refused before opening the workspace because the native CLI adds its own request overhead.
+
+Anthropic documents [hosting unmodified Claude Code](https://code.claude.com/docs/en/legal-and-compliance) and [using a signed-in Claude plan with programmatic CLI requests](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan). This connector uses your local CLI and account, without a separate OMS Claude login.
 
 ## MiMo Token Plan
 
@@ -100,4 +134,4 @@ More commands, none of which call a model unless noted:
 - Inspect: `/diff [path]` shows task changes against the base (long diffs open read-only in the workbench) and `/usage` shows tokens, spend, time and the caps.
 - Solana, on the task's local Surfpool only: `/chain` (RPC, slot, health), `/rewind confirm` (restart the chain from its starting state), `/airdrop <address> [sol]` (up to 100), `/account <address>`, `/tx <signature>`, `/program <name|id> [instruction]` and `/error <code> [program]`.
 
-Commands that read (`/status`, `/usage`, `/diff`, `/chain`, `/account <address>`, `/tx`, `/program`, `/error`) work while the agent runs; the rest wait for it or `/cancel`. For a provider error, retain the error category and provider/model name, but omit credentials and sign-in URLs from reports.
+Commands that read (`/status`, `/session`, `/usage`, `/diff`, `/chain`, `/account <address>`, `/tx`, `/program`, `/error`) work while the agent runs; the rest wait for it or `/cancel`. For a provider error, retain the error category and provider/model name, but omit credentials and sign-in URLs from reports.
