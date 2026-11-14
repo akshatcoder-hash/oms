@@ -181,7 +181,12 @@ export function createOmsAccountControls(options: OmsAccountOptions): OmsAccount
       if (!reply.ok) {
         if (reply.data.error === 'authorization_pending') continue;
         if (reply.data.error === 'slow_down') { interval += 5000; continue; }
-        if (reply.data.error === 'access_denied') throw new Error('OMS device authorization denied.');
+        if (reply.data.error === 'access_denied') {
+          // error_description is untrusted server text: compared with one fixed value, never printed.
+          throw new Error(reply.data.error_description === 'waitlisted'
+            ? `You're on the OMS waitlist. We'll email you as soon as you're in. Have an invite code? Enter it at ${origin}/device, then run /login again.`
+            : 'Sign-in was declined in the browser. Run /login to try again.');
+        }
         if (reply.data.error === 'expired_token') throw new Error('OMS device authorization expired. Start login again.');
         throw new Error('OMS device authorization failed. Start a new login.');
       }

@@ -74,7 +74,7 @@ test('pending and slow_down respect the interval and its permanent five-second i
   const f = await fixture(t);
   f.state.poll = (_request, response) => f.json(response, { error: f.polls() === 1 ? 'authorization_pending' : f.polls() === 2 ? 'slow_down' : 'access_denied', error_description: 'untrusted secret diagnostic' }, 400);
   const account = await createOmsAccountControls(f.options);
-  await assert.rejects(account.login(f.interaction, new AbortController().signal), /denied/i);
+  await assert.rejects(account.login(f.interaction, new AbortController().signal), e => e instanceof Error && e.message === 'Sign-in was declined in the browser. Run /login to try again.' && !e.message.includes('untrusted'));
   const times = f.calls.filter(c => c.path.endsWith('/token')).map(c => c.time);
   assert.equal(times.length, 3);
   assert.ok(times[1]! - times[0]! >= 950);
@@ -91,6 +91,17 @@ for (const error of ['access_denied', 'expired_token', 'invalid_grant', 'invalid
     assert.equal(f.polls(), 1); assert.equal(existsSync(f.accountPath), false);
   });
 }
+
+test('a waitlisted account gets the waitlist message and no credential is written', async t => {
+  const f = await fixture(t);
+  f.state.poll = (_request, response) => f.json(response, { error: 'access_denied', error_description: 'waitlisted' }, 400);
+  const account = await createOmsAccountControls(f.options);
+  await assert.rejects(account.login(f.interaction, new AbortController().signal), e => e instanceof Error &&
+    e.message === `You're on the OMS waitlist. We'll email you as soon as you're in. Have an invite code? Enter it at ${f.origin}/device, then run /login again.`);
+  assert.equal(f.polls(), 1);
+  assert.equal(existsSync(f.accountPath), false);
+  assert.equal(account.snapshot().state, 'signed-out');
+});
 
 test('cancellation and local grant expiry stop before another poll', async t => {
   const f = await fixture(t);
