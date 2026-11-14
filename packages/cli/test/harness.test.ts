@@ -90,7 +90,7 @@ test("launch cap parsing refuses malformed, repeated and unsafe values before cr
   ]) assert.throws(() => parseLaunchOptions(args), Error, args.join(" "));
 });
 
-test("the knowledge switches are admitted together and default to off", () => {
+test("the benchmark knowledge switches are still admitted and are off unless passed", () => {
   const parsed = parseLaunchOptions(["--headless", "--knowledge", "--knowledge-hint"], ["--headless", "--knowledge", "--knowledge-hint"], ["--headless", "--knowledge", "--knowledge-hint"]);
   assert.equal(parsed.values.has("--knowledge"), true);
   assert.equal(parsed.values.has("--knowledge-hint"), true);

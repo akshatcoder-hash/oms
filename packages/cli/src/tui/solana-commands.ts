@@ -240,16 +240,12 @@ export function prepareError(argument: string, harness: HarnessSession): Prepare
     const decoding = decodeProgramError(parsed, program, localIdls(harness));
     const head = `Custom error ${parsed} (0x${parsed.toString(16)})${program ? ` in ${program}` : ''}`;
     if (decoding.matches.length) return { title: 'error', text: [head, ...describeDecoding(decoding)].join('\n') };
-    if (!harness.knowledge) {
-      return { title: 'error', text: [head, 'No offline table or local IDL knows this code.', ...decoding.notes,
-        'The Solana knowledge service is not configured in this session, so it cannot be asked either.'].join('\n') };
-    }
     try {
       const answer = await harness.knowledge.decodeError(String(parsed), program, signal);
-      return { title: 'error', text: [head, 'Not in the offline tables; the knowledge service answered (untrusted reference text):', clip(answer, 3_000)].join('\n') };
-    } catch (error) {
-      return { title: 'error', text: [head, 'No offline table knows this code, and the knowledge service did not answer: ' +
-        clip(error instanceof Error ? error.message : 'unknown error', 300)].join('\n') };
+      return { title: 'error', text: [head, 'Not in the offline tables; reference answer (untrusted reference text):', clip(answer, 3_000)].join('\n') };
+    } catch {
+      return { title: 'error', text: [head, 'This code is not in the built-in tables or local IDLs.', ...decoding.notes,
+        "Check the program's IDL or source for its error definitions."].join('\n') };
     }
   } };
 }

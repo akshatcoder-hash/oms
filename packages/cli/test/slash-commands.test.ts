@@ -358,20 +358,25 @@ test('/error decodes locally across Anchor, System and Token tables, local IDLs,
   assert.match(await text('0 ata'), /Associated Token: InvalidOwner/);
   assert.match(await text('1'), /InsufficientFunds/);
   assert.match(await text('6001'), /defined by the program itself/);
-  assert.match(await text('4242'), /knowledge service is not configured/);
+  const missing = await text('4242');
+  assert.match(missing, /not in the built-in tables or local IDLs/);
+  assert.match(missing, /IDL or source/);
+  assert.doesNotMatch(missing, /knowledge|configured|enabled/i);
   assert.match(refusal(prepareSlash('error', 'abc', harness, '')), /Usage/);
   assert.match(refusal(prepareSlash('error', '', harness, '')), /Usage/);
   assert.match(refusal(prepareSlash('error', '1 2 3', harness, '')), /Usage/);
   assert.match(refusal(prepareSlash('error', '-5', harness, '')), /Usage/);
 
   const asked: string[][] = [];
-  const served = harnessFake({ knowledge: { async decodeError(code: string, program?: string) { asked.push([code, program ?? '']); return 'ProgramX: BadThing'; } } });
+  const served = harnessFake({ knowledge: { config: () => undefined, async decodeError(code: string, program?: string) { asked.push([code, program ?? '']); return 'ProgramX: BadThing'; } } });
   assert.match(await text('4242 ProgramX', served), /BadThing/);
   assert.deepEqual(asked, [['4242', 'ProgramX']]);
   await text('3012', served);
   assert.equal(asked.length, 1, 'a locally known code never calls the service');
-  const broken = harnessFake({ knowledge: { async decodeError() { throw new Error('service down'); } } });
-  assert.match(await text('4242', broken), /did not answer: service down/);
+  const broken = harnessFake({ knowledge: { config: () => undefined, async decodeError() { throw new Error('service down'); } } });
+  const failed = await text('4242', broken);
+  assert.match(failed, /not in the built-in tables or local IDLs/);
+  assert.doesNotMatch(failed, /service down|knowledge/i, 'a failed lookup shows no service text');
 });
 
 test('/error reads the task IDLs for program-defined codes', async () => {

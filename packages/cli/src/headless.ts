@@ -79,9 +79,10 @@ export async function runHeadlessHarness(options: HarnessSessionOptions, jsonOut
       const brief = join(options.task.codeRoot, 'TASK.md');
       const briefText = existsSync(brief) ? readFileSync(brief, 'utf8') : '';
       let primerText: string | undefined;
-      if (options.knowledgeInject) {
+      const knowledgeConfig = current.knowledge.config();
+      if (knowledgeConfig && options.knowledgeInject !== false) {
         const taskText = [...(state.ok ? state.value.items.map(item => item.title) : []), briefText].join('\n');
-        const primer = await knowledgePrimer(options.knowledge, options.task.codeRoot, taskText);
+        const primer = await knowledgePrimer(knowledgeConfig, options.task.codeRoot, taskText);
         if (primer.text) { primerText = primer.text; injection = primer.injection; injectionFallback = primer.fallback; }
         knowledgeBuilt = primer.built;
       }
@@ -142,13 +143,13 @@ export async function runHeadlessHarness(options: HarnessSessionOptions, jsonOut
       firstVisiblePass,
       identities: { task: digest(readFileSync(options.task.pinFile)), harness: harnessDigest(),
         // oms3 differs from oms only in its first turn, so that turn is part of its prompt identity.
-        prompt: digest((harness?.session.systemPrompt ?? '') + (options.knowledgeInject ? `\n${firstTurn}` : '')), image: options.environment.image, forwarderImage: options.environment.forwarderImage },
+        prompt: digest((harness?.session.systemPrompt ?? '') + (injection ? `\n${firstTurn}` : '')), image: options.environment.image, forwarderImage: options.environment.forwarderImage },
       caps: options.caps,
       web: harness?.web?.usage() ?? { webSearch: 0, webFetch: 0, solanaMcp: 0, searchBy: {}, fetchBy: {} },
       ...(injection ? { injection } : {}),
       ...(injectionFallback ? { injectionFallback } : {}),
       ...(knowledgeBuilt ? { knowledgeBuilt } : {}),
-      ...(options.knowledge ? { knowledgeCalls } : {}),
+      ...(harness?.knowledge.config() ? { knowledgeCalls } : {}),
       ...(harness?.edgeCheck ? { edgeCheck: harness.edgeCheck.summary() } : {}),
     };
     try { await harness?.close(); }

@@ -141,12 +141,10 @@ export async function runHarnessCommand(command: string, args: string[], runtime
     const workspace = openWorkspace(resolve(parsed.values.get("--workspace") ?? process.cwd()), stateOptions(parsed.values));
     const task = selectedTask(workspace, parsed.values.get("--task"));
     const sessionId = parsed.values.get("--session");
-    // Opt-in per run, from trusted process configuration; a request without a token is an error, never a silent downgrade.
-    const knowledge = parsed.values.has("--knowledge") ? (() => {
-      const token = process.env.OMS_KNOWLEDGE_TOKEN;
-      if (!token) throw new Error("--knowledge requires OMS_KNOWLEDGE_TOKEN in the trusted environment");
-      return { endpoint: process.env.OMS_KNOWLEDGE_URL ?? "https://knowledge.barestate.xyz/mcp", token };
-    })() : undefined;
+    // Benchmark cells pin their reference setup with --knowledge (token from the trusted environment, the hint and primer only as flagged).
+    // Every other run resolves it in the session: OMS_KNOWLEDGE_URL plus OMS_KNOWLEDGE_TOKEN, else the signed-in account.
+    const pinnedToken = parsed.values.has("--knowledge") ? process.env.OMS_KNOWLEDGE_TOKEN : undefined;
+    const knowledge = pinnedToken ? { endpoint: process.env.OMS_KNOWLEDGE_URL ?? "https://knowledge.barestate.xyz/mcp", token: pinnedToken } : undefined;
     const options: HarnessSessionOptions = { workspace, task, hostApprovalPolicy: approval,
       environment: defaultHarnessEnvironment(parsed.values.get("--surfpool-binary"), configuredBackend(parsed.values.get("--sandbox"))),
       executionMode: headless ? "bounded" : parsed.executionMode,
@@ -158,8 +156,8 @@ export async function runHarnessCommand(command: string, args: string[], runtime
       ...runtime,
       ...(sessionId === undefined ? {} : { sessionId }),
       ...(provider && model ? { modelSelection: { provider, id: model } } : {}),
-      ...(knowledge ? { knowledge, ...(parsed.values.has("--knowledge-hint") ? { knowledgeHint: true } : {}),
-        ...(parsed.values.has("--knowledge-inject") ? { knowledgeInject: true } : {}) } : {}),
+      ...(knowledge ? { knowledge, knowledgeHint: parsed.values.has("--knowledge-hint"), knowledgeInject: parsed.values.has("--knowledge-inject") }
+        : { ...(parsed.values.has("--knowledge-hint") ? { knowledgeHint: true } : {}), ...(parsed.values.has("--knowledge-inject") ? { knowledgeInject: true } : {}) }),
       ...(parsed.values.has("--edge-check") ? { edgeCheck: true } : {}),
     };
     // Headless (the bench runner, CI) is offline unless --web asks; the bench runner never passes it.

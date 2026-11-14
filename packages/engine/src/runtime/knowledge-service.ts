@@ -16,6 +16,12 @@ export interface McpEndpoint {
   timeoutMs?: number;
 }
 export interface KnowledgeConfig extends McpEndpoint { token: string }
+/** A fixed config, or a function read at every call so a sign-in or sign-out takes effect mid-session. */
+export type KnowledgeSource = KnowledgeConfig | (() => KnowledgeConfig | undefined);
+export function resolveKnowledge(source: KnowledgeSource | undefined): KnowledgeConfig | undefined {
+  const config = typeof source === "function" ? source() : source;
+  return config?.token ? config : undefined;
+}
 
 /** Ceiling on the bytes of service text one tool call can put into the model's context. */
 export const KNOWLEDGE_RESULT_LIMIT = 16_000;
@@ -290,14 +296,63 @@ export async function knowledgePrimer(config: KnowledgeConfig | undefined, root:
   return { text, injection: "topics-v1", ...(hits ? {} : { fallback: "search_docs failed (topic cards only)" }), ...(built ? { built } : {}) };
 }
 
-/** Registers the knowledge tools. Absent configuration means absent tools. */
-export function createKnowledgeExtension(config: KnowledgeConfig | undefined): ExtensionFactory | undefined {
-  if (!config?.token) return undefined;
+const LOOKUP_UNAVAILABLE = "Reference lookup is unavailable right now. Continue without it.";
+
+/** Registers the knowledge tools. Absent configuration means absent tools; with a function source the session
+ * lists the tools only while it returns a config, and a call that finds none fails with a neutral message. */
+export function createKnowledgeExtension(source: KnowledgeSource | undefined): ExtensionFactory | undefined {
+  if (!source || (typeof source !== "function" && !source.token)) return undefined;
   return pi => {
     for (const tool of TOOLS) {
       pi.registerTool({ ...tool, async execute(_id, params, signal) {
-        return { content: [{ type: "text", text: await callKnowledgeTool(config, tool.name, params, signal) }], details: undefined };
+        const config = resolveKnowledge(source);
+        if (!config) throw new Error(LOOKUP_UNAVAILABLE);
+        let text: string;
+        try { text = await callKnowledgeTool(config, tool.name, params, signal); }
+        catch (error) {
+          // A service-reported tool error is already wrapped as untrusted text; every transport or status failure becomes one neutral message.
+          if (error instanceof Error && error.message.startsWith("[Untrusted reference data")) throw error;
+          throw new Error(LOOKUP_UNAVAILABLE);
+        }
+        return { content: [{ type: "text", text }], details: undefined };
       } });
     }
+  };
+}
+
+/**
+ * Keeps the model's view in step with the credential. At the start of every turn the knowledge tools join the active tool list
+ * while a credential exists and leave it otherwise, and the system prompt switches to `promptFor(config)` when that state changes.
+ * The tools stay registered, so a /login mid-session shows them from the next turn and a /logout hides them again.
+ */
+export function createKnowledgeVisibility(source: KnowledgeSource, promptFor: (config: KnowledgeConfig | undefined) => string, shown: () => boolean): ExtensionFactory {
+  let promptShows: boolean | undefined;
+  return pi => {
+    pi.on("before_agent_start", event => {
+      const config = resolveKnowledge(source);
+      // The live loadout is edited, not systemPromptOptions: pi ignores an edit that leaves the list the same length as the base one.
+      const active = pi.getActiveTools();
+      const listed = KNOWLEDGE_TOOL_NAMES.every(name => active.includes(name));
+      if (config && !listed) pi.setActiveTools([...active, ...KNOWLEDGE_TOOL_NAMES.filter(name => !active.includes(name))]);
+      if (!config && active.some(name => KNOWLEDGE_TOOL_NAMES.includes(name))) pi.setActiveTools(active.filter(name => !KNOWLEDGE_TOOL_NAMES.includes(name)));
+      promptShows ??= shown();
+      if ((config !== undefined) === promptShows) return undefined;
+      promptShows = config !== undefined;
+      return { systemPrompt: promptFor(config) };
+    });
+  };
+}
+
+/**
+ * Where the knowledge tools connect, read on every call: the host's pinned config (benchmark cells), then OMS_KNOWLEDGE_URL plus
+ * OMS_KNOWLEDGE_TOKEN together in the trusted environment, then the signed-in OMS account's gateway route. None means no tools.
+ */
+export function accountKnowledgeSource(inputs: { pinned?: KnowledgeConfig; env?: NodeJS.ProcessEnv; account: () => { origin: string; token: string } | undefined }): () => KnowledgeConfig | undefined {
+  return () => {
+    if (inputs.pinned?.token) return inputs.pinned;
+    const { OMS_KNOWLEDGE_URL: endpoint, OMS_KNOWLEDGE_TOKEN: token } = inputs.env ?? process.env;
+    if (endpoint && token) return { endpoint, token };
+    const credential = inputs.account();
+    return credential ? { endpoint: `${credential.origin}/api/knowledge/mcp`, token: credential.token } : undefined;
   };
 }

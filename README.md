@@ -31,7 +31,7 @@ OMS uses the model access you already have. Provider credentials stay in private
 | OpenCode Go | `/connect` → OpenCode Go; `/model` → available model |
 | OpenAI or Anthropic API key | `/connect` → the provider; arbitrary custom endpoints are not loaded by this cut |
 
-OMS makes no claim of a higher pass rate than any single model. Knowledge tools only help when the model calls them.
+OMS makes no claim of a higher pass rate than any single model.
 
 ## What “done” means
 
@@ -52,7 +52,7 @@ Optional: `--sandbox docker` (or `OMS_SANDBOX=docker`) selects container executi
 
 ## Solana tools
 
-The knowledge service supplies Solana references through bounded tool results treated as untrusted data. Headless runs enable it with `--knowledge`; availability depends on service configuration. It supplies context, not verification authority.
+Solana reference lookups return bounded results that are treated as untrusted data. They supply context, not verification authority.
 
 Anchor and Kit toolchain repair helps resolve version and build mismatches. It does not remove the need to install project dependencies or to review proposed changes.
 
@@ -70,7 +70,7 @@ Interactive sessions can look things up on the web. All of it runs in the OMS ho
 - **`web_fetch`**: reads one public `https://` page as markdown, with a 20 s timeout and a 2 MB download limit. It refuses private, loopback and link-local addresses, both as literals and after DNS resolution. With `FIRECRAWL_API_KEY` set, OMS uses Firecrawl scrape first (it renders JavaScript pages) and falls back to a plain fetch.
 - **`web_search`**: needs your own key. Set one or more of `EXA_API_KEY`, `FIRECRAWL_API_KEY`, `TAVILY_API_KEY`, `PARALLEL_API_KEY` or `TINYFISH_API_KEY` in the environment you start OMS from. OMS tries them in that order. On HTTP 429 or 5xx it moves to the next backend, and skips the limited one until its `Retry-After` passes (60 s if the header is missing). OMS's hosted search, oms-search, goes first when you are signed in (`/login`) or when `OMS_SEARCH_URL` and `OMS_SEARCH_TOKEN` point at an oms-search service you run. Signing in enables hosted search only; it does not select a model or send inference. The hosted service also serves `web_fetch` first, and any failure there falls back to the path below. With no key there is no `web_search` tool. Exa's keyless hosted MCP is not used, because its terms do not clearly allow a distributed CLI to use it by default.
 
-The system prompt tells the model to use the built-in knowledge base first, then the Solana MCP, then web search. For program and build errors it prefers Solana Stack Exchange and GitHub issues and releases. Queries go to the services named above.
+The system prompt tells the model to use the built-in Solana reference first, then the Solana MCP, then web search. For program and build errors it prefers Solana Stack Exchange and GitHub issues and releases. Queries go to the services named above.
 
 To turn web access off, use one of these:
 - for the current session: `/web off`, and `/web on` to turn it back on;

@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { fetchMcpText, readWorktreeText, wrapUntrusted, type KnowledgeConfig } from "./knowledge-service.ts";
+import { fetchMcpText, readWorktreeText, resolveKnowledge, wrapUntrusted, type KnowledgeSource } from "./knowledge-service.ts";
 
 /**
  * Structured diagnosis of a failed Solana build, deploy, test or transaction (pilot feature A1).
@@ -179,7 +179,7 @@ export async function surfpoolTransaction(url: string, signature: string): Promi
   return { logs: tx.meta.logMessages ?? [], computeUnits: tx.meta.computeUnitsConsumed, changes: [...changes.values()] };
 }
 
-export interface DiagnosisOptions { codeRoot: string; rpcUrl: string; knowledge?: KnowledgeConfig }
+export interface DiagnosisOptions { codeRoot: string; rpcUrl: string; knowledge?: KnowledgeSource }
 
 /**
  * Replaces a failing bash result that carries a Solana failure with its diagnosis and a raw tail. The raw text is kept per tool call
@@ -190,10 +190,12 @@ export function createDiagnosisExtension(options: DiagnosisOptions): ExtensionFa
   const sources: DiagnosisSources = {
     idls: () => readLocalIdls(options.codeRoot),
     transaction: signature => surfpoolTransaction(options.rpcUrl, signature),
-    ...(options.knowledge?.token ? { decodeError: async (code: string, program: string) => {
-      const result = await fetchMcpText(options.knowledge!, "decode_error", { code, program }, AbortSignal.timeout(5_000));
+    decodeError: async (code: string, program: string) => {
+      const config = resolveKnowledge(options.knowledge);
+      if (!config) return undefined;
+      const result = await fetchMcpText(config, "decode_error", { code, program }, AbortSignal.timeout(5_000));
       return result.isError ? undefined : result.text;
-    } } : {}),
+    },
   };
   return pi => {
     pi.on("tool_result", async event => {
