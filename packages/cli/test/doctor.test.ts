@@ -42,11 +42,17 @@ test("wrong surfpool version fails against the pin", async () => {
   assert.equal(r?.status, "fail");
 });
 
-test("low disk is blocking", async () => {
-  const results = await runChecks(fakeEnv({ freeDiskGb: async () => 4.2 }), DEFAULT_OPTIONS);
-  const disk = results.find((c) => c.id === "disk");
-  assert.equal(disk?.status, "fail");
-  assert.equal(summarize(results).exitCode, 1);
+test("low disk warns above 1 GB and blocks below it", async () => {
+  const at = async (gb: number) => (await runChecks(fakeEnv({ freeDiskGb: async () => gb }), DEFAULT_OPTIONS)).find((c) => c.id === "disk");
+  const low = await at(4.2);
+  assert.equal(summarize(await runChecks(fakeEnv({ freeDiskGb: async () => 4.2 }), DEFAULT_OPTIONS)).exitCode, 0, "a warning does not block");
+  assert.equal(summarize(await runChecks(fakeEnv({ freeDiskGb: async () => 0.6 }), DEFAULT_OPTIONS)).exitCode, 1);
+  assert.equal(low?.status, "fail");
+  assert.equal(low?.severity, "warning");
+  assert.match(low?.detail ?? "", /OMS runs, but Anchor\/Rust builds and --sandbox docker may need up to 5 GB/);
+  const empty = await at(0.6);
+  assert.equal(empty?.severity, "blocking");
+  assert.equal((await at(50))?.status, "ok");
 });
 
 test("anchor missing on host is informational unless programs are needed", async () => {

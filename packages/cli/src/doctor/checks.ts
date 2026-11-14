@@ -27,14 +27,18 @@ export interface DoctorOptions {
   surfpoolBinary?: string;
   sandboxImage?: string;
   pinnedSurfpool: string;
+  /** Below this OMS cannot run reliably (Surfpool state, builds): blocking. */
   minFreeDiskGb: number;
+  /** Below this, Anchor/Rust builds and the Docker sandbox images may run out of space: a warning only. */
+  recommendedFreeDiskGb: number;
   needsPrograms: boolean;
 }
 
 export const DEFAULT_OPTIONS: DoctorOptions = {
   minNodeVersion: "22.19.0",
   pinnedSurfpool: "1.7.0",
-  minFreeDiskGb: 5,
+  minFreeDiskGb: 1,
+  recommendedFreeDiskGb: 5,
   needsPrograms: false,
 };
 
@@ -149,9 +153,11 @@ export async function runChecks(env: Env, opts: DoctorOptions): Promise<CheckRes
   out.push({
     id: "disk",
     title: "Free disk",
-    status: free >= opts.minFreeDiskGb ? "ok" : "fail",
-    severity: "blocking",
-    detail: `${free.toFixed(1)} GB free (need >=${opts.minFreeDiskGb})`,
+    status: free >= opts.recommendedFreeDiskGb ? "ok" : "fail",
+    severity: free >= opts.minFreeDiskGb ? "warning" : "blocking",
+    detail: free >= opts.recommendedFreeDiskGb ? `${free.toFixed(1)} GB free`
+      : free >= opts.minFreeDiskGb ? `${free.toFixed(1)} GB free; OMS runs, but Anchor/Rust builds and --sandbox docker may need up to ${opts.recommendedFreeDiskGb} GB`
+      : `${free.toFixed(1)} GB free (need >=${opts.minFreeDiskGb})`,
     fix: "Free disk space",
   });
 
