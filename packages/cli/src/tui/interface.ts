@@ -17,6 +17,9 @@ import { ActionBar, PaneFrame } from './chrome.ts';
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
 import { Conversation, describeValue, displayText } from './transcript.ts';
+import { READ_ONLY_COMMANDS, prepareSlash } from './slash-commands.ts';
+import type { CommandOutput, Prepared } from './solana-commands.ts';
+import { goalSummary, newGoal, parseGoalArguments, runGoalCheck, runGoalLoop, taskVerifierItem, type Goal } from './goal.ts';
 import { StartupArt, artShow, settleKittyGraphics, type StartupArtMode } from './startup-art.ts';
 import { colorText, DEFAULT_THEME_ID, getTheme, paintThemeRow, THEME_IDS, type OmsTheme, type OmsThemeId } from './theme.ts';
 
@@ -126,6 +129,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   let dismissedCommands: string | undefined;
   let paletteInput: Input | undefined;
   let proofAvailable = false;
+  let goal: Goal | undefined;
   let checkedAt = 'not checked';
   const fail = (error: unknown) => {
     failure ??= error;
@@ -473,6 +477,48 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     requestRender();
   }
 
+  /** Show a deterministic command's result: a conversation note, and a long result as a read-only workbench report. */
+  function showOutput(command: string, output: CommandOutput): void {
+    if (closing) return;
+    conversation.note(output.title, output.text);
+    if (output.report) {
+      workbench.openReport(output.report.id, output.report.text, command);
+      switchView('workbench'); setFocus('editor');
+    } else { switchView('harness'); setFocus('input'); transcript.scrollToEnd(); }
+    requestRender();
+  }
+  function runPrepared(command: string, prepared: Extract<Prepared, { ok: true }>, draft: string | undefined): void {
+    if (!READ_ONLY_COMMANDS.has(command)) {
+      begin('command', draft, async signal => { showOutput(command, await prepared.run(signal)); });
+      return;
+    }
+    // Reads run beside the agent: they take no action slot and cannot be cancelled, but they are short and bounded.
+    clearDraft(draft);
+    void prepared.run(new AbortController().signal).then(output => showOutput(command, output), error => {
+      if (!closing) conversation.note(`${command} failed`, singleLine(error instanceof Error ? error.message : describeValue(error), 800));
+    }).finally(requestRender);
+  }
+  /** /goal <text>: the agent works until the check passes; settle-gate rules (retry cap, budget, repeated failure) end the loop. */
+  function startGoal(text: string, check: string | undefined, draft: string | undefined): void {
+    if (!hasModelConfiguration(harness.session.model)) { setNotice(`Model unavailable. ${MODEL_CONFIGURATION}`); return; }
+    const choice = selectedModelChoice();
+    if (choice?.selectable === false) { setNotice(choice.detail ?? 'Selected model needs setup · /model to choose a connected provider'); return; }
+    if (check === undefined && !taskVerifierItem(harness)) {
+      setNotice('This task has no open requirement for its verifier to decide. Add a check: /goal <text> --check "<command>"');
+      return;
+    }
+    const current = goal = newGoal(text, check);
+    begin('agent', draft, async signal => {
+      await runGoalLoop({ goal: current, signal, budget: () => harness.budget.snapshot(),
+        say: line => { conversation.note('goal', line); transcript.scrollToEnd(); requestRender(); },
+        check: checkSignal => runGoalCheck(harness, current, checkSignal),
+        async turn(prompt) {
+          await harness.session.prompt(prompt, { expandPromptTemplates: false });
+          if (active?.error) throw new Error(active.error);
+        } });
+    });
+  }
+
   function submit(draft = input.document.text, fromPalette = false): void {
     const composerDraft = fromPalette ? undefined : draft;
     if (!draft.trim()) return;
@@ -556,7 +602,8 @@ export async function runOmsInterface(harness: HarnessSession, options: {
       if (terminal.columns < 78) { submit('/status', true); return; }
       switchView('harness'); toggleRequirements(); return;
     }
-    if ((active || externalBusy || externalCancellation) && command !== 'status' && command !== 'session') {
+    const readOnly = !!command && (READ_ONLY_COMMANDS.has(command) || (command === 'goal' && !argument.trim()));
+    if ((active || externalBusy || externalCancellation) && !readOnly) {
       setNotice('Work is running. Use /cancel to stop it, or keep editing your next request.'); return;
     }
     if (trimmed.startsWith('/')) {
@@ -610,7 +657,29 @@ export async function runOmsInterface(harness: HarnessSession, options: {
           if (result.exitCode !== 0 || result.timedOut || result.cancelled) throw new Error(`Sandbox command did not succeed (exit ${result.exitCode}); draft retained.`);
         });
         return;
-      } else { setNotice('Unknown or invalid OMS command. Use /help; draft retained.'); return; }
+      } else if (command === 'goal') {
+        const request = parseGoalArguments(argument);
+        if (request.kind === 'error') { setNotice(`${request.message} Draft retained.`); return; }
+        if (request.kind === 'set') { startGoal(request.text, request.check, composerDraft); return; }
+        if (request.kind === 'clear') { goal = undefined; conversation.note('goal', 'Goal cleared.'); }
+        else conversation.note('goal', goalSummary(goal, budgetSummary()));
+      } else if (command === 'clear') {
+        if (argument) { setNotice('Usage: /clear; draft retained.'); return; }
+        try {
+          harness.session.agent.reset();
+          // The session file keeps its history; the next entry starts a new branch, so a resume sees only what follows.
+          harness.session.sessionManager.resetLeaf();
+        } catch (error) { setNotice(`Could not clear the conversation: ${singleLine(error instanceof Error ? error.message : 'unknown error', 200)}`); return; }
+        goal = undefined;
+        conversation.clear();
+        conversation.note('new conversation', 'Fresh conversation in the same task. Files, worktree and task state are unchanged.');
+      } else {
+        const prepared = command ? prepareSlash(command, argument, harness, budgetSummary()) : undefined;
+        if (!prepared) { setNotice('Unknown or invalid OMS command. Use /help; draft retained.'); return; }
+        if (!prepared.ok) { setNotice(`${prepared.message} Draft retained.`); return; }
+        runPrepared(command!, prepared, composerDraft);
+        return;
+      }
       clearDraft(composerDraft);
       switchView('harness');
       setFocus('input');

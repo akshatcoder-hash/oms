@@ -34,11 +34,13 @@ function fixture() {
   let commandSignal: AbortSignal | undefined;
   let promptFailure: Error | undefined;
   let closed = false;
+  let clears = 0;
   const messages: unknown[] = [];
   const emit = (event: unknown) => { for (const listener of listeners) listener(event as AgentSessionEvent); };
   const session = {
     messages, get model() { return hasModel ? modelIdentity : undefined; },
-    sessionManager: { getSessionId: () => 'session-fixture' }, isStreaming: false,
+    sessionManager: { getSessionId: () => 'session-fixture', resetLeaf() { clears++; } }, isStreaming: false,
+    agent: { reset() { messages.length = 0; } },
     subscribe(listener: (event: AgentSessionEvent) => void) { listeners.add(listener); return () => listeners.delete(listener); },
     async prompt(text: string) {
       if (promptFailure) throw promptFailure;
@@ -78,7 +80,7 @@ function fixture() {
   return { harness, listeners, prompts, commands, verified, messages, emit, promptGate, commandGate, abortGate,
     model(value: boolean) { hasModel = value; }, failPrompt(error: Error) { promptFailure = error; },
     identity(value: { id: string; provider: string }) { modelIdentity = value; },
-    abortRequested: () => abortRequested, commandSignal: () => commandSignal, closed: () => closed };
+    clears: () => clears, abortRequested: () => abortRequested, commandSignal: () => commandSignal, closed: () => closed };
 }
 async function quit(terminal: InterfaceTerminal, run: Promise<void>) {
   terminal.send('\x11');
@@ -1460,4 +1462,175 @@ test('/web off and /web on switch the session web tools and report the call coun
     await plain.screen(); plain.send('/web on'); plain.send('\r');
     await plain.until(s => s.includes('Web access is not available in this session.'));
   } finally { await quit(plain, other); plain.vt.dispose(); }
+});
+
+// ---- /goal, /clear and the deterministic Solana and inspection commands
+
+const ok = (exitCode: number, stderr = '') => ({ exitCode, stdout: '', stderr, timedOut: false, cancelled: false, truncated: false });
+
+test('/goal with --check loops agent turns until the sandbox check passes, feeding the failure back', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.promptGate.resolve();
+  let checks = 0;
+  f.harness.runCommand = async command => { f.commands.push(command); return ok(checks++ === 0 ? 1 : 0, checks === 1 ? '2 tests failing' : ''); };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/goal make the tests pass --check "npm test"'); terminal.send('\r');
+    await terminal.until(s => s.includes('Goal reached'));
+    assert.equal(f.prompts.length, 2);
+    assert.match(f.prompts[0]!, /Goal: make the tests pass/);
+    assert.match(f.prompts[1]!, /2 tests failing/);
+    assert.deepEqual(f.commands, ['npm test', 'npm test']);
+    terminal.send('/goal'); terminal.send('\r');
+    const shown = await terminal.until(s => s.includes('checks used 2/5'));
+    assert.ok(shown.includes('Check: npm test') && shown.includes('Status: reached'));
+    terminal.send('/goal clear'); terminal.send('\r');
+    await terminal.until(s => s.includes('Goal cleared.'));
+    terminal.send('/goal'); terminal.send('\r');
+    await terminal.until(s => s.includes('No goal set.'));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/goal stops visibly at the retry cap when the check never passes', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.promptGate.resolve();
+  let n = 0;
+  f.harness.runCommand = async command => { f.commands.push(command); return ok(1, `failure number ${n++}`); };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/goal never works --check "false"'); terminal.send('\r');
+    await terminal.until(s => s.includes('Goal stopped') && s.includes('retry cap reached'));
+    assert.equal(f.prompts.length, 5);
+    assert.equal(f.commands.length, 5);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/goal without --check uses the task verifier, and refuses when the task has none', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.promptGate.resolve();
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/goal satisfy the requirement'); terminal.send('\r');
+    await terminal.until(s => s.includes('Goal reached'));
+    assert.deepEqual(f.verified, ['R1']);
+    assert.equal(f.prompts.length, 1);
+    assert.match(f.prompts[0]!, /pinned verifier/);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+
+  const g = fixture(); const bare = new InterfaceTerminal(120, 36);
+  (g.harness as { evaluator: unknown }).evaluator = { read: () => ({ ok: true, value: { items: [] } }) };
+  const other = runOmsInterface(g.harness, { terminal: bare });
+  try {
+    await bare.screen(); bare.send('/goal do something'); bare.send('\r');
+    await bare.until(s => s.includes('no open requirement') && s.includes('--check'));
+    assert.deepEqual(g.prompts, []);
+    bare.send('/goal do something --check'); bare.send('\r');
+    await bare.until(s => s.includes('--check needs a command'));
+    assert.deepEqual(g.prompts, []);
+  } finally { await quit(bare, other); bare.vt.dispose(); }
+});
+
+test('cancelling stops a goal loop before its check runs', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.harness.runCommand = async command => { f.commands.push(command); return ok(1, 'nope'); };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/goal long job --check "npm test"'); terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    terminal.send('\x1b'); await terminal.until(() => f.abortRequested());
+    f.abortGate.resolve(); f.promptGate.resolve();
+    await terminal.until(s => s.includes('Goal cancelled'));
+    assert.deepEqual(f.commands, []);
+    assert.equal(f.prompts.length, 1);
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('while work is running only the read-only commands run; every other new command refuses', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('long request'); terminal.send('\r'); await terminal.until(() => f.prompts.length === 1);
+    for (const command of ['/clear', '/goal x --check y', '/test', '/rewind confirm', '/airdrop 11111111111111111111111111111111 1']) {
+      terminal.send('\x01'); terminal.send(command); terminal.send('\r');
+      await terminal.until(s => s.includes('Work is running') && s.includes(command));
+    }
+    assert.equal(f.clears(), 0);
+    assert.deepEqual(f.commands, []);
+    assert.equal(f.prompts.length, 1);
+    terminal.send('\x01'); terminal.send('/usage'); terminal.send('\r');
+    await terminal.until(s => s.includes('Tokens:') && s.includes('Spend:'));
+    terminal.send('/goal'); terminal.send('\r');
+    await terminal.until(s => s.includes('No goal set.'));
+  } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/clear starts a fresh conversation in the same task, keeping the session and dropping the goal', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  f.promptGate.resolve();
+  const session = f.harness.session;
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('first question'); terminal.send('\r'); await terminal.until(() => f.prompts.length === 1);
+    await terminal.until(s => s.includes('idle'));
+    terminal.send('/clear extra'); terminal.send('\r');
+    await terminal.until(s => s.includes('Usage: /clear'));
+    assert.equal(f.clears(), 0);
+    terminal.send('\x01'); terminal.send('/clear'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('Fresh conversation in the same task'));
+    assert.equal(f.clears(), 1);
+    assert.equal(screen.includes('first question'), false);
+    assert.equal(f.harness.session, session);
+    assert.equal(f.closed(), false);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('Solana commands use the local chain, and /airdrop refuses a chain that is not the task Surfpool', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const calls: string[] = [];
+  let url = 'http://127.0.0.1:20000';
+  let rewinds = 0; let balance = 0;
+  (f.harness as { chain?: unknown }).chain = { rpcUrl: () => url, mode: 'offline-snapshot', uptimeMs: () => 5000, health: async () => ({ ok: true }),
+    async call(method: string, params: unknown[] = []) {
+      calls.push(method);
+      if (method === 'requestAirdrop') balance += Number(params[1]);
+      return method === 'getSlot' ? 42 : method === 'getBalance' ? { value: balance } : 'signature';
+    },
+    async rewind() { rewinds++; } };
+  const wallet = '11111111111111111111111111111111';
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/chain'); terminal.send('\r');
+    await terminal.until(s => s.includes('Slot: 42') && s.includes('http://127.0.0.1:20000'));
+    terminal.send('/rewind'); terminal.send('\r');
+    await terminal.until(s => s.includes('Run /rewind confirm'));
+    assert.equal(rewinds, 0);
+    terminal.send('/rewind confirm'); terminal.send('\r');
+    await terminal.until(s => s.includes('restored to its starting state'));
+    assert.equal(rewinds, 1);
+    terminal.send('/airdrop nonsense'); terminal.send('\r');
+    await terminal.until(s => s.includes('not a valid Solana address'));
+    assert.ok(!calls.includes('requestAirdrop'));
+    terminal.send('\x01'); terminal.send(`/airdrop ${wallet} 2`); terminal.send('\r');
+    await terminal.until(s => s.includes('Airdropped 2 SOL'));
+    assert.ok(calls.includes('requestAirdrop'));
+    url = 'https://api.devnet.solana.com'; calls.length = 0;
+    terminal.send(`/airdrop ${wallet} 2`); terminal.send('\r');
+    await terminal.until(s => s.includes('Refusing') && s.includes('devnet or mainnet'));
+    assert.deepEqual(calls, []);
+    terminal.send('\x01'); terminal.send('/program system'); terminal.send('\r');
+    await terminal.until(s => s.includes('createAccountWithSeed'));
+    terminal.send('/error 3012'); terminal.send('\r');
+    await terminal.until(s => s.includes('AccountNotInitialized'));
+    assert.deepEqual(f.prompts, []);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('/help lists the new commands under Solana; a bare /account still opens the OMS account pane', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 60);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen(); terminal.send('/help'); terminal.send('\r');
+    const screen = await terminal.until(s => s.includes('Solana') && s.includes('/airdrop'));
+    assert.ok(screen.includes('/goal') && screen.includes('/diff') && screen.includes('/usage'));
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
 });

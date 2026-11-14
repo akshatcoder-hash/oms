@@ -35,7 +35,7 @@ OMS makes no claim of a higher pass rate than any single model. Knowledge tools 
 
 ## What “done” means
 
-A task pins its requirements and trusted verifier files before work begins. The model cannot replace those checks with its own success message. OMS captures the proposed source and runs the pinned checks independently against a fresh offline Surfpool chain. A failed or incomplete evaluation leaves the requirement open. `/verify` requests this check without a model turn; `/status` shows the result and accounting.
+A task pins its requirements and trusted verifier files before work begins. The model cannot replace those checks with its own success message. OMS captures the proposed source and runs the pinned checks independently against a fresh offline Surfpool chain. A failed or incomplete evaluation leaves the requirement open. `/verify` requests this check without a model turn; `/status` shows the result and accounting. `/goal` keeps the agent working until an independent check passes, and a failing check feeds its output back within the same retry and budget caps.
 
 “Verified” means the specified checks passed for that captured source. It does not prove every possible behavior or security property. Stop an interactive terminal with `/terminal stop` before verification so it cannot change source during capture.
 

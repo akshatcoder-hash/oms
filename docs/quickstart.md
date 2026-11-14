@@ -92,4 +92,12 @@ OMS uses `~/.oms/tools/surfpool-1.7.0/surfpool` (or `.tmp/tools/surfpool` in a s
 
 Doctor checks local tools without starting an agent. It does not validate provider login or make a model request. Open `/connect` and `/model` to inspect saved access. Install the pinned Surfpool release using the matching archive and checksum in [runtime-manifest.json](../packages/engine/runtime-manifest.json). `--programs` also requires the host Anchor toolchain.
 
-Inside OMS, `/status` shows task state, `/verify` requests independent checking, `/help` lists implemented commands, and `/quit` exits after cleanup. For a provider error, retain the error category and provider/model name, but omit credentials and sign-in URLs from reports.
+Inside OMS, `/status` shows task state, `/verify` requests independent checking, `/help` lists implemented commands, and `/quit` exits after cleanup.
+
+More commands, none of which call a model unless noted:
+
+- Work: `/goal <text> [--check "<command>"]` keeps the agent working until an independent check passes (the command, run in the sandbox, or the task's pinned verifier when there is no `--check`), up to five checks and within the budget; `/goal` shows it and `/goal clear` drops it. `/test` runs the project's tests in the sandbox. `/clear` starts a fresh conversation in the same task. `/cancel` stops any of them.
+- Inspect: `/diff [path]` shows task changes against the base (long diffs open read-only in the workbench) and `/usage` shows tokens, spend, time and the caps.
+- Solana, on the task's local Surfpool only: `/chain` (RPC, slot, health), `/rewind confirm` (restart the chain from its starting state), `/airdrop <address> [sol]` (up to 100), `/account <address>`, `/tx <signature>`, `/program <name|id> [instruction]` and `/error <code> [program]`.
+
+Commands that read (`/status`, `/usage`, `/diff`, `/chain`, `/account <address>`, `/tx`, `/program`, `/error`) work while the agent runs; the rest wait for it or `/cancel`. For a provider error, retain the error category and provider/model name, but omit credentials and sign-in URLs from reports.

@@ -62,6 +62,14 @@ export class Conversation implements Component {
   }
   invalidate(): void {}
 
+  /** Forget everything shown, for a fresh conversation. */
+  clear(): void {
+    this.entries.length = 0;
+    this.chars = 0;
+    this.trimmed = false;
+    this.currentMessage = undefined;
+  }
+
   note(label: string, text: string): void {
     this.put({ key: `notice-${this.sequence++}`, label: displayText(label, 100), text: displayText(text) });
   }

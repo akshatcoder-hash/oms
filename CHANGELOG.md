@@ -14,6 +14,11 @@ First public release, `npx @barestate/oms`.
 - The scrubbed environment (an allowlist) covers agent shell, terminal and verifier processes; tests prove API keys and `AWS_*` never reach them.
 - `oms doctor` lists Docker as optional in host mode and reports whether Seatbelt confines commands.
 
+### Commands
+
+- `/goal` runs the agent until an independent check passes, `/clear` starts a fresh conversation, `/test`, `/diff` and `/usage` cover tests, changes and spend.
+- Solana commands on the task's local Surfpool: `/chain`, `/rewind`, `/airdrop`, `/account`, `/tx`, `/program` and `/error`. They never call a model and refuse any RPC that is not the task's loopback chain.
+
 ### Program reference
 
 - Every session starts with a built-in index of Solana programs in its system prompt: program id, instruction-tag style and instruction names for the native and SPL programs and the most used applications.

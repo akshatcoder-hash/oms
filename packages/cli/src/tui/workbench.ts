@@ -208,9 +208,9 @@ export class WorkbenchPane {
   }
 
   /** In-memory report; never mapped to task file IO. */
-  openReport(id: string, text: string): void {
+  openReport(id: string, text: string, folder = 'review'): void {
     if (this.disposed) return;
-    const key = `\0review/${id}/report.md`;
+    const key = `\0${folder}/${id}/report.md`;
     ++this.openGeneration;
     const existing = this.buffers.get(key);
     if (existing) {
