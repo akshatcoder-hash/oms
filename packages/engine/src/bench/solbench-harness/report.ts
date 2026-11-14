@@ -1,5 +1,5 @@
 /** The night-2 section "Solana Bench, harness version (our environment)", rendered from the run results. */
-import { medianPermutation, signTest } from './stats.ts';
+import { meanPermutation, signTest } from './stats.ts';
 import { withoutPrecompiles, type Score } from './score.ts';
 
 export interface RunResult {
@@ -79,8 +79,8 @@ export function renderSection(all: readonly RunResult[], cells: readonly string[
       const left = runs.filter(r => r.cell === cells[0] && r.variant === variant).map(r => r.score.headline);
       const right = runs.filter(r => r.cell === cells[1] && r.variant === variant).map(r => r.score.headline);
       if (!left.length || !right.length) continue;
-      const test = medianPermutation(left, right);
-      lines.push(`${variant}: exact permutation test on the difference of medians (${left.length} vs ${right.length} runs, ${test.splits} splits): ` +
+      const test = meanPermutation(left, right);
+      lines.push(`${variant}: permutation test on the difference of means (${left.length} vs ${right.length} runs, ${test.exact ? `all ${test.splits} splits` : `${test.splits} seeded random splits`}): ` +
         `difference ${fmt(test.observed)} pairs, two-sided p = ${test.pValue.toFixed(3)}.`);
     }
     lines.push('');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { medianPermutation } from '../src/bench/solbench-harness/stats.ts';
+import { meanPermutation } from '../src/bench/solbench-harness/stats.ts';
 import { paired, renderSection, summarize, type RunResult } from '../src/bench/solbench-harness/report.ts';
 
 const run = (cell: string, runIndex: number, headline: number, extra: Partial<RunResult> = {}): RunResult => ({
@@ -39,12 +39,19 @@ test('an OMS infra ending before any submission is paused by name; precompile pa
   assert.match(text, /not counted: a basic run 1 \(infra-no-start\)/);
 });
 
-test('exact permutation test on the difference of medians: 5 vs 5 fully separated counts every tied split as extreme', () => {
-  const r = medianPermutation([10, 11, 12, 13, 14], [1, 2, 3, 4, 5]);
+test('permutation test on the difference of means: exact for small groups, seeded and reproducible for large ones', () => {
+  const r = meanPermutation([10, 11, 12, 13, 14], [1, 2, 3, 4, 5]);
+  assert.equal(r.exact, true);
   assert.equal(r.splits, 252);
   assert.equal(r.observed, 9);
-  assert.equal(r.pValue, 12 / 252);
-  assert.ok(medianPermutation([1, 2, 3], [100, 101, 102]).pValue === 0.2);
-  assert.equal(medianPermutation([5, 5, 5], [5, 5, 5]).pValue, 1);
-  assert.throws(() => medianPermutation([], [1]), /at least one/);
+  assert.equal(r.pValue, 2 / 252, 'only the observed split and its mirror are as extreme');
+  assert.equal(meanPermutation([5, 5, 5], [5, 5, 5]).pValue, 1);
+  assert.throws(() => meanPermutation([], [1]), /at least one/);
+  // The published swap comparison (16 OMS runs vs 12 Codex runs) is too large to enumerate, so it is sampled.
+  const oms = [514, 283, 532, 280, 487, 284, 329, 311, 380, 312, 316, 431, 439, 296, 320, 343];
+  const codex = [323, 265, 463, 196, 272, 286, 280, 229, 286, 284, 292, 215];
+  const sampled = meanPermutation(oms, codex);
+  assert.equal(sampled.exact, false);
+  assert.equal(sampled.pValue, meanPermutation(oms, codex).pValue, 'same seed, same p');
+  assert.ok(sampled.pValue > 0.005 && sampled.pValue < 0.02, `published p was 0.010-0.011, got ${sampled.pValue}`);
 });
