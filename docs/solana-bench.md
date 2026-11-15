@@ -1,6 +1,6 @@
 # Solana Bench (solbench-harness)
 
-`solbench-harness` is our own harness-level environment, not the Solana Foundation's published Solana Bench, so its numbers are not comparable to the Foundation's tables. It reimplements their scoring rule and compares whole agent harnesses as shipped, each online. Everything needed to rerun it is in this repository: `scripts/solbench-harness.ts`, `packages/engine/src/bench/`, `packages/cli/src/bench-*.ts` and `bench/`. The harness is source-checkout only; it is not part of the npm package.
+`solbench-harness` is our own harness-level environment, not the Solana Foundation's published Solana Bench, so its numbers are not comparable to the Foundation's tables. It reimplements their scoring rule and compares whole agent harnesses as shipped, each online. Everything needed to rerun it is in this repository: `bench/` (runner in `bench/src/run.ts`, tests in `bench/test/`). The harness is source-checkout only; it is not part of the npm package.
 
 ## What it measures
 
@@ -45,14 +45,14 @@ docker build -t oms-solbench-harness:1 bench/solbench-harness
 Start the open-HTTPS tunnel the online cells need, in its own terminal (it admits only public HTTPS addresses; the host, private networks and cloud metadata stay unreachable):
 
 ```sh
-node scripts/solbench-harness.ts egress --log .tmp/solbench-harness/egress.log
+node bench/src/run.ts egress --log .tmp/solbench-harness/egress.log
 ```
 
 Then run, for example, five basic runs of the Codex cell:
 
 ```sh
 export SOLBENCH_HARNESS_SURFPOOL=/path/to/surfpool-0.10.4
-node scripts/solbench-harness.ts --cell codex-web:gpt-sol --variant basic --runs 5 --out-root ./runs
+node bench/src/run.ts --cell codex-web:gpt-sol --variant basic --runs 5 --out-root ./runs
 ```
 
 Pass several `--cell` flags to run cells interleaved, run by run (cell A run 0, cell B run 0, cell A run 1, ...). A run directory that already has a `result.json` is skipped, so the command resumes. A usage limit stops the series and sets that run aside as `paused.json`; rerun the same command after the limit resets. Scored series use 50 submissions; series whose prefix starts with `dev` are for tuning and may use at most 10 (`--prefix dev1 --max-submissions 10`). Create a file named `STOP` in the out-root to stop between runs.
@@ -62,7 +62,7 @@ Each run directory holds `result.json`, `submissions.jsonl` (every signed transa
 Print the tables:
 
 ```sh
-node scripts/solbench-harness.ts report --out-root ./runs
+node bench/src/run.ts report --out-root ./runs
 ```
 
 ## How scoring works

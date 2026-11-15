@@ -3,9 +3,9 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createEnv, walletFromSeed } from '../src/bench/solbench-harness/service.ts';
-import { base58 } from '../src/bench/solbench-harness/wire.ts';
-import { prepareWorkspace, WORKSPACE_SOURCE } from '../src/bench/solbench-harness/workspace.ts';
+import { createEnv, walletFromSeed } from '../src/solbench-harness/service.ts';
+import { base58 } from '../src/solbench-harness/wire.ts';
+import { prepareWorkspace, WORKSPACE_SOURCE } from '../src/solbench-harness/workspace.ts';
 
 const seed = Uint8Array.from({ length: 32 }, (_, i) => 200 - i);
 const wallet = walletFromSeed(seed);

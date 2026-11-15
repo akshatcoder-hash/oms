@@ -2,12 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
-import { parseRunRecord, registerOmsCatalog, SEARCH_BACKENDS, type RunRecord } from '@oms/engine';
-import type { ContenderModel } from '../../engine/src/bench/contenders.ts';
-import type { CodexCredential } from '../../engine/src/bench/subscription.ts';
-import { parseContender } from '../../engine/src/bench/matrix.ts';
-import { omsBase } from '../../engine/src/runtime/web.ts';
-import { runHarnessCommand } from './harness.ts';
+import { omsBase, parseRunRecord, registerOmsCatalog, SEARCH_BACKENDS, type RunRecord } from '@oms/engine';
+import type { ContenderModel } from './contenders.ts';
+import type { CodexCredential } from './subscription.ts';
+import { parseContender } from './matrix.ts';
+import { runHarnessCommand } from '@oms/cli';
 
 export interface OmsContenderRun {
   /** Cell id, for example `oms3-web:gpt-sol`. */

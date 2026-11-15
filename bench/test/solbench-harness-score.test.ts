@@ -4,8 +4,8 @@ import {
   AccountRole, address, appendTransactionMessageInstructions, blockhash, compileTransaction, createTransactionMessage,
   getBase64EncodedWireTransaction, getCompiledTransactionMessageDecoder, getTransactionDecoder, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
-import { parseTransaction } from '../src/bench/solbench-harness/wire.ts';
-import { ARBITRARY_DATA_PROGRAMS, MEMO_PROGRAMS, scoreRun, type Submission } from '../src/bench/solbench-harness/score.ts';
+import { parseTransaction } from '../src/solbench-harness/wire.ts';
+import { ARBITRARY_DATA_PROGRAMS, MEMO_PROGRAMS, scoreRun, type Submission } from '../src/solbench-harness/score.ts';
 
 const PAYER = address('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin');
 const SYSTEM = '11111111111111111111111111111111';

@@ -1,11 +1,11 @@
 /**
  * solbench-harness: our harness-level Solana Bench environment (not the Foundation's published benchmark).
- * usage: node scripts/solbench-harness.ts --cell <id>... --variant basic|swap --runs <n> --out-root <dir> [--prefix main|dev]
+ * usage: node bench/src/run.ts --cell <id>... --variant basic|swap --runs <n> --out-root <dir> [--prefix main|dev]
  *          [--max-submissions 50] [--start <run index>]
  * Cells run interleaved, run by run (cell A run 0, cell B run 0, ..., cell A run 1, ...). A run dir with result.json is skipped.
  * Dev runs (--prefix dev) must use a short budget (--max-submissions 10) and never write into main-* dirs.
- *        node scripts/solbench-harness.ts report --out-root <dir> [--prefix main|dev]   (markdown section on stdout)
- *        node scripts/solbench-harness.ts egress [--log <file>]   (the open-HTTPS tunnel the online cells need; keep it running)
+ *        node bench/src/run.ts report --out-root <dir> [--prefix main|dev]   (markdown section on stdout)
+ *        node bench/src/run.ts egress [--log <file>]   (the open-HTTPS tunnel the online cells need; keep it running)
  * Environment: SOLBENCH_HARNESS_SURFPOOL (Surfpool 0.10.4 binary), SOLBENCH_HARNESS_DEPS (workspace SDK dependencies),
  *   OMS_SEARCH_URL / OMS_SEARCH_TOKEN (hosted search for the OMS cell), OMS_KNOWLEDGE_TOKEN (optional; OMS_KNOWLEDGE_URL defaults to
  *   https://knowledge.barestate.xyz/mcp), SOLBENCH_HARNESS_EGRESS_LOG (optional egress log to slice per run). See docs/solana-bench.md.
@@ -19,20 +19,20 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createTask, defaultHarnessEnvironment, openWorkspace, parseHarnessTaskDefinition, prepareHarnessTask } from '@oms/engine';
-import { ONLINE_NETWORK } from '../packages/engine/src/bench/contenders.ts';
-import { AGENT_HOME, benchInputTokens, benchOutputTokens, buildSubscriptionLaunch, parseCliUsage } from '../packages/engine/src/bench/harnesses.ts';
-import { SUBSCRIPTION_MODELS } from '../packages/engine/src/bench/matrix.ts';
-import { startEgressProxy } from '../packages/engine/src/bench/egress.ts';
-import { codexCredential } from '../packages/engine/src/bench/subscription.ts';
-import { createEnv, freshWallet, listenEnv, MAX_SUBMISSIONS, RUN_WALL_MS } from '../packages/engine/src/bench/solbench-harness/service.ts';
-import { renderSection, type RunResult } from '../packages/engine/src/bench/solbench-harness/report.ts';
-import { sliceEgressLog, startWorkspaceTrace } from '../packages/engine/src/bench/solbench-harness/trace.ts';
-import { prepareWorkspace, SOL_LAMPORTS, SWAP_TOKENS, WORKSPACE_SOURCE, type Variant } from '../packages/engine/src/bench/solbench-harness/workspace.ts';
-import { lostSubscriptionAuth, scrubCredentials, stageSubscriptionLogin } from '../packages/cli/src/bench-external.ts';
-import { omsWebArgs, runOmsContender } from '../packages/cli/src/bench-run.ts';
+import { ONLINE_NETWORK } from './contenders.ts';
+import { AGENT_HOME, benchInputTokens, benchOutputTokens, buildSubscriptionLaunch, parseCliUsage } from './harnesses.ts';
+import { SUBSCRIPTION_MODELS } from './matrix.ts';
+import { startEgressProxy } from './egress.ts';
+import { codexCredential } from './subscription.ts';
+import { createEnv, freshWallet, listenEnv, MAX_SUBMISSIONS, RUN_WALL_MS } from './solbench-harness/service.ts';
+import { renderSection, type RunResult } from './solbench-harness/report.ts';
+import { sliceEgressLog, startWorkspaceTrace } from './solbench-harness/trace.ts';
+import { prepareWorkspace, SOL_LAMPORTS, SWAP_TOKENS, WORKSPACE_SOURCE, type Variant } from './solbench-harness/workspace.ts';
+import { lostSubscriptionAuth, scrubCredentials, stageSubscriptionLogin } from './external.ts';
+import { omsWebArgs, runOmsContender } from './oms-run.ts';
 
 const IMAGE = 'oms-solbench-harness:1';
-const REPO = fileURLToPath(new URL('..', import.meta.url));
+const REPO = fileURLToPath(new URL('../..', import.meta.url));
 const SHIM = join(REPO, 'bench/solbench-harness/surfpool-shim.mjs');
 const DEPS = process.env.SOLBENCH_HARNESS_DEPS ?? join(REPO, '.tmp/solbench-harness/deps');
 /** The fork's Surfpool: 0.10.4, the version the gym run uses (the release current at the gym's pinned commit), pinned by digest. */
@@ -233,9 +233,9 @@ function report(outRoot: string, prefix: string): string {
 }
 
 const USAGE = `solbench-harness: the Solana Bench harness environment (docs/solana-bench.md)
-usage: node scripts/solbench-harness.ts --cell <id>... --variant basic|swap --runs <n> --out-root <dir> [--prefix main|dev] [--max-submissions 50] [--start <run index>]
-       node scripts/solbench-harness.ts report --out-root <dir> [--prefix main|dev]
-       node scripts/solbench-harness.ts egress [--log <file>]
+usage: node bench/src/run.ts --cell <id>... --variant basic|swap --runs <n> --out-root <dir> [--prefix main|dev] [--max-submissions 50] [--start <run index>]
+       node bench/src/run.ts report --out-root <dir> [--prefix main|dev]
+       node bench/src/run.ts egress [--log <file>]
 cells: ${Object.keys(CELLS).join(', ')}
 `;
 

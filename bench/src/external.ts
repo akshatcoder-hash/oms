@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { SubscriptionLaunchInput } from '../../engine/src/bench/harnesses.ts';
-import { codexCredential } from '../../engine/src/bench/subscription.ts';
+import type { SubscriptionLaunchInput } from './harnesses.ts';
+import { codexCredential } from './subscription.ts';
 
 /** Staged logins are deleted as soon as the container exits; session logs in the home directory stay for the report. */
 export function scrubCredentials(home: string): void {

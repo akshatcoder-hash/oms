@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { sliceEgressLog, startWorkspaceTrace } from '../src/bench/solbench-harness/trace.ts';
+import { sliceEgressLog, startWorkspaceTrace } from '../src/solbench-harness/trace.ts';
 
 test('the workspace trace records each changed text file once per version and skips dependencies and binaries', () => {
   const base = mkdtempSync(join(tmpdir(), 'oms-trace-'));

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { omsWebArgs, onlineStamp } from '../src/bench-run.ts';
-import { lostSubscriptionAuth } from '../src/bench-external.ts';
+import { omsWebArgs, onlineStamp } from '../src/oms-run.ts';
+import { lostSubscriptionAuth } from '../src/external.ts';
 
 const OMS = 'oms3-web:gpt-sol';
 

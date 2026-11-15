@@ -8,7 +8,8 @@
     "node": ">=22.19.0"
   },
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "bench"
   ],
   "scripts": {
     "start": "node packages/cli/src/bin.ts",

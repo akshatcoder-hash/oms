@@ -4,11 +4,11 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { hostAllowed, publicAddress, startEgressProxy } from '../src/bench/egress.ts';
-import { buildSubscriptionLaunch, parseCliUsage } from '../src/bench/harnesses.ts';
-import { HARNESSES, parseContender, SUBSCRIPTION_MODELS } from '../src/bench/matrix.ts';
-import { codexCredential } from '../src/bench/subscription.ts';
-import { benchAgentImage, defaultHarnessEnvironment } from '../src/runtime/environment.ts';
+import { hostAllowed, publicAddress, startEgressProxy } from '../src/egress.ts';
+import { buildSubscriptionLaunch, parseCliUsage } from '../src/harnesses.ts';
+import { HARNESSES, parseContender, SUBSCRIPTION_MODELS } from '../src/matrix.ts';
+import { codexCredential } from '../src/subscription.ts';
+import { benchAgentImage, defaultHarnessEnvironment } from '@oms/engine';
 
 test('the three published cells parse; everything else is not a cell', () => {
   assert.deepEqual(parseContender('oms3-web:gpt-sol'), { harness: 'oms3', modelKey: 'gpt-sol', online: 'web + Solana MCP' });

@@ -1,0 +1,23 @@
+{
+  "name": "@oms/bench",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Solana Bench harness and runner, kept out of the shipped product",
+  "license": "MIT",
+  "engines": { "node": ">=22.19.0" },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "start": "node src/run.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@oms/cli": "*",
+    "@oms/engine": "*"
+  },
+  "devDependencies": {
+    "@solana/kit": "^8.5.0"
+  }
+}

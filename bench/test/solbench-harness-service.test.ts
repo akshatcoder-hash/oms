@@ -6,8 +6,8 @@ import {
   AccountRole, address, appendTransactionMessageInstructions, blockhash, compileTransaction, createTransactionMessage,
   getBase64EncodedWireTransaction, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
-import { createEnv, deployedPrograms, walletFromSeed, type SubmissionRecord } from '../src/bench/solbench-harness/service.ts';
-import { parseTransaction } from '../src/bench/solbench-harness/wire.ts';
+import { createEnv, deployedPrograms, walletFromSeed, type SubmissionRecord } from '../src/solbench-harness/service.ts';
+import { parseTransaction } from '../src/solbench-harness/wire.ts';
 
 const SYSTEM = '11111111111111111111111111111111';
 const wallet = walletFromSeed(new Uint8Array(32).fill(7));

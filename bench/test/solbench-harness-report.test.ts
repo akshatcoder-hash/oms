@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { meanPermutation } from '../src/bench/solbench-harness/stats.ts';
-import { paired, renderSection, summarize, type RunResult } from '../src/bench/solbench-harness/report.ts';
+import { meanPermutation } from '../src/solbench-harness/stats.ts';
+import { paired, renderSection, summarize, type RunResult } from '../src/solbench-harness/report.ts';
 
 const run = (cell: string, runIndex: number, headline: number, extra: Partial<RunResult> = {}): RunResult => ({
   cell, variant: 'basic', runIndex, wallMs: 600_000, reason: null, forkSlot: 100 + runIndex,

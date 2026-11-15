@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const WORKSPACE_FILES = ['GOAL.md', 'submit-tx', 'visible.test.ts'] as const;
-export const WORKSPACE_SOURCE = fileURLToPath(new URL('../../../../../bench/solbench-harness/workspace/', import.meta.url));
+export const WORKSPACE_SOURCE = fileURLToPath(new URL('../../solbench-harness/workspace/', import.meta.url));
 
 export type Variant = 'basic' | 'swap';
 
