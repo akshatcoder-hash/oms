@@ -1,6 +1,7 @@
 /**
- * Public surface of @oms/sandbox: two-phase Docker isolation for model-issued
- * shell commands.
+ * Public surface of @oms/sandbox: execution of model-issued shell commands on
+ * the host (Seatbelt on macOS, unconfined on Linux) or, with two-phase Docker
+ * isolation, in containers.
  */
 
 export * from './errors.ts';

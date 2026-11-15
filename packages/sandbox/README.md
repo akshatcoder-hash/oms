@@ -1,10 +1,10 @@
 # @oms/sandbox
 
-Captured, cancellable Docker execution for model-issued commands. This package is not a PTY, persistent terminal, workflow supervisor or host-shell escape hatch. It uses Node built-ins and `@oms/contract`'s shared source-ownership protocol.
+Captured, cancellable execution of model-issued commands, either on the host (Seatbelt-confined on macOS, unconfined on Linux) or in Docker containers with their own egress network. This package is not a PTY, persistent terminal or workflow supervisor. It uses Node built-ins and `@oms/contract`'s shared source-ownership protocol.
 
 ## Execution contract
 
-`runInSandbox` requires:
+`runInSandbox` takes `HostRunOptions` (`backend: 'host'`) or `DockerRunOptions` (`backend: 'docker'`). A host run takes no image or lease; the fields below are what a Docker run requires:
 
 - A mount plan returned by `buildMounts`. Raw, cloned or modified plans are refused.
 - Explicit immutable `image` and `forwarderImage` references: a local `sha256` image ID or `repository@sha256:digest`. Execution uses `--pull=never`; it never downloads a replacement image.
@@ -28,6 +28,7 @@ const mounts = buildMounts({
 });
 
 const result = await runInSandbox({
+  backend: 'docker',
   taskName: task.id,
   phase: 'run',
   argv: ['node', 'verify.mjs'],

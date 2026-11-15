@@ -1,4 +1,4 @@
-/** Captured, cancellable execution. Overlapping host sources are serialized
+/** Captured, cancellable execution on the host or in Docker. Overlapping host sources are serialized
  * through confirmed teardown. This is not a terminal/PTY or persistent-service
  * interface: those lifetimes must explicitly preserve the same source control.
  */
