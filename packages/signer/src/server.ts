@@ -26,12 +26,7 @@ import { ProfileRpc } from './profile.ts';
 import { privateDirectory } from './storage.ts';
 import { safeJson } from './secret.ts';
 import { ServerArtifacts } from './server-artifacts.ts';
-import {
-  createSignerService,
-  type Channel,
-  type ServiceOptions,
-  type SignerService,
-} from './service.ts';
+import { createSignerService, type Channel, type ServiceOptions, type SignerService } from './service.ts';
 
 export interface ServeOptions {
   config: PolicyConfig;
@@ -80,7 +75,25 @@ function tokensMatch(provided: string, expected: string): boolean {
 }
 
 export async function startSignerServer(options: ServeOptions): Promise<RunningSigner> {
-  if (Object.keys(options).some(k => !['config', 'signerDir', 'alias', 'socketDir', 'ledgerHooks', 'logPath', 'tracePath', 'tokens', 'alsoWrite', 'testHooks', 'startupHooks'].includes(k))) throw new SignerError('E_BAD_REQUEST', 'unsupported or legacy signer startup option');
+  if (
+    Object.keys(options).some(
+      (k) =>
+        ![
+          'config',
+          'signerDir',
+          'alias',
+          'socketDir',
+          'ledgerHooks',
+          'logPath',
+          'tracePath',
+          'tokens',
+          'alsoWrite',
+          'testHooks',
+          'startupHooks',
+        ].includes(k),
+    )
+  )
+    throw new SignerError('E_BAD_REQUEST', 'unsupported or legacy signer startup option');
   validatePolicyConfig(options.config);
   const keypair = loadIssuedKeypair({ signerDir: options.signerDir, alias: options.alias });
   const rpc = new ProfileRpc(keypair.profile);
@@ -108,180 +121,193 @@ export async function startSignerServer(options: ServeOptions): Promise<RunningS
       try {
         for (const socket of openSockets) socket.destroy();
         openSockets.clear();
-        await Promise.all(servers.map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+        await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
       } finally {
-        try { artifacts?.close(); } finally { ledger.close(); }
+        try {
+          artifacts?.close();
+        } finally {
+          ledger.close();
+        }
       }
     })();
     return closing;
   }
 
   try {
-  artifacts = new ServerArtifacts(socketDir);
+    artifacts = new ServerArtifacts(socketDir);
 
-  const service = createSignerService({
-    config: options.config,
-    keypair,
-    ledger,
-    logger,
-    trace,
-    // Profile and key provenance come exclusively from the issuance store.
-    ...(options.testHooks ? { testHooks: options.testHooks } : {}),
-  });
+    const service = createSignerService({
+      config: options.config,
+      keypair,
+      ledger,
+      logger,
+      trace,
+      // Profile and key provenance come exclusively from the issuance store.
+      ...(options.testHooks ? { testHooks: options.testHooks } : {}),
+    });
 
-  const engineToken = options.tokens?.engine ?? randomBytes(32).toString('hex');
-  const tuiToken = options.tokens?.tui ?? randomBytes(32).toString('hex');
+    const engineToken = options.tokens?.engine ?? randomBytes(32).toString('hex');
+    const tuiToken = options.tokens?.tui ?? randomBytes(32).toString('hex');
 
-  const tokenFiles = {
-    engine: join(socketDir, 'engine.token'),
-    tui: join(socketDir, 'tui.token'),
-  };
-  for (const [channel, token] of [
-    ['engine', engineToken],
-    ['tui', tuiToken],
-  ] as const) {
-    const file = tokenFiles[channel];
-    const fd = openSync(file, 'wx', 0o600);
-    try {
-      artifacts.track(basename(file));
-      writeFileSync(fd, token + '\n');
-      fsyncSync(fd);
-    } finally { closeSync(fd); }
-  }
+    const tokenFiles = {
+      engine: join(socketDir, 'engine.token'),
+      tui: join(socketDir, 'tui.token'),
+    };
+    for (const [channel, token] of [
+      ['engine', engineToken],
+      ['tui', tuiToken],
+    ] as const) {
+      const file = tokenFiles[channel];
+      const fd = openSync(file, 'wx', 0o600);
+      try {
+        artifacts.track(basename(file));
+        writeFileSync(fd, token + '\n');
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+    }
 
-  const expectedTokens: Record<Channel, string> = { engine: engineToken, tui: tuiToken };
+    const expectedTokens: Record<Channel, string> = { engine: engineToken, tui: tuiToken };
 
-  const engineSocketPath = join(socketDir, 'engine.sock');
-  const tuiSocketPath = join(socketDir, 'tui.sock');
+    const engineSocketPath = join(socketDir, 'engine.sock');
+    const tuiSocketPath = join(socketDir, 'tui.sock');
 
-  async function createChannelServer(channel: Channel, socketPath: string): Promise<Server> {
-    // The listener owns only its unique path. Its public hardlink can be
-    // removed conditionally without net.Server.close unlinking a replacement.
-    const privateSocketPath = join(socketDir, `.${channel[0]}-${artifacts!.token.slice(0, 8)}`);
-    const server = createServer((socket: Socket) => {
-      if (!active) { socket.destroy(); return; }
-      openSockets.add(socket);
-      socket.on('close', () => openSockets.delete(socket));
-      socket.on('error', () => openSockets.delete(socket));
+    async function createChannelServer(channel: Channel, socketPath: string): Promise<Server> {
+      // The listener owns only its unique path. Its public hardlink can be
+      // removed conditionally without net.Server.close unlinking a replacement.
+      const privateSocketPath = join(socketDir, `.${channel[0]}-${artifacts!.token.slice(0, 8)}`);
+      const server = createServer((socket: Socket) => {
+        if (!active) {
+          socket.destroy();
+          return;
+        }
+        openSockets.add(socket);
+        socket.on('close', () => openSockets.delete(socket));
+        socket.on('error', () => openSockets.delete(socket));
 
-      let authenticated = false;
-      let buffer = '';
-      let queue: Promise<void> = Promise.resolve();
+        let authenticated = false;
+        let buffer = '';
+        let queue: Promise<void> = Promise.resolve();
 
-      const writeLine = (line: string): void => {
-        if (socket.destroyed) return;
-        socket.write(line + '\n');
-      };
+        const writeLine = (line: string): void => {
+          if (socket.destroyed) return;
+          socket.write(line + '\n');
+        };
 
-      const deny = (code: string, message: string): void => {
-        writeLine(safeJson({ v: PROTOCOL_VERSION, status: 'error', code, message }, keypair.secret));
-        logger.log('warn', 'channel_auth_failed', { channel, code });
-        socket.end();
-      };
+        const deny = (code: string, message: string): void => {
+          writeLine(safeJson({ v: PROTOCOL_VERSION, status: 'error', code, message }, keypair.secret));
+          logger.log('warn', 'channel_auth_failed', { channel, code });
+          socket.end();
+        };
 
-      const processLine = async (raw: string): Promise<void> => {
-        if (!active) return;
-        if (raw.trim().length === 0) return;
+        const processLine = async (raw: string): Promise<void> => {
+          if (!active) return;
+          if (raw.trim().length === 0) return;
 
-        if (!authenticated) {
-          let hello: Record<string, unknown>;
-          try {
-            const parsed = JSON.parse(raw) as unknown;
-            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          if (!authenticated) {
+            let hello: Record<string, unknown>;
+            try {
+              const parsed = JSON.parse(raw) as unknown;
+              if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                deny('E_AUTH', 'first message must be a hello with a valid token');
+                return;
+              }
+              hello = parsed as Record<string, unknown>;
+            } catch {
               deny('E_AUTH', 'first message must be a hello with a valid token');
               return;
             }
-            hello = parsed as Record<string, unknown>;
-          } catch {
-            deny('E_AUTH', 'first message must be a hello with a valid token');
+            if (hello.type !== 'hello' || typeof hello.token !== 'string') {
+              deny('E_AUTH', 'first message must be a hello with a valid token');
+              return;
+            }
+            if (!tokensMatch(hello.token, expectedTokens[channel])) {
+              deny('E_AUTH', 'channel token rejected');
+              return;
+            }
+            authenticated = true;
+            const helloResult = await service.handle(channel, JSON.stringify({ type: 'hello' }));
+            writeLine(helloResult.line);
             return;
           }
-          if (hello.type !== 'hello' || typeof hello.token !== 'string') {
-            deny('E_AUTH', 'first message must be a hello with a valid token');
-            return;
-          }
-          if (!tokensMatch(hello.token, expectedTokens[channel])) {
-            deny('E_AUTH', 'channel token rejected');
-            return;
-          }
-          authenticated = true;
-          const helloResult = await service.handle(channel, JSON.stringify({ type: 'hello' }));
-          writeLine(helloResult.line);
-          return;
-        }
 
-        const result = await service.handle(channel, raw);
-        writeLine(result.line);
-      };
+          const result = await service.handle(channel, raw);
+          writeLine(result.line);
+        };
 
-      socket.on('data', (chunk: Buffer) => {
-        buffer += chunk.toString('utf8');
-        let index = buffer.indexOf('\n');
-        while (index !== -1) {
-          const line = buffer.slice(0, index);
-          buffer = buffer.slice(index + 1);
-          queue = queue.then(() => processLine(line)).catch((error: unknown) => {
-            const publicError = toPublicError(error, keypair.secret.scrub);
-            writeLine(
-              safeJson({ v: PROTOCOL_VERSION, status: 'error', code: publicError.code, message: publicError.message }, keypair.secret),
-            );
-          });
-          index = buffer.indexOf('\n');
-        }
+        socket.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString('utf8');
+          let index = buffer.indexOf('\n');
+          while (index !== -1) {
+            const line = buffer.slice(0, index);
+            buffer = buffer.slice(index + 1);
+            queue = queue
+              .then(() => processLine(line))
+              .catch((error: unknown) => {
+                const publicError = toPublicError(error, keypair.secret.scrub);
+                writeLine(
+                  safeJson(
+                    { v: PROTOCOL_VERSION, status: 'error', code: publicError.code, message: publicError.message },
+                    keypair.secret,
+                  ),
+                );
+              });
+            index = buffer.indexOf('\n');
+          }
+        });
+
+        socket.on('end', () => {
+          if (buffer.trim().length > 0) {
+            queue = queue.then(() => processLine(buffer)).catch(() => undefined);
+          }
+        });
       });
 
-      socket.on('end', () => {
-        if (buffer.trim().length > 0) {
-          queue = queue.then(() => processLine(buffer)).catch(() => undefined);
-        }
+      servers.push(server);
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(privateSocketPath, () => {
+          server.removeListener('error', reject);
+          resolve();
+        });
       });
+      artifacts!.track(basename(privateSocketPath));
+      chmodSync(privateSocketPath, 0o600);
+      linkSync(privateSocketPath, socketPath);
+      artifacts!.track(basename(socketPath));
+      await options.startupHooks?.afterChannelListen?.(channel, socketPath);
+      return server;
+    }
+
+    await createChannelServer('engine', engineSocketPath);
+    await createChannelServer('tui', tuiSocketPath);
+
+    logger.log('info', 'signer_started', {
+      signerAddress: keypair.address,
+      profileId: keypair.profileId,
+      engineSocketPath,
+      tuiSocketPath,
     });
 
-    servers.push(server);
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(privateSocketPath, () => {
-        server.removeListener('error', reject);
-        resolve();
-      });
-    });
-    artifacts!.track(basename(privateSocketPath));
-    chmodSync(privateSocketPath, 0o600);
-    linkSync(privateSocketPath, socketPath);
-    artifacts!.track(basename(socketPath));
-    await options.startupHooks?.afterChannelListen?.(channel, socketPath);
-    return server;
-  }
-
-  await createChannelServer('engine', engineSocketPath);
-  await createChannelServer('tui', tuiSocketPath);
-
-  logger.log('info', 'signer_started', {
-    signerAddress: keypair.address,
-    profileId: keypair.profileId,
-    engineSocketPath,
-    tuiSocketPath,
-  });
-
-
-  active = true;
-  return {
-    engineSocketPath,
-    tuiSocketPath,
-    socketDir,
-    engineToken,
-    tuiToken,
-    tokenFiles,
-    logPath,
-    tracePath,
-    journalPath,
-    signerAddress: keypair.address,
-    service,
-    ledger,
-    logger,
-    trace,
-    close,
-  };
+    active = true;
+    return {
+      engineSocketPath,
+      tuiSocketPath,
+      socketDir,
+      engineToken,
+      tuiToken,
+      tokenFiles,
+      logPath,
+      tracePath,
+      journalPath,
+      signerAddress: keypair.address,
+      service,
+      ledger,
+      logger,
+      trace,
+      close,
+    };
   } catch (error) {
     await close();
     throw error;

@@ -8,7 +8,19 @@ import { getTheme } from '../src/tui/theme.ts';
 
 const theme = () => getTheme('gruvbox')!;
 function mouse(type: TuiMouseEvent['type'], x: number, width = 80, y = 0): TuiMouseEvent {
-  return { type, button: 'left', x, y, screenX: x, screenY: y, width, height: 1, shift: false, alt: false, ctrl: false };
+  return {
+    type,
+    button: 'left',
+    x,
+    y,
+    screenX: x,
+    screenY: y,
+    width,
+    height: 1,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
 }
 function click(bar: ActionBar, x: number, width = 80): void {
   bar.handleMouse(mouse('press', x, width));
@@ -19,12 +31,15 @@ function click(bar: ActionBar, x: number, width = 80): void {
 test('action widths and hitboxes track Unicode cells and never activate clipped labels', () => {
   for (const width of [1, 8, 40, 80]) {
     const calls: string[] = [];
-    const bar = new ActionBar(() => [
-      { id: 'a', label: '界é', onPress: () => calls.push('a') },
-      { id: 'b', label: 'Run', onPress: () => calls.push('b') },
-    ], { theme, render() {} });
+    const bar = new ActionBar(
+      () => [
+        { id: 'a', label: '界é', onPress: () => calls.push('a') },
+        { id: 'b', label: 'Run', onPress: () => calls.push('b') },
+      ],
+      { theme, render() {} },
+    );
     const frame = renderLayoutFrame(bar, width, 1, () => {});
-    assert.ok(frame.lines.every(line => visibleWidth(line) <= width));
+    assert.ok(frame.lines.every((line) => visibleWidth(line) <= width));
     click(bar, 1, width);
     assert.deepEqual(calls, width >= 7 ? ['a'] : []);
     click(bar, 7, width); // separator, not an action
@@ -40,7 +55,13 @@ test('focus, active state, disabled actions and Escape have keyboard equivalents
     { id: 'b', label: 'Save', disabled: true, onPress: () => calls.push('b') },
     { id: 'c', label: 'Close', onPress: () => calls.push('c') },
   ];
-  const bar = new ActionBar(() => items, { theme, render() {}, onEscape() { escaped++; } });
+  const bar = new ActionBar(() => items, {
+    theme,
+    render() {},
+    onEscape() {
+      escaped++;
+    },
+  });
   bar.render(80);
   bar.handleInput('\r');
   assert.deepEqual(calls, []);
@@ -58,7 +79,18 @@ test('focus, active state, disabled actions and Escape have keyboard equivalents
 
 test('pointer activation occurs once after click, cancels drag and stale resize gestures', () => {
   let count = 0;
-  const bar = new ActionBar(() => [{ id: 'a', label: 'Open', onPress() { count++; } }], { theme, render() {} });
+  const bar = new ActionBar(
+    () => [
+      {
+        id: 'a',
+        label: 'Open',
+        onPress() {
+          count++;
+        },
+      },
+    ],
+    { theme, render() {} },
+  );
   bar.render(80);
   assert.equal(bar.handleMouse(mouse('press', 2))?.focus, false);
   assert.equal(bar.focused, false);
@@ -86,9 +118,19 @@ test('pointer activation occurs once after click, cancels drag and stale resize 
 test('overflowing tabs keep their viewport through press and render until successful activation', () => {
   const calls: string[] = [];
   let active = 'd';
-  const bar = new ActionBar(() => ['a', 'b', 'c', 'd'].map(id => ({
-    id, label: `Tab ${id}`, active: id === active, onPress() { calls.push(id); active = id; },
-  })), { theme, render() {} });
+  const bar = new ActionBar(
+    () =>
+      ['a', 'b', 'c', 'd'].map((id) => ({
+        id,
+        label: `Tab ${id}`,
+        active: id === active,
+        onPress() {
+          calls.push(id);
+          active = id;
+        },
+      })),
+    { theme, render() {} },
+  );
   const before = bar.render(19);
   assert.match(before[0]!, /Tab c.*Tab d/);
   bar.handleMouse(mouse('press', 2, 19));
@@ -102,10 +144,13 @@ test('overflowing tabs keep their viewport through press and render until succes
 
 test('active tabs stay visible and unsafe labels cannot add lines, OSC or backgrounds', () => {
   let active = false;
-  const bar = new ActionBar(() => [
-    { id: 'a', label: 'First tab', onPress() {} },
-    { id: 'b', label: '界\n\x1b]52;c;secret\x07', active, onPress() {} },
-  ], { theme, render() {} });
+  const bar = new ActionBar(
+    () => [
+      { id: 'a', label: 'First tab', onPress() {} },
+      { id: 'b', label: '界\n\x1b]52;c;secret\x07', active, onPress() {} },
+    ],
+    { theme, render() {} },
+  );
   bar.render(40);
   active = true;
   const rows = bar.render(8);
@@ -123,14 +168,22 @@ test('pane frames preserve actual scroll layout, cursor and compact content at e
     let focusedByPointer = 0;
     const editor = createFileEditorPane('first\n' + 'text\n'.repeat(30), () => {});
     editor.focus.focused = true;
-    const pane = new PaneFrame(editor.view, { theme: () => currentTheme, title: () => '界 Editor',
-      focused: () => focused, rows: () => rows, compact: () => rows <= 12, onFocus() { focusedByPointer++; } });
+    const pane = new PaneFrame(editor.view, {
+      theme: () => currentTheme,
+      title: () => '界 Editor',
+      focused: () => focused,
+      rows: () => rows,
+      compact: () => rows <= 12,
+      onFocus() {
+        focusedByPointer++;
+      },
+    });
     let frame = renderLayoutFrame(pane, width, rows, () => {});
     const box = getScrollViewBox(frame, editor.view);
     assert.ok(box);
     assert.ok(box.rect.width >= 1);
-    assert.ok(frame.lines.every(line => visibleWidth(line) <= width));
-    assert.ok(frame.lines.some(line => line.includes(CURSOR_MARKER)));
+    assert.ok(frame.lines.every((line) => visibleWidth(line) <= width));
+    assert.ok(frame.lines.some((line) => line.includes(CURSOR_MARKER)));
     if (width >= 8) {
       assert.match(frame.lines[0]!, /╭/);
       const titleBox = getLayoutBoxesAt(frame, 1, 0)[0]!;

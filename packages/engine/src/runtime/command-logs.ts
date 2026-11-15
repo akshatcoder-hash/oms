@@ -52,16 +52,25 @@ export class CommandLogs {
         headBytes += prefix;
         const rest = chunk.subarray(prefix);
         if (rest.length >= TAIL_BYTES) tail = Buffer.from(rest.subarray(-TAIL_BYTES));
-        else if (rest.length) tail = Buffer.concat([tail.subarray(Math.max(0, tail.length + rest.length - TAIL_BYTES)), rest]);
+        else if (rest.length)
+          tail = Buffer.concat([tail.subarray(Math.max(0, tail.length + rest.length - TAIL_BYTES)), rest]);
       },
       finish: () => {
-        if (!finished) { finished = true; closeSync(fd); }
+        if (!finished) {
+          finished = true;
+          closeSync(fd);
+        }
         const omitted = entry.total - headBytes - tail.length;
-        const marker = omitted > 0
-          ? Buffer.from(`\n[${omitted} bytes omitted; read_log id=${id}; host log ${entry.captured}/${entry.total} bytes]\n`)
-          : Buffer.alloc(0);
-        return { text: Buffer.concat([head.subarray(0, headBytes), marker, tail]).toString('utf8'),
-          truncated: omitted > 0 || entry.captured < entry.total };
+        const marker =
+          omitted > 0
+            ? Buffer.from(
+                `\n[${omitted} bytes omitted; read_log id=${id}; host log ${entry.captured}/${entry.total} bytes]\n`,
+              )
+            : Buffer.alloc(0);
+        return {
+          text: Buffer.concat([head.subarray(0, headBytes), marker, tail]).toString('utf8'),
+          truncated: omitted > 0 || entry.captured < entry.total,
+        };
       },
     };
   }
@@ -72,16 +81,27 @@ export class CommandLogs {
     // Only this session's random ids are map keys, so no other string can reach a host path.
     const entry = typeof id === 'string' ? this.entries.get(id) : undefined;
     if (typeof id !== 'string' || !entry || !this.root) throw new Error('Unknown command log id');
-    if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > entry.captured) throw new Error('Invalid log offset');
-    if (typeof maxBytes !== 'number' || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 16_000) throw new Error('max_bytes must be 1..16000');
+    if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset > entry.captured)
+      throw new Error('Invalid log offset');
+    if (typeof maxBytes !== 'number' || !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 16_000)
+      throw new Error('max_bytes must be 1..16000');
     const bytes = Buffer.alloc(Math.min(maxBytes, entry.captured - offset));
     const fd = openSync(join(this.root, id), 'r');
     let count: number;
-    try { count = readSync(fd, bytes, 0, bytes.length, offset); }
-    finally { closeSync(fd); }
-    return { data: bytes.subarray(0, count).toString('base64'), offset, next_offset: offset + count,
-      captured_bytes: entry.captured, total_bytes: entry.total, truncated: entry.captured < entry.total,
-      eof: offset + count === entry.captured };
+    try {
+      count = readSync(fd, bytes, 0, bytes.length, offset);
+    } finally {
+      closeSync(fd);
+    }
+    return {
+      data: bytes.subarray(0, count).toString('base64'),
+      offset,
+      next_offset: offset + count,
+      captured_bytes: entry.captured,
+      total_bytes: entry.total,
+      truncated: entry.captured < entry.total,
+      eof: offset + count === entry.captured,
+    };
   }
 
   dispose(): void {

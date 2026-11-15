@@ -34,8 +34,7 @@ const DEFAULT_REPETITION_WINDOW = 12;
 export type GuardBlockRule = 'protected_write' | 'denied_root' | 'repetition' | 'diff_size' | 'guard_error';
 
 export type GuardDecision =
-  | { readonly block: false }
-  | { readonly block: true; readonly rule: GuardBlockRule; readonly reason: string };
+  { readonly block: false } | { readonly block: true; readonly rule: GuardBlockRule; readonly reason: string };
 
 /** The part of a Pi `tool_call` event the guards need; kept Pi-free so it is unit-testable. */
 export interface GuardedToolCall {
@@ -197,13 +196,16 @@ function prepareTargets(config: GuardsConfig, cwd: string, home: string): Prepar
     // so the dotted parent (`/.config`) and a bare dotted name (`cd ~ && cat .ssh/id`) must trip the guard too.
     if (rule === 'denied_root') {
       const parent = parts[parts.length - 2];
-      if (parent !== undefined && parent.startsWith('.') && parent.length >= 3 && !ownSegments.has(parent)) addNeedle(`${sep}${parent}`, rule);
-      if (shortName && last !== undefined && last.startsWith('.') && last.length >= 3) for (const lead of [' ', '"', "'", ';', '=']) addNeedle(`${lead}${last}`, rule);
+      if (parent !== undefined && parent.startsWith('.') && parent.length >= 3 && !ownSegments.has(parent))
+        addNeedle(`${sep}${parent}`, rule);
+      if (shortName && last !== undefined && last.startsWith('.') && last.length >= 3)
+        for (const lead of [' ', '"', "'", ';', '=']) addNeedle(`${lead}${last}`, rule);
     }
   };
   for (const target of protectedTargets) addTarget(target, 'protected_write');
   // The bare folder-name needle (`/.oms`) is dropped when it would match the task's own path (host worktrees live under `.oms`).
-  for (const target of deniedTargets) addTarget(target, 'denied_root', !config.approveHostCommands || !ownSegments.has(basename(target.absolute)));
+  for (const target of deniedTargets)
+    addTarget(target, 'denied_root', !config.approveHostCommands || !ownSegments.has(basename(target.absolute)));
 
   return {
     protectedTargets,
@@ -220,7 +222,12 @@ function label(target: ResolvedPath): string {
   return isAbsolute(target.raw) ? basename(target.raw) : target.raw;
 }
 
-function pathDecision(call: GuardedToolCall, targets: PreparedTargets, cwd: string, home: string): GuardDecision | null {
+function pathDecision(
+  call: GuardedToolCall,
+  targets: PreparedTargets,
+  cwd: string,
+  home: string,
+): GuardDecision | null {
   const spec = PATH_TOOL_SPECS[call.toolName];
   if (spec === undefined) return null;
 
@@ -253,10 +260,7 @@ function pathDecision(call: GuardedToolCall, targets: PreparedTargets, cwd: stri
   }
   for (const deniedTarget of targets.deniedTargets) {
     if (matchesTarget(candidates, deniedTarget)) {
-      return block(
-        'denied_root',
-        'that path holds key material or signer state; the model may not read or write it',
-      );
+      return block('denied_root', 'that path holds key material or signer state; the model may not read or write it');
     }
   }
   return null;
@@ -421,7 +425,8 @@ export function decideToolCall(call: GuardedToolCall, config: GuardsConfig, hist
 const GUARD_FAILED_CLOSED: GuardDecision = Object.freeze({
   block: true,
   rule: 'guard_error',
-  reason: 'blocked (guard_error): the guard could not verify that this call is allowed, so it was refused. Change approach or ask the user',
+  reason:
+    'blocked (guard_error): the guard could not verify that this call is allowed, so it was refused. Change approach or ask the user',
 });
 
 /**

@@ -130,11 +130,7 @@ function buildForbidden(forbidden: ForbiddenPaths | undefined): ForbiddenEntry[]
  * The walk starts at the project's REAL root so macOS prefixes like
  * /var/folders -> /private/var/folders do not defeat the comparison.
  */
-function escapesProject(
-  lexical: string,
-  projectRootLexical: string,
-  projectRootReal: string,
-): boolean {
+function escapesProject(lexical: string, projectRootLexical: string, projectRootReal: string): boolean {
   const rel = path.relative(projectRootLexical, lexical);
   if (!isWithin(lexical, projectRootLexical)) return false;
   let cur = projectRootReal;
@@ -184,11 +180,10 @@ function checkForbidden(
           });
         }
         if (f.wholeTree && isWithin(candidate, target)) {
-          throw new SandboxError(
-            'E_MOUNT_FORBIDDEN',
-            `${what} is inside a forbidden path: ${target}`,
-            { path: candidate, forbidden: target },
-          );
+          throw new SandboxError('E_MOUNT_FORBIDDEN', `${what} is inside a forbidden path: ${target}`, {
+            path: candidate,
+            forbidden: target,
+          });
         }
         if (isWithin(target, candidate)) {
           throw new SandboxError(
@@ -215,7 +210,10 @@ function collectShadows(
 ): string[] {
   const shadows: string[] = [];
   for (const f of forbidden) {
-    for (const [target, root] of [[f.real, projectRootReal], [f.lexical, projectRootLexical]]) {
+    for (const [target, root] of [
+      [f.real, projectRootReal],
+      [f.lexical, projectRootLexical],
+    ]) {
       if (target && root && isWithin(target, root)) {
         shadows.push(path.join(containerRoot, path.relative(root, target)));
       }
@@ -256,14 +254,15 @@ export function buildMounts(options: BuildMountsOptions): MountPlan {
     for (const target of [f.real, f.lexical]) {
       if (target === null) continue;
       for (const candidate of [projectRootReal, projectRootLexical]) {
-        if (candidate === target ||
-            (f.wholeTree && isWithin(candidate, target)) ||
-            (!f.wholeTree && isWithin(target, candidate))) {
-          throw new SandboxError(
-            'E_MOUNT_FORBIDDEN',
-            `project root overlaps a forbidden path: ${target}`,
-            { path: candidate, forbidden: target },
-          );
+        if (
+          candidate === target ||
+          (f.wholeTree && isWithin(candidate, target)) ||
+          (!f.wholeTree && isWithin(target, candidate))
+        ) {
+          throw new SandboxError('E_MOUNT_FORBIDDEN', `project root overlaps a forbidden path: ${target}`, {
+            path: candidate,
+            forbidden: target,
+          });
         }
       }
     }
@@ -295,15 +294,21 @@ export function buildMounts(options: BuildMountsOptions): MountPlan {
     }
     checkForbidden(real, lexical, projectRootLexical, projectRootReal, forbidden, 'extra mount');
     if (missing) throw missing;
-    extraMounts.push({ hostPath: mode === 'ro' ? lexical : real as string, containerPath, mode });
+    extraMounts.push({ hostPath: mode === 'ro' ? lexical : (real as string), containerPath, mode });
   }
 
   for (const overlay of options.readOnlyOverlays ?? []) {
     const lexical = normalizePath(overlay.hostPath);
     const { real, missing } = resolveOrCaptureMissing(lexical);
     const containerPath = normalizePath(overlay.containerPath);
-    if (!path.isAbsolute(overlay.containerPath) || containerPath === containerRoot || !isWithinOrEqual(containerPath, containerRoot)) {
-      throw new SandboxError('E_BAD_ARGUMENT', 'a read-only overlay must sit strictly inside the project mount', { containerPath: overlay.containerPath });
+    if (
+      !path.isAbsolute(overlay.containerPath) ||
+      containerPath === containerRoot ||
+      !isWithinOrEqual(containerPath, containerRoot)
+    ) {
+      throw new SandboxError('E_BAD_ARGUMENT', 'a read-only overlay must sit strictly inside the project mount', {
+        containerPath: overlay.containerPath,
+      });
     }
     checkForbidden(real, lexical, projectRootLexical, projectRootReal, forbidden, 'overlay mount');
     if (missing) throw missing;
@@ -338,11 +343,10 @@ export function buildMounts(options: BuildMountsOptions): MountPlan {
       for (const target of [f.real, f.lexical]) {
         if (target === null) continue;
         if (real === target || (f.wholeTree && isWithin(real, target))) {
-          throw new SandboxError(
-            'E_MOUNT_FORBIDDEN',
-            `readOnlyPath is inside a forbidden path: ${target}`,
-            { path: real, forbidden: target },
-          );
+          throw new SandboxError('E_MOUNT_FORBIDDEN', `readOnlyPath is inside a forbidden path: ${target}`, {
+            path: real,
+            forbidden: target,
+          });
         }
       }
     }

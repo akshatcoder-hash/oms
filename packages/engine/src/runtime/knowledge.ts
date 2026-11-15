@@ -1,1 +1,1 @@
-export { OMS_REFERENCE_PREFIX } from "./system-prompt.ts";
+export { OMS_REFERENCE_PREFIX } from './system-prompt.ts';

@@ -3,31 +3,70 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { adaptAnchor, adaptCodama, adaptRustEnum, anchorDiscriminator } from '../../../scripts/program-reference/adapters.ts';
+import {
+  adaptAnchor,
+  adaptCodama,
+  adaptRustEnum,
+  anchorDiscriminator,
+} from '../../../scripts/program-reference/adapters.ts';
 import { validateProgramReference } from '../../../scripts/program-reference/validate.ts';
 import type { ProgramReferenceData } from '../src/runtime/program-reference-data.ts';
-import { installedProgramClients, lookupProgramReference, PROGRAM_REFERENCE_RESULT_LIMIT, PROGRAM_REFERENCE_TOOL, programReference, programReferenceExtension, programReferenceIndex } from '../src/runtime/program-reference.ts';
+import {
+  installedProgramClients,
+  lookupProgramReference,
+  PROGRAM_REFERENCE_RESULT_LIMIT,
+  PROGRAM_REFERENCE_TOOL,
+  programReference,
+  programReferenceExtension,
+  programReferenceIndex,
+} from '../src/runtime/program-reference.ts';
 import { omsSystemPrompt, sessionToolNames } from '../src/runtime/session.ts';
 
 const data = programReference();
-const program = (name: string) => data.programs.find(p => p.name === name)!;
+const program = (name: string) => data.programs.find((p) => p.name === name)!;
 
 test('the generated file validates: ids, discriminator widths, unique names, facts-only entries', () => {
   assert.deepEqual(validateProgramReference(data), []);
   assert.ok(data.programs.length >= 40);
-  for (const required of ['System', 'Stake', 'Vote', 'Config', 'Compute Budget', 'Address Lookup Table', 'BPF Loader Upgradeable', 'SPL Token', 'Token-2022',
-    'Associated Token Account', 'Memo', 'Stake Pool', 'Governance', 'Name Service', 'Feature Gate', 'Ed25519 Precompile', 'Secp256k1 Precompile', 'Secp256r1 Precompile']) {
-    assert.ok(data.programs.some(p => p.name === required), `${required} is present`);
+  for (const required of [
+    'System',
+    'Stake',
+    'Vote',
+    'Config',
+    'Compute Budget',
+    'Address Lookup Table',
+    'BPF Loader Upgradeable',
+    'SPL Token',
+    'Token-2022',
+    'Associated Token Account',
+    'Memo',
+    'Stake Pool',
+    'Governance',
+    'Name Service',
+    'Feature Gate',
+    'Ed25519 Precompile',
+    'Secp256k1 Precompile',
+    'Secp256r1 Precompile',
+  ]) {
+    assert.ok(
+      data.programs.some((p) => p.name === required),
+      `${required} is present`,
+    );
   }
-  assert.ok(program('Token-2022').instructions.some(ix => ix.name === 'initializeTransferFeeConfig' && ix.discriminator === '1a00'), 'Token-2022 extension instructions carry their sub-tag');
+  assert.ok(
+    program('Token-2022').instructions.some(
+      (ix) => ix.name === 'initializeTransferFeeConfig' && ix.discriminator === '1a00',
+    ),
+    'Token-2022 extension instructions carry their sub-tag',
+  );
 });
 
 test('the validator rejects a bad id, a duplicate name, a wrong width and a facts-only entry with flags', () => {
   const broken: ProgramReferenceData = structuredClone(data);
-  const token = broken.programs.find(p => p.name === 'SPL Token')!;
+  const token = broken.programs.find((p) => p.name === 'SPL Token')!;
   token.id = 'not-base58-0OIl';
   token.instructions.push({ ...token.instructions[0]!, discriminator: '010203' });
-  const orca = broken.programs.find(p => p.name === 'Orca Whirlpools')!;
+  const orca = broken.programs.find((p) => p.name === 'Orca Whirlpools')!;
   orca.instructions[0]!.args = [{ name: 'copied', type: 'u64' }];
   const problems = validateProgramReference(broken).join('\n');
   assert.match(problems, /SPL Token: id .* is not base58 of 32 bytes/);
@@ -39,7 +78,10 @@ test('the validator rejects a bad id, a duplicate name, a wrong width and a fact
 test('known tags come back from the lookup tool', () => {
   assert.match(lookupProgramReference('SPL Token', 'Transfer'), /starts with 03 \(bytes \[3\]\)/);
   assert.match(lookupProgramReference('SPL Token', 'TransferChecked'), /starts with 0c \(bytes \[12\]\)/);
-  assert.match(lookupProgramReference('System', 'Transfer'), /System 1{32} \/ transferSol\nInstruction data starts with 02000000 \(bytes \[2,0,0,0\]\)/);
+  assert.match(
+    lookupProgramReference('System', 'Transfer'),
+    /System 1{32} \/ transferSol\nInstruction data starts with 02000000 \(bytes \[2,0,0,0\]\)/,
+  );
   assert.match(lookupProgramReference('Associated Token Account', 'CreateIdempotent'), /starts with 01 /);
   assert.match(lookupProgramReference('Compute Budget', 'SetComputeUnitLimit'), /starts with 02 /);
   assert.match(lookupProgramReference('Jupiter Aggregator v6', 'route'), /e517cb977ae3ad2a/);
@@ -55,12 +97,19 @@ test('names may be partial, any case, or a program id; misses return the closest
   assert.match(lookupProgramReference('token', 'transferchecked'), /^SPL Token Tokenkeg/);
   assert.match(lookupProgramReference('TOKEN-2022'), /^Token-2022 TokenzQd/);
   assert.match(lookupProgramReference('whirl', 'swap'), /^Orca Whirlpools /);
-  assert.match(lookupProgramReference('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', 'create'), /^Associated Token Account /);
+  assert.match(
+    lookupProgramReference('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', 'create'),
+    /^Associated Token Account /,
+  );
   const missProgram = lookupProgramReference('Sistem Progrm');
   assert.match(missProgram, /^No program matches "Sistem Progrm"\. Closest: .*System/);
   const missInstruction = lookupProgramReference('SPL Token', 'transferr chekd');
   assert.match(missInstruction, /no instruction matching "transferr chekd"\. Closest: .*transferChecked/);
-  assert.match(lookupProgramReference('SPL Token', 'transfer'), /starts with 03 /, 'an exact name beats longer names that contain it');
+  assert.match(
+    lookupProgramReference('SPL Token', 'transfer'),
+    /starts with 03 /,
+    'an exact name beats longer names that contain it',
+  );
 });
 
 test('a facts-only source returns names, order and discriminators, never argument types or flags', () => {
@@ -71,7 +120,10 @@ test('a facts-only source returns names, order and discriminators, never argumen
 });
 
 test('a program without a tag says so, and its record layout is generated from the source', () => {
-  assert.match(lookupProgramReference('Ed25519 Precompile', 'verify'), /no instruction tag[\s\S]*num_signatures: u8\n {2}padding: u8\n {2}offsets: \{signature_offset:u16/);
+  assert.match(
+    lookupProgramReference('Ed25519 Precompile', 'verify'),
+    /no instruction tag[\s\S]*num_signatures: u8\n {2}padding: u8\n {2}offsets: \{signature_offset:u16/,
+  );
 });
 
 test('each program records its official npm client where one is published, empty where none is', () => {
@@ -80,9 +132,13 @@ test('each program records its official npm client where one is published, empty
   assert.deepEqual(clients('SPL Token'), ['@solana-program/token']);
   assert.deepEqual(clients('Orca Whirlpools'), ['@orca-so/whirlpools-client']);
   assert.deepEqual(clients('SPL Single Pool'), ['@solana/spl-single-pool', '@solana/spl-single-pool-classic']);
-  for (const none of ['Vote', 'Config', 'Ed25519 Precompile', 'Jupiter Aggregator v6', 'Sanctum S Controller']) assert.deepEqual(clients(none), [], `${none} has no published client`);
+  for (const none of ['Vote', 'Config', 'Ed25519 Precompile', 'Jupiter Aggregator v6', 'Sanctum S Controller'])
+    assert.deepEqual(clients(none), [], `${none} has no published client`);
   assert.match(lookupProgramReference('whirlpool'), /Official TypeScript client \(npm\): @orca-so\/whirlpools-client/);
-  assert.match(lookupProgramReference('system', 'transfersol'), /Official TypeScript client \(npm\): @solana-program\/system/);
+  assert.match(
+    lookupProgramReference('system', 'transfersol'),
+    /Official TypeScript client \(npm\): @solana-program\/system/,
+  );
   assert.doesNotMatch(lookupProgramReference('Vote'), /Official TypeScript client/);
 });
 
@@ -97,36 +153,65 @@ test('the index names the client of a program and the count-prefixed shape of Se
 });
 
 test('count-prefixed programs and Memo describe their input dimensions and payload-only variation', () => {
-  assert.match(lookupProgramReference('Ed25519 Precompile'), /Input dimension: no discriminator; the leading field \(first byte = number of signatures\) varies, bounded by transaction size, and each distinct value is a distinct instruction prefix\./);
-  assert.match(lookupProgramReference('Config', 'store'), /The leading field is an input dimension: it varies, and each distinct value is a distinct instruction prefix\./);
+  assert.match(
+    lookupProgramReference('Ed25519 Precompile'),
+    /Input dimension: no discriminator; the leading field \(first byte = number of signatures\) varies, bounded by transaction size, and each distinct value is a distinct instruction prefix\./,
+  );
+  assert.match(
+    lookupProgramReference('Config', 'store'),
+    /The leading field is an input dimension: it varies, and each distinct value is a distinct instruction prefix\./,
+  );
   assert.match(lookupProgramReference('Memo'), /accepts arbitrary data, so memo variations are payload-only/);
   assert.ok(Buffer.byteLength(programReferenceIndex()) < 17_500);
 });
 
 test('count-prefixed programs describe their data layout from the pinned source', () => {
   const r1 = lookupProgramReference('Secp256r1 Precompile');
-  assert.match(r1, /Data layout \(first byte = number of signatures\): u8 num_signatures, u8 padding, then num_signatures records of 14 bytes \{signature_offset:u16/);
-  assert.match(r1, /Source: https:\/\/raw\.githubusercontent\.com\/anza-xyz\/solana-sdk\/[0-9a-f]{40}\/secp256r1-program/);
-  assert.match(lookupProgramReference('Secp256k1 Precompile', 'verify'), /no instruction tag: first byte = number of signatures\. Layout: u8 num_signatures, then num_signatures records of 11 bytes/);
+  assert.match(
+    r1,
+    /Data layout \(first byte = number of signatures\): u8 num_signatures, u8 padding, then num_signatures records of 14 bytes \{signature_offset:u16/,
+  );
+  assert.match(
+    r1,
+    /Source: https:\/\/raw\.githubusercontent\.com\/anza-xyz\/solana-sdk\/[0-9a-f]{40}\/secp256r1-program/,
+  );
+  assert.match(
+    lookupProgramReference('Secp256k1 Precompile', 'verify'),
+    /no instruction tag: first byte = number of signatures\. Layout: u8 num_signatures, then num_signatures records of 11 bytes/,
+  );
   const config = lookupProgramReference('Config', 'store');
-  assert.match(config, /no instruction tag: data starts with a short_vec count of keys\. Layout: keys: short_vec length n, then n entries of \(pubkey, bool as u8\); then data: bytes/);
+  assert.match(
+    config,
+    /no instruction tag: data starts with a short_vec count of keys\. Layout: keys: short_vec length n, then n entries of \(pubkey, bool as u8\); then data: bytes/,
+  );
   assert.equal(program('Config').style, 'count');
   assert.equal(program('Memo').style, 'none');
 });
 
 test('instruction "*" returns every instruction of a program in one response, and degrades for very large programs', () => {
   const system = lookupProgramReference('System', '*');
-  for (const ix of program('System').instructions) assert.ok(system.includes(`\n  ${ix.name}${ix.alias ? ` (${ix.alias})` : ''} ${ix.discriminator} | accounts:`), `${ix.name} has a line`);
+  for (const ix of program('System').instructions)
+    assert.ok(
+      system.includes(`\n  ${ix.name}${ix.alias ? ` (${ix.alias})` : ''} ${ix.discriminator} | accounts:`),
+      `${ix.name} has a line`,
+    );
   assert.match(system, /All 14 instructions, one per line/);
-  assert.match(system, / transferSol 02000000 \| accounts: source\(signer\+writable\), destination\(writable\) \| args: amount:u64/);
+  assert.match(
+    system,
+    / transferSol 02000000 \| accounts: source\(signer\+writable\), destination\(writable\) \| args: amount:u64/,
+  );
   const token = lookupProgramReference('SPL Token', '*');
-  assert.match(token, /transferChecked 0c \| accounts: source\(writable\), mint, destination\(writable\), authority\(signer-or-not\) \| args: amount:u64, decimals:u8/);
+  assert.match(
+    token,
+    /transferChecked 0c \| accounts: source\(writable\), mint, destination\(writable\), authority\(signer-or-not\) \| args: amount:u64, decimals:u8/,
+  );
   const orca = lookupProgramReference('Orca Whirlpools', '*');
   assert.match(orca, / swap [0-9a-f]{16} \| accounts: .* \| args: not recorded/);
   const drift = lookupProgramReference('Drift v2', '*');
-  assert.equal(drift.split('\n').filter(line => /^ {2}\w+ [0-9a-f]{16}, \d+ accounts$/.test(line)).length, 249);
+  assert.equal(drift.split('\n').filter((line) => /^ {2}\w+ [0-9a-f]{16}, \d+ accounts$/.test(line)).length, 249);
   assert.match(drift, /ask for one instruction, or a partial name/);
-  for (const text of [system, token, orca, drift, lookupProgramReference('Token-2022', '*')]) assert.ok(Buffer.byteLength(text) <= PROGRAM_REFERENCE_RESULT_LIMIT, 'bounded');
+  for (const text of [system, token, orca, drift, lookupProgramReference('Token-2022', '*')])
+    assert.ok(Buffer.byteLength(text) <= PROGRAM_REFERENCE_RESULT_LIMIT, 'bounded');
   assert.match(lookupProgramReference('System'), /or "\*" for all of them in one call/);
 });
 
@@ -134,13 +219,27 @@ test('SPL Single Pool is present with its program id, tags, accounts and licence
   const pool = program('SPL Single Pool');
   assert.equal(pool.id, 'SVSPxpvHdN29nkVg9rPapPNDddN5DipNLRUFhyjFThE');
   assert.equal(pool.source.licence, 'Apache-2.0');
-  assert.deepEqual(pool.instructions.map(ix => [ix.name, ix.discriminator]).slice(0, 4), [['initialize_pool', '00'], ['replenish_pool', '01'], ['deposit_stake', '02'], ['withdraw_stake', '03']]);
+  assert.deepEqual(pool.instructions.map((ix) => [ix.name, ix.discriminator]).slice(0, 4), [
+    ['initialize_pool', '00'],
+    ['replenish_pool', '01'],
+    ['deposit_stake', '02'],
+    ['withdraw_stake', '03'],
+  ]);
   assert.match(lookupProgramReference('single pool', 'deposit_sol'), /starts with 07 .*lamports: u64/s);
-  assert.match(lookupProgramReference('SVSPxpvHdN29nkVg9rPapPNDddN5DipNLRUFhyjFThE', 'withdraw_stake'), /token_amount: u64/);
+  assert.match(
+    lookupProgramReference('SVSPxpvHdN29nkVg9rPapPNDddN5DipNLRUFhyjFThE', 'withdraw_stake'),
+    /token_amount: u64/,
+  );
 });
 
 test('the lookup tool is registered with the extension and answers without any network or token', async () => {
-  const tools: Array<{ name: string; execute: (id: string, params: { program: string; instruction?: string }) => Promise<{ content: Array<{ text: string }> }> }> = [];
+  const tools: Array<{
+    name: string;
+    execute: (
+      id: string,
+      params: { program: string; instruction?: string },
+    ) => Promise<{ content: Array<{ text: string }> }>;
+  }> = [];
   programReferenceExtension({ registerTool: (tool: never) => tools.push(tool) } as never);
   assert.equal(tools.length, 1);
   assert.equal(tools[0]!.name, PROGRAM_REFERENCE_TOOL);
@@ -152,7 +251,11 @@ test('the lookup tool is registered with the extension and answers without any n
 
 test('the index names every program, id and tag style, stays under 17,500 bytes, and is identical on every call', () => {
   const index = programReferenceIndex();
-  for (const p of data.programs) assert.ok(index.split('\n').some(line => line.startsWith(`${p.name} ${p.id} [`)), `${p.name} has an index line`);
+  for (const p of data.programs)
+    assert.ok(
+      index.split('\n').some((line) => line.startsWith(`${p.name} ${p.id} [`)),
+      `${p.name} has an index line`,
+    );
   assert.ok(Buffer.byteLength(index) < 17_500, `index is ${Buffer.byteLength(index)} bytes`);
   assert.equal(programReferenceIndex(), index);
   assert.match(index, /System 1{32} \[u32\] createAccount,assign,transferSol/);
@@ -175,10 +278,31 @@ test('the system prompt carries the index without the knowledge service, identic
 test('Anchor discriminators are derived with the Anchor rule when an IDL omits them', () => {
   assert.equal(anchorDiscriminator('initialize'), 'afaf6d1f0d989bed');
   assert.equal(anchorDiscriminator('swapV2'), anchorDiscriminator('swap_v2'));
-  const adapted = adaptAnchor({ name: 'legacy', instructions: [{ name: 'route', accounts: [{ name: 'user', isMut: false, isSigner: true }, { name: 'group', accounts: [{ name: 'inner', isMut: true, isSigner: false }] }], args: [{ name: 'amount', type: 'u64' }, { name: 'owner', type: 'publicKey' }] }] });
+  const adapted = adaptAnchor({
+    name: 'legacy',
+    instructions: [
+      {
+        name: 'route',
+        accounts: [
+          { name: 'user', isMut: false, isSigner: true },
+          { name: 'group', accounts: [{ name: 'inner', isMut: true, isSigner: false }] },
+        ],
+        args: [
+          { name: 'amount', type: 'u64' },
+          { name: 'owner', type: 'publicKey' },
+        ],
+      },
+    ],
+  });
   assert.equal(adapted.instructions[0]!.discriminator, 'e517cb977ae3ad2a');
-  assert.deepEqual(adapted.instructions[0]!.accounts.map(a => a.name), ['user', 'group.inner']);
-  assert.deepEqual(adapted.instructions[0]!.args, [{ name: 'amount', type: 'u64' }, { name: 'owner', type: 'pubkey' }]);
+  assert.deepEqual(
+    adapted.instructions[0]!.accounts.map((a) => a.name),
+    ['user', 'group.inner'],
+  );
+  assert.deepEqual(adapted.instructions[0]!.args, [
+    { name: 'amount', type: 'u64' },
+    { name: 'owner', type: 'pubkey' },
+  ]);
   assert.equal(adapted.style, 'anchor8');
 });
 
@@ -199,19 +323,48 @@ test('a Rust instruction enum is numbered by position and its doc account list i
 }`;
   const { instructions, style } = adaptRustEnum(source, 'Ix', 1);
   assert.equal(style, 'u8');
-  assert.deepEqual(instructions.map(ix => [ix.name, ix.discriminator]), [['create', '00'], ['gone', '01'], ['pick', '02']]);
-  assert.deepEqual(instructions[0]!.accounts, [{ name: 'Payer', signer: true, writable: true }, { name: 'Rent sysvar', signer: false, writable: false }]);
+  assert.deepEqual(
+    instructions.map((ix) => [ix.name, ix.discriminator]),
+    [
+      ['create', '00'],
+      ['gone', '01'],
+      ['pick', '02'],
+    ],
+  );
+  assert.deepEqual(instructions[0]!.accounts, [
+    { name: 'Payer', signer: true, writable: true },
+    { name: 'Rent sysvar', signer: false, writable: false },
+  ]);
   assert.deepEqual(instructions[2]!.accounts, []);
   assert.match(instructions[2]!.note!, /differ by case/);
-  assert.deepEqual(instructions[2]!.args!.map(a => a.type), ['u8', 'u32']);
+  assert.deepEqual(
+    instructions[2]!.args!.map((a) => a.type),
+    ['u8', 'u32'],
+  );
 });
 
 test('a Codama IDL contributes its constant discriminator bytes in offset order and leaves them out of the arguments', () => {
   const number = (format: string) => ({ kind: 'numberTypeNode', format, endian: 'le' });
-  const adapted = adaptCodama({ program: { publicKey: 'Tokenz', instructions: [{ name: 'ext', accounts: [{ name: 'mint', isSigner: false, isWritable: true }],
-    arguments: [{ name: 'discriminator', type: number('u8'), defaultValue: { kind: 'numberValueNode', number: 26 } },
-      { name: 'sub', type: number('u8'), defaultValue: { kind: 'numberValueNode', number: 3 } }, { name: 'fee', type: number('u16') }],
-    discriminators: [{ kind: 'fieldDiscriminatorNode', name: 'sub', offset: 1 }, { kind: 'fieldDiscriminatorNode', name: 'discriminator', offset: 0 }] }] } });
+  const adapted = adaptCodama({
+    program: {
+      publicKey: 'Tokenz',
+      instructions: [
+        {
+          name: 'ext',
+          accounts: [{ name: 'mint', isSigner: false, isWritable: true }],
+          arguments: [
+            { name: 'discriminator', type: number('u8'), defaultValue: { kind: 'numberValueNode', number: 26 } },
+            { name: 'sub', type: number('u8'), defaultValue: { kind: 'numberValueNode', number: 3 } },
+            { name: 'fee', type: number('u16') },
+          ],
+          discriminators: [
+            { kind: 'fieldDiscriminatorNode', name: 'sub', offset: 1 },
+            { kind: 'fieldDiscriminatorNode', name: 'discriminator', offset: 0 },
+          ],
+        },
+      ],
+    },
+  });
   assert.deepEqual(adapted.instructions[0]!.args, [{ name: 'fee', type: 'u16' }]);
   assert.equal(adapted.instructions[0]!.discriminator, '1a03');
   assert.equal(adapted.address, 'Tokenz');
@@ -231,18 +384,25 @@ test('the checked-in file carries a pinned source, licence and ranking basis for
 test('facts-only programs carry the names-only marker and the others do not', () => {
   const lines = programReferenceIndex().split('\n');
   for (const p of data.programs) {
-    const line = lines.find(l => l.startsWith(`${p.name} ${p.id} [`))!;
+    const line = lines.find((l) => l.startsWith(`${p.name} ${p.id} [`))!;
     assert.equal(line.includes(' (names only)'), Boolean(p.factsOnly), p.name);
   }
-  assert.match(programReferenceIndex(), /\(names only\) = no argument types or account flags recorded: take arguments from the installed client or its bundled IDL/);
+  assert.match(
+    programReferenceIndex(),
+    /\(names only\) = no argument types or account flags recorded: take arguments from the installed client or its bundled IDL/,
+  );
 });
 
 test('a capped application list keeps the plain initialize and create instructions next to the trading ones', () => {
-  const orca = programReferenceIndex().split('\n').find(l => l.startsWith('Orca Whirlpools '))!;
+  const orca = programReferenceIndex()
+    .split('\n')
+    .find((l) => l.startsWith('Orca Whirlpools '))!;
   assert.match(orca, /initialize_pool/);
   assert.match(orca, /initialize_config/);
   assert.match(orca, /\bswap\b/);
-  const pump = programReferenceIndex().split('\n').find(l => l.startsWith('Pump '))!;
+  const pump = programReferenceIndex()
+    .split('\n')
+    .find((l) => l.startsWith('Pump '))!;
   assert.match(pump, /\binitialize\b/);
   assert.match(pump, /\bcreate\b/);
 });
@@ -253,34 +413,66 @@ test('installed official program clients are listed with their versions, from th
   try {
     assert.deepEqual(installedProgramClients([root, deps]), []);
     mkdirSync(join(deps, 'node_modules/@orca-so/whirlpools-client'), { recursive: true });
-    writeFileSync(join(deps, 'node_modules/@orca-so/whirlpools-client/package.json'), JSON.stringify({ name: '@orca-so/whirlpools-client', version: '1.2.3' }));
+    writeFileSync(
+      join(deps, 'node_modules/@orca-so/whirlpools-client/package.json'),
+      JSON.stringify({ name: '@orca-so/whirlpools-client', version: '1.2.3' }),
+    );
     assert.deepEqual(installedProgramClients([root]), [], 'the task alone has none');
-    assert.deepEqual(installedProgramClients([root, deps]), ['@orca-so/whirlpools-client 1.2.3'], 'a read-only dependency set the sandbox mounts counts');
-  } finally { rmSync(root, { recursive: true, force: true }); rmSync(deps, { recursive: true, force: true }); }
+    assert.deepEqual(
+      installedProgramClients([root, deps]),
+      ['@orca-so/whirlpools-client 1.2.3'],
+      'a read-only dependency set the sandbox mounts counts',
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(deps, { recursive: true, force: true });
+  }
 });
 
 test('a program lookup carries a source_fetch call built from the pinned source', () => {
-  assert.match(lookupProgramReference('SPL Token'), /\nsource: source_fetch\(\{repo: "solana-program\/token", ref: "[0-9a-f]{40}", paths: \["idl\.json"\]\}\)/);
-  assert.match(lookupProgramReference('Orca Whirlpools', 'swap'), /\nsource: source_fetch\(\{npm: "@orca-so\/whirlpools-sdk", version: "0\.22\.0", paths: \["dist\/artifacts\/whirlpool\.json"\]\}\)/);
+  assert.match(
+    lookupProgramReference('SPL Token'),
+    /\nsource: source_fetch\(\{repo: "solana-program\/token", ref: "[0-9a-f]{40}", paths: \["idl\.json"\]\}\)/,
+  );
+  assert.match(
+    lookupProgramReference('Orca Whirlpools', 'swap'),
+    /\nsource: source_fetch\(\{npm: "@orca-so\/whirlpools-sdk", version: "0\.22\.0", paths: \["dist\/artifacts\/whirlpool\.json"\]\}\)/,
+  );
 });
 
 test('names-only programs with an official client point at its generated instruction builders', () => {
   const core = lookupProgramReference('Metaplex Core');
-  assert.match(core, /Full layouts: the official client's generated instruction builders give account order, signer\/writable flags and argument serializers: read them with source_fetch\(\{npm: "@metaplex-foundation\/mpl-core"\}\)/);
-  assert.match(lookupProgramReference('Metaplex Token Metadata', 'createMetadataAccountV3'), /not recorded here \(source licence\): take them from the @metaplex-foundation\/mpl-token-metadata instruction builder/);
+  assert.match(
+    core,
+    /Full layouts: the official client's generated instruction builders give account order, signer\/writable flags and argument serializers: read them with source_fetch\(\{npm: "@metaplex-foundation\/mpl-core"\}\)/,
+  );
+  assert.match(
+    lookupProgramReference('Metaplex Token Metadata', 'createMetadataAccountV3'),
+    /not recorded here \(source licence\): take them from the @metaplex-foundation\/mpl-token-metadata instruction builder/,
+  );
   assert.doesNotMatch(lookupProgramReference('SPL Token', 'transfer'), /Full layouts/);
 });
 
 test('the index says signature precompiles take several signatures per instruction and can share buffers', () => {
   const index = programReferenceIndex();
-  assert.match(index, /verify several signatures per instruction, although common SDK helpers emit one: byte 0 is the count/);
+  assert.match(
+    index,
+    /verify several signatures per instruction, although common SDK helpers emit one: byte 0 is the count/,
+  );
   assert.match(index, /in this or another instruction of the transaction, so one buffer serves many records/);
-  assert.match(lookupProgramReference('Ed25519 Precompile', 'verify'), /sit wherever the offset records point, after the records or in another instruction/);
+  assert.match(
+    lookupProgramReference('Ed25519 Precompile', 'verify'),
+    /sit wherever the offset records point, after the records or in another instruction/,
+  );
 });
 
 test('programs whose lifecycle runs on accounts the wallet creates are marked standalone in the index', () => {
   const index = programReferenceIndex();
-  assert.match(index, /\(standalone\) = the whole lifecycle runs on accounts your wallet creates; other applications need existing deployment state/);
-  for (const name of ['Metaplex Core', 'Metaplex Token Metadata', 'Squads v4', 'Governance']) assert.match(index, new RegExp(`\\n${name} \\S+ \\[[^\\]]+\\] [^\\n]*\\(standalone\\)`), name);
+  assert.match(
+    index,
+    /\(standalone\) = the whole lifecycle runs on accounts your wallet creates; other applications need existing deployment state/,
+  );
+  for (const name of ['Metaplex Core', 'Metaplex Token Metadata', 'Squads v4', 'Governance'])
+    assert.match(index, new RegExp(`\\n${name} \\S+ \\[[^\\]]+\\] [^\\n]*\\(standalone\\)`), name);
   assert.doesNotMatch(index, /\nOrca Whirlpools [^\n]*\(standalone\)/);
 });

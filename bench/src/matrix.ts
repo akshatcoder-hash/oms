@@ -5,11 +5,24 @@ import { catalogThinking, type ContenderModel, type Rates } from './contenders.t
  * `oms3-web` (OMS on GPT-6.1 Sol through the Codex subscription), `codex-web` (Codex CLI) and `claude-code-web` (Claude Code).
  */
 export const HARNESSES = ['oms3', 'codex', 'claude-code'] as const;
-export type Harness = typeof HARNESSES[number];
+export type Harness = (typeof HARNESSES)[number];
 
 const free: Rates = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-const sub = (provider: string, id: string, contextWindow: number, api: ContenderModel['api'] = 'openai-responses'): ContenderModel =>
-  ({ provider, id, name: id, api, ...catalogThinking(provider, id), contextWindow, maxTokens: 128_000, cost: free });
+const sub = (
+  provider: string,
+  id: string,
+  contextWindow: number,
+  api: ContenderModel['api'] = 'openai-responses',
+): ContenderModel => ({
+  provider,
+  id,
+  name: id,
+  api,
+  ...catalogThinking(provider, id),
+  contextWindow,
+  maxTokens: 128_000,
+  cost: free,
+});
 
 /** Models served on a subscription login, by harness. Cost is reported as "subscription", with token counts from the CLI or run record. */
 export const SUBSCRIPTION_MODELS: Record<Harness, Record<string, ContenderModel>> = {
@@ -22,7 +35,9 @@ export const SUBSCRIPTION_MODELS: Record<Harness, Record<string, ContenderModel>
 export type OnlineLabel = 'web + Solana MCP';
 /** Every published cell is online: its own web search and fetch plus the official Solana MCP. */
 const ONLINE: Record<string, OnlineLabel> = {
-  'codex-web:gpt-sol': 'web + Solana MCP', 'oms3-web:gpt-sol': 'web + Solana MCP', 'claude-code-web:opus-sub': 'web + Solana MCP',
+  'codex-web:gpt-sol': 'web + Solana MCP',
+  'oms3-web:gpt-sol': 'web + Solana MCP',
+  'claude-code-web:opus-sub': 'web + Solana MCP',
 };
 
 /** `oms3-web:gpt-sol` -> harness `oms3`, model key `gpt-sol`, online label. Anything else is not a cell. */

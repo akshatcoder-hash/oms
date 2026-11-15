@@ -1,20 +1,20 @@
-import type { AgentSession, AgentSessionRuntime, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { Api, Model } from "@earendil-works/pi-ai";
-import type { EvaluateResult, Evaluator, TaskContract } from "@oms/contract";
-import type { BudgetCaps, BudgetLedger, ExecutionMode } from "@oms/core";
-import type { SandboxResult } from "@oms/sandbox";
-import type { Task, Workspace } from "../workspace/index.ts";
-import type { ChainControls } from "./chain.ts";
-import type { NativeChatControls } from "./claude-code.ts";
-import type { EdgeCheckSummary } from "./edge-check.ts";
-import type { HostApproval, HostApprovalPolicy } from "./host-approval.ts";
-import type { KnowledgeConfig } from "./knowledge-service.ts";
-import type { OmsAccountControls } from "./oms-account.ts";
-import type { ProviderControls } from "./provider-controls.ts";
-import type { HarnessSettingsControls } from "./settings-controls.ts";
-import type { TaskFileAccess } from "./task-files.ts";
-import type { TaskTerminal } from "./task-terminal.ts";
-import type { WebConfig, WebUsage } from "./web.ts";
+import type { AgentSession, AgentSessionRuntime, ModelRuntime } from '@earendil-works/pi-coding-agent';
+import type { Api, Model } from '@earendil-works/pi-ai';
+import type { EvaluateResult, Evaluator, TaskContract } from '@oms/contract';
+import type { BudgetCaps, BudgetLedger, ExecutionMode } from '@oms/core';
+import type { SandboxResult } from '@oms/sandbox';
+import type { Task, Workspace } from '../workspace/index.ts';
+import type { ChainControls } from './chain.ts';
+import type { NativeChatControls } from './claude-code.ts';
+import type { EdgeCheckSummary } from './edge-check.ts';
+import type { HostApproval, HostApprovalPolicy } from './host-approval.ts';
+import type { KnowledgeConfig } from './knowledge-service.ts';
+import type { OmsAccountControls } from './oms-account.ts';
+import type { ProviderControls } from './provider-controls.ts';
+import type { HarnessSettingsControls } from './settings-controls.ts';
+import type { TaskFileAccess } from './task-files.ts';
+import type { TaskTerminal } from './task-terminal.ts';
+import type { WebConfig, WebUsage } from './web.ts';
 
 export interface HarnessEnvironment {
   backend?: 'host' | 'docker';
@@ -45,7 +45,7 @@ export interface HarnessSessionOptions {
   subscriptionSpendExempt?: boolean;
   executionMode?: ExecutionMode;
   /** Opt-in model/user command previews and session-scoped read_log; never verifier output. */
-  outputMode?: "head-tail";
+  outputMode?: 'head-tail';
   /** Trusted clock injection for deterministic execution-window tests. */
   clock?: () => number;
   sessionId?: string;
@@ -91,11 +91,12 @@ export interface HarnessSession extends ProviderControls {
   /** The task's local Surfpool, for chain commands (never another network). */
   chain?: ChainControls;
   /** decode_error text for a program error code; throws when no knowledge credential exists. */
-  knowledge: { decodeError(code: string, program?: string, signal?: AbortSignal): Promise<string>;
+  knowledge: {
+    decodeError(code: string, program?: string, signal?: AbortSignal): Promise<string>;
     /** The credential the knowledge tools use right now, read on each call. */
-    config(): KnowledgeConfig | undefined };
+    config(): KnowledgeConfig | undefined;
+  };
   /** Present only when the session was opened with `edgeCheck`. */
   edgeCheck?: { summary(): EdgeCheckSummary };
   close(): Promise<void>;
 }
-

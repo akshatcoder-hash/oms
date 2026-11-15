@@ -4,7 +4,10 @@ const MAX_HISTORY_BYTES = 1024 * 1024;
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-interface Selection { anchor: number; cursor: number }
+interface Selection {
+  anchor: number;
+  cursor: number;
+}
 interface Edit {
   start: number;
   removed: string;
@@ -48,10 +51,18 @@ export class FileDocument {
     this.indexGraphemes();
   }
 
-  get text(): string { return this.value; }
-  get dirty(): boolean { return this.value !== this.saved; }
-  get cursor(): number { return this.selection.cursor; }
-  get anchor(): number { return this.selection.anchor; }
+  get text(): string {
+    return this.value;
+  }
+  get dirty(): boolean {
+    return this.value !== this.saved;
+  }
+  get cursor(): number {
+    return this.selection.cursor;
+  }
+  get anchor(): number {
+    return this.selection.anchor;
+  }
   get selectedText(): string {
     return this.value.slice(Math.min(this.anchor, this.cursor), Math.max(this.anchor, this.cursor));
   }
@@ -94,7 +105,7 @@ export class FileDocument {
     this.value = next;
     this.indexGraphemes();
     // An insertion can join surrounding combining marks/ZWJ into one grapheme.
-    const cursor = this.boundaries.find(offset => offset >= start + text.length) ?? next.length;
+    const cursor = this.boundaries.find((offset) => offset >= start + text.length) ?? next.length;
     this.selection = { anchor: cursor, cursor };
     for (const edit of this.future) this.historyBytes -= edit.bytes;
     this.future.length = 0;
@@ -146,7 +157,7 @@ export class FileDocument {
   }
 
   private indexGraphemes(): void {
-    this.boundaries = Array.from(segmenter.segment(this.value), part => part.index);
+    this.boundaries = Array.from(segmenter.segment(this.value), (part) => part.index);
     this.boundaries.push(this.value.length);
   }
 }

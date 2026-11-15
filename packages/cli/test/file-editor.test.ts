@@ -12,7 +12,19 @@ function layout(pane: FileEditorPane, width: number, height: number): string[] {
   return pane.focus.render(width);
 }
 function mouse(type: TuiMouseEvent['type'], x: number, y: number): TuiMouseEvent {
-  return { type, button: 'left', x, y, screenX: x, screenY: y, width: 20, height: 20, shift: false, alt: false, ctrl: false };
+  return {
+    type,
+    button: 'left',
+    x,
+    y,
+    screenX: x,
+    screenY: y,
+    width: 20,
+    height: 20,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
 }
 
 test('bracketed multiline paste is literal, lossless and one undo transaction', () => {
@@ -69,7 +81,10 @@ test('pointer focus callback precedes selection and can keep a modal editor iner
   let allowed = false;
   let requests = 0;
   const pane = createFileEditorPane('alpha', () => {}, {
-    requestFocus: () => { requests++; return allowed; },
+    requestFocus: () => {
+      requests++;
+      return allowed;
+    },
   });
   layout(pane, 20, 4);
   pane.focus.handleMouse!(mouse('press', 3, 0));
@@ -78,7 +93,8 @@ test('pointer focus callback precedes selection and can keep a modal editor iner
   allowed = true;
   pane.focus.handleMouse!(mouse('press', 3, 0));
   assert.equal(pane.document.cursor, 3);
-  input(pane, '\t'); input(pane, '/');
+  input(pane, '\t');
+  input(pane, '/');
   assert.equal(pane.document.text, 'alp\t/ha');
   assert.equal(requests, 2);
 });
@@ -106,12 +122,12 @@ test('horizontal reveal clips safely and file escape sequences never execute', (
   pane.focus.focused = true;
   pane.document.select(original.length, original.length);
   const lines = layout(pane, 7, 2);
-  assert.equal(lines.filter(line => line.includes(CURSOR_MARKER)).length, 1);
-  assert.ok(lines.every(line => visibleWidth(line) <= 7));
-  assert.ok(lines.every(line => !line.includes('\x1b]52')));
+  assert.equal(lines.filter((line) => line.includes(CURSOR_MARKER)).length, 1);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 7));
+  assert.ok(lines.every((line) => !line.includes('\x1b]52')));
   assert.equal(pane.document.text, original);
   pane.focus.focused = false;
-  assert.ok(layout(pane, 7, 2).every(line => !line.includes(CURSOR_MARKER)));
+  assert.ok(layout(pane, 7, 2).every((line) => !line.includes(CURSOR_MARKER)));
 });
 
 test('an oversized paste preserves the buffer, selection and existing undo history', () => {
@@ -130,8 +146,8 @@ test('one-cell panes retain exactly one safe focused cursor over a wide glyph', 
   const pane = createFileEditorPane('界x', () => {});
   pane.focus.focused = true;
   const lines = layout(pane, 1, 1);
-  assert.equal(lines.filter(line => line.includes(CURSOR_MARKER)).length, 1);
-  assert.ok(lines.every(line => visibleWidth(line) <= 1));
+  assert.equal(lines.filter((line) => line.includes(CURSOR_MARKER)).length, 1);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 1));
   assert.equal(pane.document.text, '界x');
 });
 
@@ -157,7 +173,10 @@ test('numbered editor views share one document while keeping separate scroll sta
   input(first, '!');
   assert.equal(second.document.text, 'one\r\n界!🌱');
   assert.match(layout(second, 30, 4)[1]!, /2.*界!🌱/);
-  assert.equal(layout(second, 30, 4).some(line => line.includes(CURSOR_MARKER)), false);
+  assert.equal(
+    layout(second, 30, 4).some((line) => line.includes(CURSOR_MARKER)),
+    false,
+  );
   assert.notEqual(first.view, second.view);
-  for (const width of [1, 2, 8]) assert.ok(layout(first, width, 2).every(line => visibleWidth(line) <= width));
+  for (const width of [1, 2, 8]) assert.ok(layout(first, width, 2).every((line) => visibleWidth(line) <= width));
 });

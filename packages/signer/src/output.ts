@@ -64,10 +64,7 @@ export function createLogger(options: CreateLoggerOptions): Logger {
       return captured;
     },
     log(level: LogLevel, event: string, fields: Record<string, unknown> = {}): void {
-      const payload = safeJson(
-        { ts: new Date().toISOString(), level, event, ...fields },
-        options.secret,
-      );
+      const payload = safeJson({ ts: new Date().toISOString(), level, event, ...fields }, options.secret);
       if (capture) captured.push(payload);
       fileSink?.(payload);
       options.alsoWrite?.(payload);

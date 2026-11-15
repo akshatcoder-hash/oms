@@ -4,13 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { createDeepRedactor, scanForSecret, secretForms } from '../src/redact/secrets.ts';
-import {
-  createTraceWriter,
-  parseTrace,
-  readTraceFile,
-  replayTrace,
-  type TraceEvent,
-} from '../src/trace/trace.ts';
+import { createTraceWriter, parseTrace, readTraceFile, replayTrace, type TraceEvent } from '../src/trace/trace.ts';
 
 const SECRET = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index));
 
@@ -97,7 +91,9 @@ test('strict reader reports bad middle lines and keeps reading', (t) => {
   writer.append({ type: 'turn', turn: 2 });
   writer.close();
 
-  const lines = readFileSync(path, 'utf8').split('\n').filter((line) => line.length > 0);
+  const lines = readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0);
   const corrupted = [lines[0], 'not json at all', lines[1]].join('\n') + '\n';
   const parsed = parseTrace(corrupted);
   assert.deepEqual(
@@ -288,7 +284,10 @@ test('replay iterates the readable prefix, optionally filtered', (t) => {
     turns.map((event) => event.turn),
     [1, 2],
   );
-  assert.equal(all.every((event) => typeof event.time === 'string'), true);
+  assert.equal(
+    all.every((event) => typeof event.time === 'string'),
+    true,
+  );
 });
 
 test('same input and clock produce identical bytes', (t) => {
@@ -317,7 +316,10 @@ test('close and reopen continues the validated sequence', (t) => {
   assert.equal(second.nextSeq, 2);
   assert.deepEqual(second.append({ type: 'budget' }), { ok: true, seq: 2 });
   second.close();
-  assert.deepEqual(readTraceFile(path).events.map((event) => event.seq), [1, 2]);
+  assert.deepEqual(
+    readTraceFile(path).events.map((event) => event.seq),
+    [1, 2],
+  );
   assert.deepEqual(readTraceFile(path).issues, []);
 });
 

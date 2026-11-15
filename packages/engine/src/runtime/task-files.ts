@@ -4,8 +4,14 @@ import type { SandboxResult } from '@oms/sandbox';
 
 export const MAX_TASK_FILE_BYTES = 64 * 1024;
 const MAX_TASK_DIRECTORY_ENTRIES = 512;
-export interface TaskFileEntry { path: string; kind: 'file' | 'directory' }
-export interface TaskFileSnapshot { bytes: Buffer; revision: string }
+export interface TaskFileEntry {
+  path: string;
+  kind: 'file' | 'directory';
+}
+export interface TaskFileSnapshot {
+  bytes: Buffer;
+  revision: string;
+}
 export type TaskFileExecutor = (argv: string[], signal?: AbortSignal) => Promise<SandboxResult>;
 export interface TaskFileAccess {
   list(path?: string, signal?: AbortSignal): Promise<TaskFileEntry[]>;
@@ -144,7 +150,11 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 function textBytes(bytes: Uint8Array): void {
   if (bytes.byteLength > MAX_TASK_FILE_BYTES) throw new Error('Task file exceeds 64 KiB');
   if (bytes.includes(0)) throw new Error('Binary task files are unavailable in this text editor');
-  try { decoder.decode(bytes); } catch { throw new Error('Task file requires valid UTF-8'); }
+  try {
+    decoder.decode(bytes);
+  } catch {
+    throw new Error('Task file requires valid UTF-8');
+  }
 }
 function taskPath(path: string, root: string, allowRoot = false): string {
   const resolved = posix.resolve(root, path);
@@ -155,10 +165,23 @@ function taskPath(path: string, root: string, allowRoot = false): string {
 }
 
 /** Both model tools and the editor execute this fixed helper inside an owned sandbox. */
-export function createTaskFileAccess(execute: TaskFileExecutor, root = '/work', protectedPaths: string[] = []): TaskFileAccess {
-  const call = async (operation: 'read' | 'write' | 'create' | 'mkdir' | 'access' | 'list', path: string, content: string, expected: string, signal?: AbortSignal) => {
+export function createTaskFileAccess(
+  execute: TaskFileExecutor,
+  root = '/work',
+  protectedPaths: string[] = [],
+): TaskFileAccess {
+  const call = async (
+    operation: 'read' | 'write' | 'create' | 'mkdir' | 'access' | 'list',
+    path: string,
+    content: string,
+    expected: string,
+    signal?: AbortSignal,
+  ) => {
     signal?.throwIfAborted();
-    const result = await execute(['node', '-e', FILE_OPERATION, operation, path, content, expected, root, JSON.stringify(protectedPaths)], signal);
+    const result = await execute(
+      ['node', '-e', FILE_OPERATION, operation, path, content, expected, root, JSON.stringify(protectedPaths)],
+      signal,
+    );
     if (result.cancelled) throw new Error('Task file operation was cancelled');
     if (result.timedOut) throw new Error('Task file operation timed out');
     if (result.truncated) throw new Error('Task file operation exceeded its output limit');
@@ -166,8 +189,11 @@ export function createTaskFileAccess(execute: TaskFileExecutor, root = '/work', 
       const diagnostic = result.stderr.trim();
       if (diagnostic.startsWith('{"message":')) {
         let detail: unknown;
-        try { detail = JSON.parse(diagnostic); }
-        catch { throw new Error('Task file operation returned malformed error details', { cause: diagnostic }); }
+        try {
+          detail = JSON.parse(diagnostic);
+        } catch {
+          throw new Error('Task file operation returned malformed error details', { cause: diagnostic });
+        }
         if (detail && typeof detail === 'object' && 'message' in detail && typeof detail.message === 'string') {
           throw new Error(detail.message, { cause: diagnostic });
         }
@@ -182,15 +208,27 @@ export function createTaskFileAccess(execute: TaskFileExecutor, root = '/work', 
       const raw = await call('list', resolved, '', '', signal);
       if (Buffer.byteLength(raw) > MAX_TASK_FILE_BYTES) throw new Error('Task directory response exceeds its limit');
       let entries: unknown;
-      try { entries = JSON.parse(raw); } catch { throw new Error('Task directory response is invalid'); }
-      if (!Array.isArray(entries) || entries.length > MAX_TASK_DIRECTORY_ENTRIES) throw new Error('Task directory response is invalid');
+      try {
+        entries = JSON.parse(raw);
+      } catch {
+        throw new Error('Task directory response is invalid');
+      }
+      if (!Array.isArray(entries) || entries.length > MAX_TASK_DIRECTORY_ENTRIES)
+        throw new Error('Task directory response is invalid');
       const paths = new Set<string>();
       for (const entry of entries) {
-        if (!entry || typeof entry !== 'object' || typeof entry.path !== 'string' ||
-            !['file', 'directory'].includes(entry.kind) || entry.path.startsWith('/') ||
-            posix.normalize(entry.path) !== entry.path || posix.dirname(posix.resolve(root, entry.path)) !== resolved ||
-            entry.path.split('/').some((part: string) => ['.git', '.oms', '.keys', '.env.agent', '..'].includes(part)) ||
-            paths.has(entry.path)) throw new Error('Task directory response is invalid');
+        if (
+          !entry ||
+          typeof entry !== 'object' ||
+          typeof entry.path !== 'string' ||
+          !['file', 'directory'].includes(entry.kind) ||
+          entry.path.startsWith('/') ||
+          posix.normalize(entry.path) !== entry.path ||
+          posix.dirname(posix.resolve(root, entry.path)) !== resolved ||
+          entry.path.split('/').some((part: string) => ['.git', '.oms', '.keys', '.env.agent', '..'].includes(part)) ||
+          paths.has(entry.path)
+        )
+          throw new Error('Task directory response is invalid');
         paths.add(entry.path);
       }
       return entries as TaskFileEntry[];
@@ -199,14 +237,29 @@ export function createTaskFileAccess(execute: TaskFileExecutor, root = '/work', 
       signal?.throwIfAborted();
       const raw = await call('read', taskPath(path, root), '', '', signal);
       let value: unknown;
-      try { value = JSON.parse(raw); } catch { throw new Error('Task file response is invalid'); }
-      if (!value || typeof value !== 'object' || Array.isArray(value) || !('bytes' in value) || !('revision' in value) ||
-          typeof value.bytes !== 'string' || value.bytes.length > Math.ceil(MAX_TASK_FILE_BYTES / 3) * 4 ||
-          typeof value.revision !== 'string' || !/^[a-f0-9]{64}$/.test(value.revision)) {
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        throw new Error('Task file response is invalid');
+      }
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        !('bytes' in value) ||
+        !('revision' in value) ||
+        typeof value.bytes !== 'string' ||
+        value.bytes.length > Math.ceil(MAX_TASK_FILE_BYTES / 3) * 4 ||
+        typeof value.revision !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(value.revision)
+      ) {
         throw new Error('Task file response is invalid');
       }
       const bytes = Buffer.from(value.bytes, 'base64');
-      if (bytes.toString('base64') !== value.bytes || createHash('sha256').update(bytes).digest('hex') !== value.revision) {
+      if (
+        bytes.toString('base64') !== value.bytes ||
+        createHash('sha256').update(bytes).digest('hex') !== value.revision
+      ) {
         throw new Error('Task file response is inconsistent');
       }
       textBytes(bytes);
@@ -215,10 +268,17 @@ export function createTaskFileAccess(execute: TaskFileExecutor, root = '/work', 
     async write(path, bytes, expectedRevision, signal) {
       signal?.throwIfAborted();
       textBytes(bytes);
-      if (expectedRevision !== undefined && !/^[a-f0-9]{64}$/.test(expectedRevision)) throw new Error('Task file revision is invalid');
+      if (expectedRevision !== undefined && !/^[a-f0-9]{64}$/.test(expectedRevision))
+        throw new Error('Task file revision is invalid');
       const content = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const revision = createHash('sha256').update(content).digest('hex');
-      const saved = await call('write', taskPath(path, root), content.toString('base64'), expectedRevision ?? '', signal);
+      const saved = await call(
+        'write',
+        taskPath(path, root),
+        content.toString('base64'),
+        expectedRevision ?? '',
+        signal,
+      );
       if (saved !== revision) throw new Error('Saved task file revision is inconsistent');
       return revision;
     },

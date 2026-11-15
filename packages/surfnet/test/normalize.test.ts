@@ -11,8 +11,7 @@ const FIXTURES = {
     code: -32602,
   },
   accountNotFound: {
-    message:
-      'Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.',
+    message: 'Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.',
     code: -32002,
     data: { err: 'AccountNotFound', logs: [], unitsConsumed: 0 },
   },

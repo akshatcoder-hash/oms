@@ -1,5 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { constants, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  constants,
+  closeSync,
+  fstatSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { isInside, realpathAllowingMissing } from './paths.ts';
@@ -13,7 +26,9 @@ export interface SourceAccessOptions {
 export class SourceAccessError extends Error {
   readonly code: 'E_SOURCE_BUSY' | 'E_SOURCE_CONTROL';
   constructor(code: 'E_SOURCE_BUSY' | 'E_SOURCE_CONTROL', message: string) {
-    super(message); this.name = 'SourceAccessError'; this.code = code;
+    super(message);
+    this.name = 'SourceAccessError';
+    this.code = code;
   }
 }
 
@@ -45,7 +60,8 @@ function sourceAuthority(requested: string): string {
  * This excludes managed sandbox writers, not hostile same-uid host processes.
  */
 export function acquireSourceAccess(
-  codeRoot: string, options: SourceAccessOptions & { kind: 'capture' | 'sandbox' },
+  codeRoot: string,
+  options: SourceAccessOptions & { kind: 'capture' | 'sandbox' },
 ): () => void {
   const root = sourceAuthority(codeRoot);
   const directories = directoryIdentities(dirname(root));
@@ -68,13 +84,20 @@ export function acquireSourceAccess(
   // Publish complete ownership atomically without replacing any existing owner.
   // A crash before publication cannot have started a writer; only .pending-*
   // scratch records may be ignored. Published records are never guessed dead.
-  writeFileSync(pending, JSON.stringify({ token, codeRoot: root, kind: options.kind, pid: process.pid }), { flag: 'wx', mode: 0o600 });
+  writeFileSync(pending, JSON.stringify({ token, codeRoot: root, kind: options.kind, pid: process.pid }), {
+    flag: 'wx',
+    mode: 0o600,
+  });
   try {
-    try { linkSync(pending, file); } catch (error) {
+    try {
+      linkSync(pending, file);
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       throw new SourceAccessError('E_SOURCE_BUSY', 'source is in use or requires explicit host recovery');
     }
-  } finally { unlinkSync(pending); }
+  } finally {
+    unlinkSync(pending);
+  }
   try {
     // Intent is visible before the overlap scan: a racing ancestor/descendant
     // either sees this owner or was already visible to this scan.
@@ -88,17 +111,26 @@ export function acquireSourceAccess(
           const info = fstatSync(fd);
           if (!info.isFile() || info.size > 4096) throw new Error('invalid ownership');
           heldRoot = JSON.parse(readFileSync(fd, 'utf8')).codeRoot;
-        } finally { closeSync(fd); }
+        } finally {
+          closeSync(fd);
+        }
       } catch (error) {
         // A holder that completed release during this scan no longer conflicts.
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          try { lstatSync(join(control, entry)); } catch (missing) {
+          try {
+            lstatSync(join(control, entry));
+          } catch (missing) {
             if ((missing as NodeJS.ErrnoException).code === 'ENOENT') continue;
           }
         }
         throw new SourceAccessError('E_SOURCE_BUSY', 'unreadable source ownership requires explicit host recovery');
       }
-      if (typeof heldRoot !== 'string' || !isAbsolute(heldRoot) || isInside(heldRoot, root) || isInside(root, heldRoot)) {
+      if (
+        typeof heldRoot !== 'string' ||
+        !isAbsolute(heldRoot) ||
+        isInside(heldRoot, root) ||
+        isInside(root, heldRoot)
+      ) {
         throw new SourceAccessError('E_SOURCE_BUSY', 'source is in use or requires explicit host recovery');
       }
     }
@@ -110,8 +142,11 @@ export function acquireSourceAccess(
   } catch (error) {
     // No operation has started, so this acquisition may remove only its own
     // intent. Failed removal intentionally leaves recovery-required ownership.
-    try { unlinkSync(file); }
-    catch (cleanup) { throw new AggregateError([error, cleanup], 'source acquisition cleanup failed'); }
+    try {
+      unlinkSync(file);
+    } catch (cleanup) {
+      throw new AggregateError([error, cleanup], 'source acquisition cleanup failed');
+    }
     throw error;
   }
   const fileInfo = lstatSync(file);
@@ -120,25 +155,44 @@ export function acquireSourceAccess(
     if (released) return;
     privateDirectory(control);
     const currentControl = lstatSync(control);
-    if (currentControl.dev !== controlInfo.dev || currentControl.ino !== controlInfo.ino || realpathSync(control) !== control) {
-      throw new SourceAccessError('E_SOURCE_CONTROL', 'source ownership directory identity changed; retained for recovery');
+    if (
+      currentControl.dev !== controlInfo.dev ||
+      currentControl.ino !== controlInfo.ino ||
+      realpathSync(control) !== control
+    ) {
+      throw new SourceAccessError(
+        'E_SOURCE_CONTROL',
+        'source ownership directory identity changed; retained for recovery',
+      );
     }
     const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const current = fstatSync(fd);
-      if (!current.isFile() || current.dev !== fileInfo.dev || current.ino !== fileInfo.ino || current.size > 4096 ||
-          JSON.parse(readFileSync(fd, 'utf8')).token !== token) {
+      if (
+        !current.isFile() ||
+        current.dev !== fileInfo.dev ||
+        current.ino !== fileInfo.ino ||
+        current.size > 4096 ||
+        JSON.parse(readFileSync(fd, 'utf8')).token !== token
+      ) {
         throw new SourceAccessError('E_SOURCE_CONTROL', 'source ownership changed; retained for recovery');
       }
-    } finally { closeSync(fd); }
-    unlinkSync(file); released = true;
+    } finally {
+      closeSync(fd);
+    }
+    unlinkSync(file);
+    released = true;
   };
 }
 
 const activeCaptures = new Map<string, { control: string; root: string }>();
 
 /** Only synchronous trusted capture can nest. Sandbox owners never inherit this access. */
-export function withSourceAccess<T>(codeRoot: string, operation: (canonicalRoot: string) => T, options: SourceAccessOptions = {}): T {
+export function withSourceAccess<T>(
+  codeRoot: string,
+  operation: (canonicalRoot: string) => T,
+  options: SourceAccessOptions = {},
+): T {
   const root = sourceAuthority(codeRoot);
   const control = sourceControlDirectory(options);
   const key = `${control}\0${root}`;
@@ -153,11 +207,15 @@ export function withSourceAccess<T>(codeRoot: string, operation: (canonicalRoot:
   const release = acquireSourceAccess(root, { ...options, kind: 'capture' });
   activeCaptures.set(key, { control, root });
   try {
-    if (!lstatSync(root).isDirectory() || realpathSync(root) !== root) throw new SourceAccessError('E_SOURCE_CONTROL', 'admitted capture root changed');
+    if (!lstatSync(root).isDirectory() || realpathSync(root) !== root)
+      throw new SourceAccessError('E_SOURCE_CONTROL', 'admitted capture root changed');
     const result = operation(root);
     if (result !== null && typeof result === 'object' && 'then' in result) {
       throw new TypeError('source capture operation must be synchronous');
     }
     return result;
-  } finally { activeCaptures.delete(key); release(); }
+  } finally {
+    activeCaptures.delete(key);
+    release();
+  }
 }

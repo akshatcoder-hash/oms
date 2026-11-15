@@ -10,14 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { readContractFile } from './contract-io.ts';
-import {
-  DigestError,
-  digestFileEntries,
-  digestFiles,
-  digestJson,
-  type FileDigest,
-  type PinSet,
-} from './digest.ts';
+import { DigestError, digestFileEntries, digestFiles, digestJson, type FileDigest, type PinSet } from './digest.ts';
 import { writeFileAtomic } from './atomic.ts';
 import {
   PathError,
@@ -67,9 +60,7 @@ export interface Mismatch {
   files?: string[];
 }
 
-export type PinVerifyResult =
-  | { ok: true; pinSet: PinSet; pin: PinFile }
-  | { ok: false; mismatches: Mismatch[] };
+export type PinVerifyResult = { ok: true; pinSet: PinSet; pin: PinFile } | { ok: false; mismatches: Mismatch[] };
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -116,7 +107,10 @@ export function readPin(pinFile: string): Result<PinFile> {
   }
   const pin = parsed['pin'];
   const roots = parsed['roots'];
-  if (!isPlainObject(roots) || !['workspaceRoot', 'stateRoot', 'codeRoot'].every((key) => typeof roots[key] === 'string')) {
+  if (
+    !isPlainObject(roots) ||
+    !['workspaceRoot', 'stateRoot', 'codeRoot'].every((key) => typeof roots[key] === 'string')
+  ) {
     issues.push(validationIssue('roots', 'E_BAD_PIN_FILE', 'pin must record its trusted roots'));
   }
   if (!isPlainObject(pin)) {
@@ -130,9 +124,7 @@ export function readPin(pinFile: string): Result<PinFile> {
   }
   const contract = parsed['contract'];
   if (!isPlainObject(contract) || typeof contract['path'] !== 'string' || !isDigest(contract['digest'])) {
-    issues.push(
-      validationIssue('contract', 'E_BAD_PIN_FILE', 'contract must be { path, digest }'),
-    );
+    issues.push(validationIssue('contract', 'E_BAD_PIN_FILE', 'contract must be { path, digest }'));
   } else {
     const contractPath = contract['path'] as string;
     try {
@@ -147,16 +139,12 @@ export function readPin(pinFile: string): Result<PinFile> {
   const verifier = parsed['verifier'];
   const rawFiles = isPlainObject(verifier) ? verifier['files'] : undefined;
   if (!isPlainObject(verifier) || !Array.isArray(rawFiles) || rawFiles.length === 0) {
-    issues.push(
-      validationIssue('verifier', 'E_BAD_PIN_FILE', 'verifier must hold a non-empty files array'),
-    );
+    issues.push(validationIssue('verifier', 'E_BAD_PIN_FILE', 'verifier must hold a non-empty files array'));
   } else {
     const files: FileDigest[] = [];
     rawFiles.forEach((entry, index) => {
       if (!isPlainObject(entry) || typeof entry['path'] !== 'string' || !isDigest(entry['digest'])) {
-        issues.push(
-          validationIssue(`verifier.files[${index}]`, 'E_BAD_PIN_FILE', 'entry must be { path, digest }'),
-        );
+        issues.push(validationIssue(`verifier.files[${index}]`, 'E_BAD_PIN_FILE', 'entry must be { path, digest }'));
         return;
       }
       files.push({ path: entry['path'] as string, digest: entry['digest'] as string });
@@ -164,11 +152,7 @@ export function readPin(pinFile: string): Result<PinFile> {
     if (files.length === rawFiles.length && isDigest(verifier['digest'])) {
       if (digestFileEntries(files) !== verifier['digest']) {
         issues.push(
-          validationIssue(
-            'verifier.digest',
-            'E_BAD_PIN_FILE',
-            'verifier.digest does not match its own file entries',
-          ),
+          validationIssue('verifier.digest', 'E_BAD_PIN_FILE', 'verifier.digest does not match its own file entries'),
         );
       }
     } else if (!isDigest(verifier['digest'])) {
@@ -185,10 +169,14 @@ export function readPin(pinFile: string): Result<PinFile> {
   const contractRecord = contract as { path: string; digest: string };
   const verifierRecord = verifier as { digest: string; files: FileDigest[] };
   if (contractRecord.digest !== pinSet.contractDigest) {
-    issues.push(validationIssue('contract.digest', 'E_BAD_PIN_FILE', 'contract.digest does not match pin.contractDigest'));
+    issues.push(
+      validationIssue('contract.digest', 'E_BAD_PIN_FILE', 'contract.digest does not match pin.contractDigest'),
+    );
   }
   if (verifierRecord.digest !== pinSet.verifierDigest) {
-    issues.push(validationIssue('verifier.digest', 'E_BAD_PIN_FILE', 'verifier.digest does not match pin.verifierDigest'));
+    issues.push(
+      validationIssue('verifier.digest', 'E_BAD_PIN_FILE', 'verifier.digest does not match pin.verifierDigest'),
+    );
   }
   if (issues.length > 0) return failResult(issues);
 
@@ -245,7 +233,9 @@ export function pinContract(options: PinOptions): PinResult {
         ok: false,
         code: 'E_CONTRACT_INVALID',
         message:
-          first === undefined ? 'task.json is invalid' : `${first.path === '' ? 'contract' : first.path}: ${first.message}`,
+          first === undefined
+            ? 'task.json is invalid'
+            : `${first.path === '' ? 'contract' : first.path}: ${first.message}`,
         path: contractRel,
       };
     }
@@ -342,9 +332,7 @@ export function verifyPin(pinFile: string, roots: TaskRoots): PinVerifyResult {
     );
     if (verifier.digest !== pin.pin.verifierDigest) {
       const before = new Map(pin.verifier.files.map((file) => [file.path, file.digest]));
-      const changed = verifier.files
-        .filter((file) => before.get(file.path) !== file.digest)
-        .map((file) => file.path);
+      const changed = verifier.files.filter((file) => before.get(file.path) !== file.digest).map((file) => file.path);
       for (const file of pin.verifier.files) {
         if (!verifier.files.some((entry) => entry.path === file.path)) changed.push(file.path);
       }
@@ -423,13 +411,10 @@ export function pinnedContractPath(pinFile: string, roots: TaskRoots): string {
   const pin = readPin(pinFile);
   if (!pin.ok) {
     const first = pin.issues[0];
-    throw new PathError(
-      'E_UNRESOLVABLE',
-      first === undefined ? 'pin file is invalid' : first.message,
-      pinFile,
-    );
+    throw new PathError('E_UNRESOLVABLE', first === undefined ? 'pin file is invalid' : first.message, pinFile);
   }
   const resolved = resolveTaskRoots(roots, pinFile);
-  if (digestJson(resolved) !== digestJson(pin.value.roots)) throw new PathError('E_BAD_ROOT', 'trusted task roots differ from the pin');
+  if (digestJson(resolved) !== digestJson(pin.value.roots))
+    throw new PathError('E_BAD_ROOT', 'trusted task roots differ from the pin');
   return resolveFileInsideRoot(resolved.stateRoot, pin.value.contract.path);
 }

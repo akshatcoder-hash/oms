@@ -39,11 +39,14 @@ const quote = (value: string): string => {
 };
 /** Credential stores under home: unreadable even when a toolchain root contains them. */
 const SECRET_DIRS = ['.ssh', '.config/solana', '.aws', 'Library', '.config/gh', '.docker', '.netrc', '.npmrc'];
-const subpaths = (paths: readonly string[]) => paths.map(p => `(subpath ${quote(p)})`).join(' ');
+const subpaths = (paths: readonly string[]) => paths.map((p) => `(subpath ${quote(p)})`).join(' ');
 /** Directories from home (inclusive) down to root's parent: only their listings are reopened. */
 const ancestors = (root: string, home: string): string[] => {
   const out: string[] = [];
-  for (let dir = path.dirname(root); dir.startsWith(home) && dir.length >= home.length; dir = path.dirname(dir)) { out.push(dir); if (dir === home) break; }
+  for (let dir = path.dirname(root); dir.startsWith(home) && dir.length >= home.length; dir = path.dirname(dir)) {
+    out.push(dir);
+    if (dir === home) break;
+  }
   return out;
 };
 
@@ -58,38 +61,63 @@ export function seatbeltProfile(policy: SeatbeltPolicy): string {
     // re-deny names file-read-data explicitly; otherwise the home deny wins and the worktree is unreadable.
     `(allow file-read-data file-read* ${subpaths([policy.root, ...policy.readable])})`,
     // Directory listings of the worktree's ancestors only (literal, not subpath), so getcwd works.
-    ...(ancestors(policy.root, home).length ? [`(allow file-read-data ${ancestors(policy.root, home).map(p => `(literal ${quote(p)})`).join(' ')})`] : []),
+    ...(ancestors(policy.root, home).length
+      ? [
+          `(allow file-read-data ${ancestors(policy.root, home)
+            .map((p) => `(literal ${quote(p)})`)
+            .join(' ')})`,
+        ]
+      : []),
     '(deny file-read-data file-read* (regex #"-keypair\\.json$") (regex #"/id\\.json$"))',
-    `(deny file-read-data file-read* ${subpaths(SECRET_DIRS.map(dir => path.join(home, dir)))})`,
+    `(deny file-read-data file-read* ${subpaths(SECRET_DIRS.map((dir) => path.join(home, dir)))})`,
     ';; Keychain: no securityd, so no stored passwords or certificates.',
     '(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc"))',
     ';; Writes: worktree, private home, temp and devices only; pinned verifier files stay read-only.',
     '(deny file-write* (subpath "/"))',
     `(allow file-write* ${subpaths([policy.root, ...policy.writable])})`,
     '(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/(tty|pty|fd/)"))',
-    ...(policy.readOnly.length ? [`(deny file-write* ${policy.readOnly.map(p => `(literal ${quote(p)}) (subpath ${quote(p)})`).join(' ')})`] : []),
+    ...(policy.readOnly.length
+      ? [`(deny file-write* ${policy.readOnly.map((p) => `(literal ${quote(p)}) (subpath ${quote(p)})`).join(' ')})`]
+      : []),
     ';; Network: only the Surfnet RPC port on loopback.',
     '(deny network*)',
-    ...(policy.surfnetPort === undefined ? [] : [`(allow network-outbound (remote ip "localhost:${policy.surfnetPort}"))`]),
+    ...(policy.surfnetPort === undefined
+      ? []
+      : [`(allow network-outbound (remote ip "localhost:${policy.surfnetPort}"))`]),
     // Listening on loopback exposes nothing beyond this machine. Connecting stays limited to the standard local Solana ports
     // (RPC, websocket, faucet), so a command cannot reach the developer's other local services (databases, wallets, dev servers).
-    ...(policy.surfpool === undefined ? [] : ['(allow network-bind network-inbound (local ip "localhost:*"))',
-      ...SOLANA_LOCAL_PORTS.map(port => `(allow network-outbound (remote ip "localhost:${port}"))`)]),
+    ...(policy.surfpool === undefined
+      ? []
+      : [
+          '(allow network-bind network-inbound (local ip "localhost:*"))',
+          ...SOLANA_LOCAL_PORTS.map((port) => `(allow network-outbound (remote ip "localhost:${port}"))`),
+        ]),
   ];
   return `${rules.join('\n')}\n`;
 }
 
 /** Seatbelt matches resolved paths (/var is /private/var); a missing leaf keeps its resolved parent. */
 const resolved = (p: string): string => {
-  try { return realpathSync(p); } catch { return p === path.dirname(p) ? p : path.join(resolved(path.dirname(p)), path.basename(p)); }
+  try {
+    return realpathSync(p);
+  } catch {
+    return p === path.dirname(p) ? p : path.join(resolved(path.dirname(p)), path.basename(p));
+  }
 };
 const unique = (paths: string[]): string[] => [...new Set(paths.map(resolved))];
-const within = (child: string, parent: string): boolean => { const rel = path.relative(parent, child); return !rel.startsWith('..') && !path.isAbsolute(rel); };
+const within = (child: string, parent: string): boolean => {
+  const rel = path.relative(parent, child);
+  return !rel.startsWith('..') && !path.isAbsolute(rel);
+};
 
 /** Toolchain roots that host commands read: node, cargo/rustup, solana, anchor (avm) and PATH entries. */
 function toolchainRoots(env: NodeJS.ProcessEnv, home: string): string[] {
-  const roots = [path.dirname(path.dirname(process.execPath)),
-    ...['.cargo', '.rustup', '.local/share/solana', '.avm', '.nvm', '.volta', '.bun', '.fnm'].map(dir => path.join(home, dir))];
+  const roots = [
+    path.dirname(path.dirname(process.execPath)),
+    ...['.cargo', '.rustup', '.local/share/solana', '.avm', '.nvm', '.volta', '.bun', '.fnm'].map((dir) =>
+      path.join(home, dir),
+    ),
+  ];
   if (env.CARGO_HOME) roots.push(env.CARGO_HOME);
   if (env.RUSTUP_HOME) roots.push(env.RUSTUP_HOME);
   // The entry only, never its parent: ~/Library/pnpm must not open ~/Library.
@@ -100,25 +128,49 @@ function toolchainRoots(env: NodeJS.ProcessEnv, home: string): string[] {
 /** A linked git worktree's `.git` file points at a gitdir (and its commondir) in the main repo, often under home. */
 function gitControlDirs(root: string): string[] {
   let gitdir: string;
-  try { gitdir = /^gitdir: (.+)$/m.exec(readFileSync(path.join(root, '.git'), 'utf8'))?.[1] ?? ''; } catch { return []; }
+  try {
+    gitdir = /^gitdir: (.+)$/m.exec(readFileSync(path.join(root, '.git'), 'utf8'))?.[1] ?? '';
+  } catch {
+    return [];
+  }
   if (!gitdir) return [];
   gitdir = path.resolve(root, gitdir.trim());
-  try { return [gitdir, path.resolve(gitdir, readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim())]; } catch { return [gitdir]; }
+  try {
+    return [gitdir, path.resolve(gitdir, readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim())];
+  } catch {
+    return [gitdir];
+  }
 }
 
 /** Writes this run's profile into the private home and returns argv wrapped in sandbox-exec. */
-export function seatbeltArgv(o: HostRunOptions, root: string, privateHome: string, env: NodeJS.ProcessEnv, argv: string[]): string[] {
+export function seatbeltArgv(
+  o: HostRunOptions,
+  root: string,
+  privateHome: string,
+  env: NodeJS.ProcessEnv,
+  argv: string[],
+): string[] {
   const home = resolved(homedir());
   const cargoHome = env.CARGO_HOME ?? path.join(home, '.cargo');
   const policy: SeatbeltPolicy = {
-    home, root: resolved(root),
-    writable: unique([privateHome, tmpdir(), '/private/tmp', ...(env.OMS_OUTPUT_DIR ? [env.OMS_OUTPUT_DIR] : []),
-      ...o.mounts.extraMounts.filter(mount => mount.mode === 'rw').map(mount => mount.hostPath),
+    home,
+    root: resolved(root),
+    writable: unique([
+      privateHome,
+      tmpdir(),
+      '/private/tmp',
+      ...(env.OMS_OUTPUT_DIR ? [env.OMS_OUTPUT_DIR] : []),
+      ...o.mounts.extraMounts.filter((mount) => mount.mode === 'rw').map((mount) => mount.hostPath),
       // Cargo's download caches; cargo/bin stays read-only so a command cannot plant a host binary.
-      ...['registry', 'git', '.package-cache', '.package-cache-mutate'].map(entry => path.join(cargoHome, entry))]),
+      ...['registry', 'git', '.package-cache', '.package-cache-mutate'].map((entry) => path.join(cargoHome, entry)),
+    ]),
     // A toolchain root that contains home (PATH=~/bin has parent ~) would reopen every repo.
-    readable: unique([...toolchainRoots(env, home), ...gitControlDirs(root), ...o.mounts.readOnlyMounts.map(mount => mount.hostPath),
-      ...(env.SURFPOOL_BINARY ? [env.SURFPOOL_BINARY] : [])]).filter(dir => !within(home, dir)),
+    readable: unique([
+      ...toolchainRoots(env, home),
+      ...gitControlDirs(root),
+      ...o.mounts.readOnlyMounts.map((mount) => mount.hostPath),
+      ...(env.SURFPOOL_BINARY ? [env.SURFPOOL_BINARY] : []),
+    ]).filter((dir) => !within(home, dir)),
     readOnly: unique(o.protectedPaths ?? []),
     surfnetPort: o.surfnet?.port,
     surfpool: env.SURFPOOL_BINARY,

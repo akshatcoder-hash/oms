@@ -11,21 +11,37 @@ const image = process.env.OMS_SANDBOX_IMAGE;
 const forwarderImage = process.env.OMS_SANDBOX_FORWARDER_IMAGE ?? image;
 const PROGRAM = 'Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS';
 
-const text = (message: { content: Array<{ type: string; text?: string }> }) => message.content.map(p => p.type === 'text' ? p.text : '').join('');
+const text = (message: { content: Array<{ type: string; text?: string }> }) =>
+  message.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
 
-test('a failing sandbox command with a Solana failure reaches the model as a diagnosis, and raw_output returns the raw log', async t => {
-  if (await skipUnavailable(t, { docker: [image, forwarderImage], surfpool: binary }) || !binary || !image || !forwarderImage) return;
+test('a failing sandbox command with a Solana failure reaches the model as a diagnosis, and raw_output returns the raw log', async (t) => {
+  if (
+    (await skipUnavailable(t, { docker: [image, forwarderImage], surfpool: binary })) ||
+    !binary ||
+    !image ||
+    !forwarderImage
+  )
+    return;
   const f = await createHarnessFixture({ binary, image, forwarderImage });
-  const harness = await createHarnessSession({ ...f.options, modelRuntime: f.modelRuntime, model: f.model, outputMode: 'head-tail' });
+  const harness = await createHarnessSession({
+    ...f.options,
+    modelRuntime: f.modelRuntime,
+    model: f.model,
+    outputMode: 'head-tail',
+  });
   try {
-    const log = [`Program ${PROGRAM} invoke [1]`, `Program ${PROGRAM} consumed 900 of 200000 compute units`,
-      `Program ${PROGRAM} failed: custom program error: 0x1771`, 'RAW-MARKER'].join('\\n');
+    const log = [
+      `Program ${PROGRAM} invoke [1]`,
+      `Program ${PROGRAM} consumed 900 of 200000 compute units`,
+      `Program ${PROGRAM} failed: custom program error: 0x1771`,
+      'RAW-MARKER',
+    ].join('\\n');
     f.faux.setResponses([
       fauxAssistantMessage(fauxToolCall('bash', { command: `printf '${log}\\n'; exit 1` }), { stopReason: 'toolUse' }),
       fauxAssistantMessage('Seen.'),
     ]);
     await harness.session.prompt('Run it.');
-    const result = harness.session.messages.find(m => m.role === 'toolResult' && m.toolName === 'bash');
+    const result = harness.session.messages.find((m) => m.role === 'toolResult' && m.toolName === 'bash');
     assert.ok(result && result.role === 'toolResult' && result.isError);
     const shown = text(result);
     assert.match(shown, /Solana failure diagnosis/);
@@ -39,8 +55,11 @@ test('a failing sandbox command with a Solana failure reaches the model as a dia
       fauxAssistantMessage('Read.'),
     ]);
     await harness.session.prompt('Read the raw log.');
-    const raw = harness.session.messages.find(m => m.role === 'toolResult' && m.toolName === 'raw_output');
+    const raw = harness.session.messages.find((m) => m.role === 'toolResult' && m.toolName === 'raw_output');
     assert.ok(raw && raw.role === 'toolResult' && !raw.isError);
     assert.match(text(raw), /RAW-MARKER/);
-  } finally { await harness.close(); rmSync(f.base, { recursive: true, force: true }); }
+  } finally {
+    await harness.close();
+    rmSync(f.base, { recursive: true, force: true });
+  }
 });

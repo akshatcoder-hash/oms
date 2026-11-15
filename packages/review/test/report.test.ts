@@ -1,15 +1,43 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EMPTY_NOTE, REVIEW_DISCLAIMER, VULN_CLASSES, emptyReport, parseReviewReport,
-  parseModelFindings, renderJson, renderMarkdown, prepareReport, type ModelFinding, type Finding } from '../src/index.ts';
+import {
+  EMPTY_NOTE,
+  REVIEW_DISCLAIMER,
+  VULN_CLASSES,
+  emptyReport,
+  parseReviewReport,
+  parseModelFindings,
+  renderJson,
+  renderMarkdown,
+  prepareReport,
+  type ModelFinding,
+  type Finding,
+} from '../src/index.ts';
 
 const files = new Map([['src/lib.rs', 20]]);
-const empty = () => emptyReport({ reviewId: 'r1', createdAt: '2026-11-08T12:00:00Z', repo: { commit: 'abc', dirty: false } });
-const model = (): ModelFinding => ({ class: 'missing-signer', handler: 'withdraw',
-  location: { file: 'src/lib.rs', line: 10 }, title: 'Missing authority check', explanation: 'No signer constraint.',
-  fix: 'Require the authority to sign.', confidence: 'high' });
-const finding = (): Finding => ({ id: 'f1', label: 'suspected', class: 'missing-signer', severity: 'high',
-  title: model().title, location: model().location, sources: ['model'], explanation: model().explanation, fix: model().fix, staticHits: [] });
+const empty = () =>
+  emptyReport({ reviewId: 'r1', createdAt: '2026-11-08T12:00:00Z', repo: { commit: 'abc', dirty: false } });
+const model = (): ModelFinding => ({
+  class: 'missing-signer',
+  handler: 'withdraw',
+  location: { file: 'src/lib.rs', line: 10 },
+  title: 'Missing authority check',
+  explanation: 'No signer constraint.',
+  fix: 'Require the authority to sign.',
+  confidence: 'high',
+});
+const finding = (): Finding => ({
+  id: 'f1',
+  label: 'suspected',
+  class: 'missing-signer',
+  severity: 'high',
+  title: model().title,
+  location: model().location,
+  sources: ['model'],
+  explanation: model().explanation,
+  fix: model().fix,
+  staticHits: [],
+});
 const populated = () => {
   const report = empty();
   delete report.emptyNote;
@@ -25,14 +53,32 @@ test('empty reports carry one disclaimer, empty note and all 14 coverage rows', 
     assert.ok(output.includes(EMPTY_NOTE));
   }
   const json = parseReviewReport(JSON.parse(renderJson(empty(), files)));
-  assert.deepEqual(json.coverage.map(row => row.class), VULN_CLASSES);
-  assert.equal(json.coverage.every(row => row.verdict === 'unreviewed'), true);
-  assert.equal(renderMarkdown(empty(), files).split('\n').filter(row => /^\| [a-z]/.test(row)).length, 14);
+  assert.deepEqual(
+    json.coverage.map((row) => row.class),
+    VULN_CLASSES,
+  );
+  assert.equal(
+    json.coverage.every((row) => row.verdict === 'unreviewed'),
+    true,
+  );
+  assert.equal(
+    renderMarkdown(empty(), files)
+      .split('\n')
+      .filter((row) => /^\| [a-z]/.test(row)).length,
+    14,
+  );
 });
 
 test('strict schemas reject unknown keys at every nested boundary', () => {
   const report = populated();
-  const nodes = [report, report.repo, report.totals, report.coverage[0], report.findings[0], report.findings[0]!.location];
+  const nodes = [
+    report,
+    report.repo,
+    report.totals,
+    report.coverage[0],
+    report.findings[0],
+    report.findings[0]!.location,
+  ];
   for (const node of nodes) {
     Object.assign(node!, { unexpected: true });
     assert.throws(() => parseReviewReport(report));
@@ -54,12 +100,18 @@ test('Phase A rejects confirmed labels even with forged evidence', () => {
 
 test('traversal, absolute paths, unknown files and invalid lines are dropped and counted', () => {
   const locations = [
-    { file: '../secret', line: 1 }, { file: '/etc/passwd', line: 1 }, { file: 'C:/secret', line: 1 },
-    { file: 'src/../lib.rs', line: 1 }, { file: 'src\\lib.rs', line: 1 }, { file: 'src/lib.rs', line: 21 },
-    { file: 'src/lib.rs', line: 0 }, { file: 'unknown.rs', line: 1 },
-    { file: 'src/lib.rs', line: 10, endLine: 9 }, { file: 'src/lib.rs', line: 10, endLine: 21 },
+    { file: '../secret', line: 1 },
+    { file: '/etc/passwd', line: 1 },
+    { file: 'C:/secret', line: 1 },
+    { file: 'src/../lib.rs', line: 1 },
+    { file: 'src\\lib.rs', line: 1 },
+    { file: 'src/lib.rs', line: 21 },
+    { file: 'src/lib.rs', line: 0 },
+    { file: 'unknown.rs', line: 1 },
+    { file: 'src/lib.rs', line: 10, endLine: 9 },
+    { file: 'src/lib.rs', line: 10, endLine: 21 },
   ];
-  const result = parseModelFindings([...locations.map(location => ({ ...model(), location })), model()], files);
+  const result = parseModelFindings([...locations.map((location) => ({ ...model(), location })), model()], files);
   assert.equal(result.invalidModelOutputs, locations.length);
   assert.deepEqual(result.findings, [model()]);
   const report = populated();
@@ -73,8 +125,14 @@ test('traversal, absolute paths, unknown files and invalid lines are dropped and
 });
 
 test('invalid model fields are counted, never coerced', () => {
-  const invalid = [null, {}, { ...model(), write: 'x' }, { ...model(), class: 'invented' },
-    { ...model(), title: 'x'.repeat(4097) }, { ...model(), location: { ...model().location, line: '1' } }];
+  const invalid = [
+    null,
+    {},
+    { ...model(), write: 'x' },
+    { ...model(), class: 'invented' },
+    { ...model(), title: 'x'.repeat(4097) },
+    { ...model(), location: { ...model().location, line: '1' } },
+  ];
   assert.equal(parseModelFindings(invalid, files).invalidModelOutputs, invalid.length);
 });
 
@@ -90,7 +148,7 @@ test('Markdown escapes HTML and links and contains hostile fences', () => {
   assert.ok(output.includes('&lt;script&gt;'));
 });
 
- test('both renderers cap Unicode fields by bytes and drop zero lines', () => {
+test('both renderers cap Unicode fields by bytes and drop zero lines', () => {
   const report = populated();
   report.findings[0]!.explanation = '界'.repeat(4096);
   const json = parseReviewReport(JSON.parse(renderJson(report, files)));
@@ -102,7 +160,6 @@ test('Markdown escapes HTML and links and contains hostile fences', () => {
   assert.equal(dropped.findings.length, 0);
   assert.ok(renderMarkdown(report, files).includes(EMPTY_NOTE));
 });
-
 
 test('Markdown cannot emit terminal controls from untrusted report fields', () => {
   const report = populated();
@@ -117,8 +174,11 @@ test('Markdown cannot emit terminal controls from untrusted report fields', () =
   assert.ok(output.includes('line two\tindented'));
   assert.equal(output.split(REVIEW_DISCLAIMER).length - 1, 1);
   assert.equal(report.findings[0]!.explanation, hostile + '\nline two\tindented', 'rendering leaves input intact');
-  assert.equal(JSON.parse(renderJson(report, files)).findings[0].explanation, report.findings[0]!.explanation,
-    'structured evidence remains intact in JSON');
+  assert.equal(
+    JSON.parse(renderJson(report, files)).findings[0].explanation,
+    report.findings[0]!.explanation,
+    'structured evidence remains intact in JSON',
+  );
 });
 
 test('JSON text escapes raw C1 terminal controls without altering decoded evidence', () => {
@@ -142,12 +202,21 @@ test('field truncation cannot turn an invalid source location into a valid one',
   assert.equal(cleaned.emptyNote, EMPTY_NOTE);
 
   const bothPaths = new Map([...inventory, [prefix + '/outside.rs', 20] as const]);
-  assert.equal(prepareReport(report, bothPaths).findings.length, 0,
-    'even a known oversized path must not be shortened to another known file');
+  assert.equal(
+    prepareReport(report, bothPaths).findings.length,
+    0,
+    'even a known oversized path must not be shortened to another known file',
+  );
 
   const withHit = populated();
-  withHit.findings[0]!.staticHits.push({ tool: 'oms-sast', ruleId: 'test', class: 'missing-signer',
-    severity: 'high', location: { file: prefix + '/outside.rs', line: 1 }, message: 'Invalid citation' });
+  withHit.findings[0]!.staticHits.push({
+    tool: 'oms-sast',
+    ruleId: 'test',
+    class: 'missing-signer',
+    severity: 'high',
+    location: { file: prefix + '/outside.rs', line: 1 },
+    message: 'Invalid citation',
+  });
   const mixedInventory = new Map([...files, ...inventory]);
   const filtered = prepareReport(withHit, mixedInventory);
   assert.equal(filtered.findings.length, 1);

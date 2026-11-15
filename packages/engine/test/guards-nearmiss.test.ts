@@ -71,25 +71,48 @@ const CASES: [string, boolean][] = [
 ];
 const reads = (command: string): boolean => {
   try {
-    const out = execFileSync('bash', ['-c', command], { cwd: config.cwd, env: { PATH: process.env.PATH!, HOME: home }, encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = execFileSync('bash', ['-c', command], {
+      cwd: config.cwd,
+      env: { PATH: process.env.PATH!, HOME: home },
+      encoding: 'utf8',
+      timeout: 10_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     return out.includes(MARK);
-  } catch (error) { return String((error as { stdout?: string }).stdout ?? '').includes(MARK); }
+  } catch (error) {
+    return String((error as { stdout?: string }).stdout ?? '').includes(MARK);
+  }
 };
 test('near-miss commands against the shell guard', () => {
   const slipped: string[] = [];
   for (const [command, want] of CASES) {
     const blocked = mod.decideToolCall({ toolName: 'bash', input: { command } }, config, []).block === true;
     const leaks = !blocked && reads(command);
-    console.log(`${blocked ? 'BLOCKED' : 'allowed'} ${leaks ? 'READS-KEY' : '         '} ${want ? 'attempt' : 'control'} | ${command.replaceAll(home, '$FAKEHOME')}`);
+    console.log(
+      `${blocked ? 'BLOCKED' : 'allowed'} ${leaks ? 'READS-KEY' : '         '} ${want ? 'attempt' : 'control'} | ${command.replaceAll(home, '$FAKEHOME')}`,
+    );
     if (want && !blocked) slipped.push(command);
     if (!want) assert.equal(blocked, false, `control wrongly blocked: ${command}`);
   }
   // path tools resolve symlinks, so the read tool must stay blocked on every route
-  for (const path of ['~/.config/solana/id.json', join(home, 'oms-sources/solana-labs__spl/link/id.json'), '../.config/solana/id.json'])
-    assert.equal(mod.decideToolCall({ toolName: 'read', input: { path } }, config, []).block, true, `read tool: ${path}`);
+  for (const path of [
+    '~/.config/solana/id.json',
+    join(home, 'oms-sources/solana-labs__spl/link/id.json'),
+    '../.config/solana/id.json',
+  ])
+    assert.equal(
+      mod.decideToolCall({ toolName: 'read', input: { path } }, config, []).block,
+      true,
+      `read tool: ${path}`,
+    );
   // With the redteam/r16 prototype only these remain: a glob over the dotted name, and a symlink living in a `solana-*` directory
   // (source_fetch drops links, so nothing can plant that symlink without already reading the key another way).
-  const residual = ['cd ~ && cat .s*/id_ed25519', `cat ${H}/oms-sources/solana-labs__spl/link/id.json`, 'cd ~/oms-sources/solana-labs__spl && cat link/id.json', 'cd ~/oms-sources/solana-labs__spl && cat -- ./link/id.json'];
+  const residual = [
+    'cd ~ && cat .s*/id_ed25519',
+    `cat ${H}/oms-sources/solana-labs__spl/link/id.json`,
+    'cd ~/oms-sources/solana-labs__spl && cat link/id.json',
+    'cd ~/oms-sources/solana-labs__spl && cat -- ./link/id.json',
+  ];
   assert.deepEqual(slipped.sort(), residual.sort());
   console.log(`SLIPPED ${slipped.length} of ${CASES.filter(([, w]) => w).length} attempts`);
 });

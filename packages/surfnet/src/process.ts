@@ -95,7 +95,14 @@ export function spawnSurfpool(options: SpawnOptions): SurfnetProcess {
   ];
 
   const child = spawn(options.binary, args, {
-    env: { ...Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'SHELL', 'TERM'].flatMap(name => process.env[name] === undefined ? [] : [[name, process.env[name]!]])), NO_DNA: '1' },
+    env: {
+      ...Object.fromEntries(
+        ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'SHELL', 'TERM'].flatMap((name) =>
+          process.env[name] === undefined ? [] : [[name, process.env[name]!]],
+        ),
+      ),
+      NO_DNA: '1',
+    },
     cwd: options.cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
     // Own process group so a crash of our harness cannot leave the child
@@ -107,7 +114,9 @@ export function spawnSurfpool(options: SpawnOptions): SurfnetProcess {
   let logStream: WriteStream | undefined;
   try {
     logStream = createWriteStream(options.logFile, { flags: 'a' });
-    logStream.on('error', () => { logStream = undefined; });
+    logStream.on('error', () => {
+      logStream = undefined;
+    });
   } catch {
     // A broken log sink must not kill the surfnet; keep the in-memory tail.
   }
@@ -166,7 +175,9 @@ export function spawnSurfpool(options: SpawnOptions): SurfnetProcess {
         );
       }
       try {
-        const health = await rpc.call('getHealth', [], { timeoutMs: Math.min(2_000, Math.max(1, deadline - Date.now())) });
+        const health = await rpc.call('getHealth', [], {
+          timeoutMs: Math.min(2_000, Math.max(1, deadline - Date.now())),
+        });
         options.signal?.throwIfAborted();
         if (health === 'ok' && !exited) return;
         lastError = `getHealth returned ${JSON.stringify(health)}`;
@@ -204,7 +215,9 @@ export function spawnSurfpool(options: SpawnOptions): SurfnetProcess {
     });
   };
 
-  const abort = () => { void stop(); };
+  const abort = () => {
+    void stop();
+  };
   options.signal?.addEventListener('abort', abort, { once: true });
   if (options.signal?.aborted) abort();
   return {

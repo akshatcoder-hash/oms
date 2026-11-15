@@ -11,7 +11,9 @@ function fixture(t: TestContext) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'oms-surfnet-lifecycle-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const binary = join(root, 'rpc-child');
-  writeFileSync(binary, `#!${process.execPath}
+  writeFileSync(
+    binary,
+    `#!${process.execPath}
 const http = require('node:http');
 const fs = require('node:fs');
 const args = process.argv.slice(2);
@@ -27,7 +29,8 @@ http.createServer(async (req, res) => {
   res.setHeader('content-type', 'application/json');
   res.end(JSON.stringify({ jsonrpc: '2.0', id, result }));
 }).listen(Number(value('--port')), '127.0.0.1');
-`);
+`,
+  );
   chmodSync(binary, 0o700);
   const workDir = join(root, 'work');
   mkdirSync(workDir);
@@ -36,7 +39,14 @@ http.createServer(async (req, res) => {
 
 test('missing binary emits a handled startup failure even without a child pid', async (t) => {
   const f = fixture(t);
-  const child = spawnSurfpool({ binary: join(f.root, 'missing'), rpcPort: 18899, wsPort: 18900, logFile: join(f.root, 'spawn.log'), startTimeoutMs: 500, pollIntervalMs: 5 });
+  const child = spawnSurfpool({
+    binary: join(f.root, 'missing'),
+    rpcPort: 18899,
+    wsPort: 18900,
+    logFile: join(f.root, 'spawn.log'),
+    startTimeoutMs: 500,
+    pollIntervalMs: 5,
+  });
   t.after(() => child.stop());
   await assert.rejects(child.waitUntilHealthy(), /ENOENT|exited before becoming healthy/);
   assert.equal(child.exited(), true);
@@ -49,7 +59,11 @@ test('manager rejects missing binary/snapshot before allocating ports and clears
   await assert.rejects(missing.start(), /ENOENT/);
   assert.equal(missing.ports(), undefined);
   assert.equal(missing.pid(), undefined);
-  const absentSnapshot = createSurfnet({ binary: f.binary, workDir: f.workDir, snapshot: join(f.root, 'missing.json') });
+  const absentSnapshot = createSurfnet({
+    binary: f.binary,
+    workDir: f.workDir,
+    snapshot: join(f.root, 'missing.json'),
+  });
   await assert.rejects(absentSnapshot.start(), /ENOENT/);
   assert.equal(absentSnapshot.ports(), undefined);
   const surf = createSurfnet({ binary: f.binary, workDir: f.workDir });
@@ -95,7 +109,11 @@ test('aborting startup kills the child and releases its reserved ports', async (
   // Exercise actual child/process cancellation; mock timers cannot drive the
   // subprocess or the HTTP readiness deadline in its separate event loop.
   const timer = setTimeout(() => controller.abort(new Error('cancel startup')), 100);
-  try { await assert.rejects(started, /cancel startup|abort/i); } finally { clearTimeout(timer); }
+  try {
+    await assert.rejects(started, /cancel startup|abort/i);
+  } finally {
+    clearTimeout(timer);
+  }
   assert.equal(surf.pid(), undefined);
   assert.equal(surf.ports(), undefined);
 });
@@ -111,11 +129,12 @@ test('readiness timeout cleans up without leaving a process or port registration
   assert.equal(surf.ports(), undefined);
 });
 
-test('host process registration precedes readiness and registration failure stops the child', async t => {
+test('host process registration precedes readiness and registration failure stops the child', async (t) => {
   const f = fixture(t);
   let pid: number | undefined;
   const surf = createSurfnet({
-    binary: f.binary, workDir: f.workDir,
+    binary: f.binary,
+    workDir: f.workDir,
     onSpawn(childPid, cwd) {
       pid = childPid;
       assert.equal(cwd, f.workDir);

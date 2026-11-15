@@ -22,8 +22,17 @@ test('dated immutable catalog binds exact paid models, rates and conservative wi
   };
   assert.deepEqual(Object.keys(MODEL_CATALOG).sort(), Object.keys(expected).sort());
   for (const worker of Object.values(MODEL_CATALOG)) {
-    assert.deepEqual([worker.provider, worker.modelId, worker.cost.input, worker.cost.output,
-      worker.cost.cacheRead, worker.cost.cacheWrite], expected[worker.key]);
+    assert.deepEqual(
+      [
+        worker.provider,
+        worker.modelId,
+        worker.cost.input,
+        worker.cost.output,
+        worker.cost.cacheRead,
+        worker.cost.cacheWrite,
+      ],
+      expected[worker.key],
+    );
     assert.ok(worker.effectiveContextWindow <= worker.publishedContextWindow);
     assert.ok(worker.maxOutputTokens > 0);
     assert.match(worker.sourceUrl, /^https:\/\//);
@@ -48,12 +57,14 @@ test('dated immutable catalog binds exact paid models, rates and conservative wi
   assert.equal(Reflect.set(MODEL_CATALOG.sol.cost, 'input', 0), false);
 });
 test('cache tiers distinguish unsupported writes, documented temporary free writes and long retention', () => {
-  assert.deepEqual(MODEL_CATALOG.haiku.cost.tiers, [{ inputTokensAbove: 100_000,
-    input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWriteLong: 1 }]);
+  assert.deepEqual(MODEL_CATALOG.haiku.cost.tiers, [
+    { inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWriteLong: 1 },
+  ]);
   assert.equal(MODEL_CATALOG.sonnet.cost.cacheWriteLong, 4);
   assert.equal(MODEL_CATALOG.opus.cost.cacheWriteLong, 8);
-  assert.deepEqual(MODEL_CATALOG.grok.cost.tiers, [{ inputTokensAbove: 200_000,
-    input: 4, output: 12, cacheRead: 1, cacheWrite: null }]);
+  assert.deepEqual(MODEL_CATALOG.grok.cost.tiers, [
+    { inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: null },
+  ]);
   assert.equal(MODEL_CATALOG['mimo-pro'].cachePolicy.write, 'temporary-free');
   assert.equal(MODEL_CATALOG['mimo-flash'].cachePolicy.write, 'temporary-free');
 });

@@ -6,13 +6,32 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HarnessSession } from '@oms/engine';
 import { OMS_COMMANDS, commandHelp, commandMatches } from '../src/tui/commands.ts';
-import { acceptsArgument, canRunWhileBusy, findCommand, parseCommand, type CommandContext } from '../src/tui/commands.ts';
+import {
+  acceptsArgument,
+  canRunWhileBusy,
+  findCommand,
+  parseCommand,
+  type CommandContext,
+} from '../src/tui/commands.ts';
 import { budgetLine } from '../src/tui/inspect-commands.ts';
 import type { CommandOutput, Prepared } from '../src/tui/prepared.ts';
-import { base58Decode, base58Encode, describeTokenData, describeTransactionError, isBase58Bytes } from '../src/tui/solana-commands.ts';
+import {
+  base58Decode,
+  base58Encode,
+  describeTokenData,
+  describeTransactionError,
+  isBase58Bytes,
+} from '../src/tui/solana-commands.ts';
 import { testCommand } from '../src/tui/work-commands.ts';
 import {
-  failurePrompt, newGoal, parseGoalArguments, runGoalCheck, runGoalLoop, taskVerifierItem, type CheckResult, type Goal,
+  failurePrompt,
+  newGoal,
+  parseGoalArguments,
+  runGoalCheck,
+  runGoalLoop,
+  taskVerifierItem,
+  type CheckResult,
+  type Goal,
 } from '../src/tui/goal.ts';
 
 const SYSTEM = '11111111111111111111111111111111';
@@ -24,31 +43,56 @@ function chainFake(url = 'http://127.0.0.1:20000') {
   const calls: Array<{ method: string; params: unknown[] }> = [];
   let balance = 5;
   const handlers: Record<string, (params: unknown[]) => unknown> = {
-    getSlot: () => 321, getVersion: () => ({ 'solana-core': '2.3.1' }),
+    getSlot: () => 321,
+    getVersion: () => ({ 'solana-core': '2.3.1' }),
     getBalance: () => ({ value: balance }),
-    requestAirdrop: params => { balance += Number(params[1]); return 'airdrop-signature'; },
+    requestAirdrop: (params) => {
+      balance += Number(params[1]);
+      return 'airdrop-signature';
+    },
   };
   let rewinds = 0;
-  return { calls, handlers, rewinds: () => rewinds, chain: {
-    rpcUrl: () => url, mode: 'offline-snapshot' as const, uptimeMs: () => 125_000,
-    health: async () => ({ ok: true }),
-    async call(method: string, params: unknown[] = []) {
-      calls.push({ method, params });
-      const handler = handlers[method];
-      if (!handler) throw new Error(`unexpected ${method}`);
-      return handler(params);
+  return {
+    calls,
+    handlers,
+    rewinds: () => rewinds,
+    chain: {
+      rpcUrl: () => url,
+      mode: 'offline-snapshot' as const,
+      uptimeMs: () => 125_000,
+      health: async () => ({ ok: true }),
+      async call(method: string, params: unknown[] = []) {
+        calls.push({ method, params });
+        const handler = handlers[method];
+        if (!handler) throw new Error(`unexpected ${method}`);
+        return handler(params);
+      },
+      async rewind() {
+        rewinds++;
+      },
     },
-    async rewind() { rewinds++; },
-  } };
+  };
 }
 
 function harnessFake(extra: Record<string, unknown> = {}): HarnessSession {
-  return { task: { id: 't', codeRoot: '/nonexistent', baseOid: 'a'.repeat(40), branch: 'oms/t' },
-    budget: { snapshot: () => ({ caps: { tokens: 1000, spendMicroUsd: 5_000_000, wallClockMs: 600_000 },
-      used: { tokens: 120, spendMicroUsd: 2500, wallClockMs: 61_000 }, remaining: { tokens: 880, spendMicroUsd: 4_997_500, wallClockMs: 539_000 },
-      accounting: 'known', exhausted: false, reasons: [] }),
-    receipts: () => [{ outcome: 'known', usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 50, cacheWriteTokens: 5 } }, { outcome: 'known' }] },
-    ...extra } as unknown as HarnessSession;
+  return {
+    task: { id: 't', codeRoot: '/nonexistent', baseOid: 'a'.repeat(40), branch: 'oms/t' },
+    budget: {
+      snapshot: () => ({
+        caps: { tokens: 1000, spendMicroUsd: 5_000_000, wallClockMs: 600_000 },
+        used: { tokens: 120, spendMicroUsd: 2500, wallClockMs: 61_000 },
+        remaining: { tokens: 880, spendMicroUsd: 4_997_500, wallClockMs: 539_000 },
+        accounting: 'known',
+        exhausted: false,
+        reasons: [],
+      }),
+      receipts: () => [
+        { outcome: 'known', usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 50, cacheWriteTokens: 5 } },
+        { outcome: 'known' },
+      ],
+    },
+    ...extra,
+  } as unknown as HarnessSession;
 }
 
 /** The work or refusal a command prepares for an argument, as the interface's table hands it over. Undefined for a name it does not own. */
@@ -70,8 +114,22 @@ const refusal = (prepared: Prepared | undefined): string => {
 // ------------------------------------------------------------------ the command list
 
 test('the menu and help list every new command, with Solana after Work, and no planned ones', () => {
-  const names: string[] = OMS_COMMANDS.map(command => command.name);
-  for (const name of ['model', 'goal', 'clear', 'diff', 'usage', 'test', 'chain', 'rewind', 'airdrop', 'account', 'tx', 'program', 'error']) {
+  const names: string[] = OMS_COMMANDS.map((command) => command.name);
+  for (const name of [
+    'model',
+    'goal',
+    'clear',
+    'diff',
+    'usage',
+    'test',
+    'chain',
+    'rewind',
+    'airdrop',
+    'account',
+    'tx',
+    'program',
+    'error',
+  ]) {
     assert.ok(names.includes(name), name);
   }
   for (const name of ['claude', 'deploy', 'undo', 'compact', 'resume']) assert.equal(names.includes(name), false, name);
@@ -86,8 +144,8 @@ test('the menu and help list every new command, with Solana after Work, and no p
     assert.equal(prepareSlash('claude', argument, harnessFake()), undefined);
     assert.equal(findCommand('claude'), undefined);
   }
-  assert.equal(OMS_COMMANDS.find(command => command.name === 'goal')?.group, 'Work');
-  assert.equal(OMS_COMMANDS.find(command => command.name === 'diff')?.group, 'Inspect');
+  assert.equal(OMS_COMMANDS.find((command) => command.name === 'goal')?.group, 'Work');
+  assert.equal(OMS_COMMANDS.find((command) => command.name === 'diff')?.group, 'Inspect');
   assert.equal(prepareSlash('unknown', '', harnessFake()), undefined);
 });
 
@@ -97,14 +155,25 @@ test('/goal arguments: show, clear, text, quoted and bare checks, and bad input'
   assert.deepEqual(parseGoalArguments(''), { kind: 'show' });
   assert.deepEqual(parseGoalArguments(' clear '), { kind: 'clear' });
   assert.deepEqual(parseGoalArguments('make tests pass'), { kind: 'set', text: 'make tests pass', check: undefined });
-  assert.deepEqual(parseGoalArguments('make tests pass --check "npm test -- --grep \\"x\\""'),
-    { kind: 'set', text: 'make tests pass', check: 'npm test -- --grep "x"' });
-  assert.deepEqual(parseGoalArguments("fix it --check 'cargo test'"), { kind: 'set', text: 'fix it', check: 'cargo test' });
+  assert.deepEqual(parseGoalArguments('make tests pass --check "npm test -- --grep \\"x\\""'), {
+    kind: 'set',
+    text: 'make tests pass',
+    check: 'npm test -- --grep "x"',
+  });
+  assert.deepEqual(parseGoalArguments("fix it --check 'cargo test'"), {
+    kind: 'set',
+    text: 'fix it',
+    check: 'cargo test',
+  });
   assert.deepEqual(parseGoalArguments('fix it --check npm test'), { kind: 'set', text: 'fix it', check: 'npm test' });
   assert.equal(parseGoalArguments('fix it --check').kind, 'error');
   assert.equal(parseGoalArguments('--check "npm test"').kind, 'error');
   assert.equal(parseGoalArguments('x'.repeat(5000)).kind, 'error');
-  assert.deepEqual(parseGoalArguments('fix --checkout main'), { kind: 'set', text: 'fix --checkout main', check: undefined });
+  assert.deepEqual(parseGoalArguments('fix --checkout main'), {
+    kind: 'set',
+    text: 'fix --checkout main',
+    check: undefined,
+  });
 });
 
 function loopFixture(results: CheckResult[], options: { exhaustAfter?: number; abortAfterTurn?: number } = {}) {
@@ -113,14 +182,34 @@ function loopFixture(results: CheckResult[], options: { exhaustAfter?: number; a
   const said: string[] = [];
   const controller = new AbortController();
   let checks = 0;
-  const snapshot = () => ({ caps: { tokens: 1, spendMicroUsd: 1, wallClockMs: 1 }, used: { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 },
-    remaining: { tokens: 1, spendMicroUsd: 1, wallClockMs: 1 }, exhausted: options.exhaustAfter !== undefined && checks >= options.exhaustAfter,
-    reasons: ['tokens' as const] });
-  return { goal, prompts, said, controller, loop: {
-    goal, signal: controller.signal, budget: snapshot, say: (text: string) => { said.push(text); },
-    async turn(prompt: string) { prompts.push(prompt); if (options.abortAfterTurn === prompts.length) controller.abort(); },
-    async check() { return results[Math.min(checks++, results.length - 1)]!; },
-  } };
+  const snapshot = () => ({
+    caps: { tokens: 1, spendMicroUsd: 1, wallClockMs: 1 },
+    used: { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 },
+    remaining: { tokens: 1, spendMicroUsd: 1, wallClockMs: 1 },
+    exhausted: options.exhaustAfter !== undefined && checks >= options.exhaustAfter,
+    reasons: ['tokens' as const],
+  });
+  return {
+    goal,
+    prompts,
+    said,
+    controller,
+    loop: {
+      goal,
+      signal: controller.signal,
+      budget: snapshot,
+      say: (text: string) => {
+        said.push(text);
+      },
+      async turn(prompt: string) {
+        prompts.push(prompt);
+        if (options.abortAfterTurn === prompts.length) controller.abort();
+      },
+      async check() {
+        return results[Math.min(checks++, results.length - 1)]!;
+      },
+    },
+  };
 }
 const fail = (output: string): CheckResult => ({ status: 'fail', output, summary: 'check failed (exit 1)' });
 const pass: CheckResult = { status: 'pass', output: '', summary: 'check passed (exit 0)' };
@@ -135,7 +224,7 @@ test('/goal loop: a failing check feeds its output back, then a passing check re
   assert.match(f.prompts[0]!, /Your own claim that it is done is never enough/);
   assert.match(f.prompts[1]!, /expected 2, got 3/);
   assert.match(f.prompts[1]!, /1 of 5/);
-  assert.ok(f.said.some(line => line.startsWith('Goal reached')));
+  assert.ok(f.said.some((line) => line.startsWith('Goal reached')));
 });
 
 test('/goal loop: the retry cap stops it visibly after five checks', async () => {
@@ -146,7 +235,10 @@ test('/goal loop: the retry cap stops it visibly after five checks', async () =>
   assert.equal(f.goal.status, 'stopped');
   assert.equal(f.goal.attempts, 5);
   assert.equal(f.prompts.length, 5);
-  assert.ok(f.said.some(line => /Goal stopped: retry cap reached/.test(line)), f.said.join('\n'));
+  assert.ok(
+    f.said.some((line) => /Goal stopped: retry cap reached/.test(line)),
+    f.said.join('\n'),
+  );
 });
 
 test('/goal loop: the same failure twice, an exhausted budget and an unavailable check each stop it', async () => {
@@ -170,7 +262,10 @@ test('/goal loop: the same failure twice, an exhausted budget and an unavailable
 test('/goal loop: cancelling ends it at the next boundary without running the check', async () => {
   const f = loopFixture([pass], { abortAfterTurn: 1 });
   let checked = false;
-  f.loop.check = async () => { checked = true; return pass; };
+  f.loop.check = async () => {
+    checked = true;
+    return pass;
+  };
   await runGoalLoop(f.loop);
   assert.equal(f.goal.status, 'cancelled');
   assert.equal(checked, false);
@@ -178,7 +273,9 @@ test('/goal loop: cancelling ends it at the next boundary without running the ch
 
 test('/goal loop: a failed agent turn marks the goal stopped and rethrows', async () => {
   const f = loopFixture([pass]);
-  f.loop.turn = async () => { throw new Error('provider failed'); };
+  f.loop.turn = async () => {
+    throw new Error('provider failed');
+  };
   await assert.rejects(runGoalLoop(f.loop), /provider failed/);
   assert.equal(f.goal.status, 'stopped');
   assert.equal(f.goal.summary, 'provider failed');
@@ -194,21 +291,41 @@ test('failure feedback is bounded to the tail of the output', () => {
 test('/goal check: a sandbox command decides by exit code; the task verifier decides when there is no command', async () => {
   const goal = { check: 'npm test' };
   const commands: string[] = [];
-  const result = (exitCode: number, extra = {}) => harnessFake({ async runCommand(command: string) {
-    commands.push(command); return { exitCode, stdout: 'out', stderr: 'err', timedOut: false, cancelled: false, truncated: false, ...extra };
-  } });
+  const result = (exitCode: number, extra = {}) =>
+    harnessFake({
+      async runCommand(command: string) {
+        commands.push(command);
+        return {
+          exitCode,
+          stdout: 'out',
+          stderr: 'err',
+          timedOut: false,
+          cancelled: false,
+          truncated: false,
+          ...extra,
+        };
+      },
+    });
   assert.equal((await runGoalCheck(result(0), goal, new AbortController().signal)).status, 'pass');
   const failed = await runGoalCheck(result(2), goal, new AbortController().signal);
   assert.deepEqual([failed.status, failed.output], ['fail', 'out\nerr']);
   assert.equal((await runGoalCheck(result(0, { timedOut: true }), goal, new AbortController().signal)).status, 'fail');
-  assert.equal((await runGoalCheck(result(1, { cancelled: true }), goal, new AbortController().signal)).status, 'unavailable');
+  assert.equal(
+    (await runGoalCheck(result(1, { cancelled: true }), goal, new AbortController().signal)).status,
+    'unavailable',
+  );
   assert.deepEqual(commands, ['npm test', 'npm test', 'npm test', 'npm test']);
 
   const verified: Array<string | undefined> = [];
   let outcome: unknown = { closed: true, reason: 'verified' };
-  const withTask = (items: Array<{ id: string; status: string }>) => harnessFake({
-    evaluator: { read: () => ({ ok: true, value: { items } }) },
-    async verify(id?: string) { verified.push(id); return { itemId: id, result: outcome }; } });
+  const withTask = (items: Array<{ id: string; status: string }>) =>
+    harnessFake({
+      evaluator: { read: () => ({ ok: true, value: { items } }) },
+      async verify(id?: string) {
+        verified.push(id);
+        return { itemId: id, result: outcome };
+      },
+    });
   const open = withTask([{ id: 'R1', status: 'active' }]);
   assert.equal(taskVerifierItem(open), 'R1');
   assert.equal((await runGoalCheck(open, { check: undefined }, new AbortController().signal)).status, 'pass');
@@ -221,7 +338,10 @@ test('/goal check: a sandbox command decides by exit code; the task verifier dec
   const closed = withTask([{ id: 'R1', status: 'closed' }]);
   assert.equal(taskVerifierItem(closed), undefined);
   assert.equal((await runGoalCheck(closed, { check: undefined }, new AbortController().signal)).status, 'pass');
-  assert.equal((await runGoalCheck(withTask([]), { check: undefined }, new AbortController().signal)).status, 'unavailable');
+  assert.equal(
+    (await runGoalCheck(withTask([]), { check: undefined }, new AbortController().signal)).status,
+    'unavailable',
+  );
 });
 
 // ------------------------------------------------------------------ Solana commands
@@ -273,28 +393,48 @@ test('/airdrop validates the address and amount, caps at 100 SOL, and shows the 
   const out = await run(prepareSlash('airdrop', WALLET, harness));
   assert.match(out.text, /Airdropped 1 SOL to /);
   assert.match(out.text, /Balance: 1\.000000005 SOL/);
-  assert.deepEqual(fake.calls.find(call => call.method === 'requestAirdrop')?.params, [WALLET, 1_000_000_000]);
+  assert.deepEqual(fake.calls.find((call) => call.method === 'requestAirdrop')?.params, [WALLET, 1_000_000_000]);
   const big = await run(prepareSlash('airdrop', `${WALLET} 100`, harness));
   assert.match(big.text, /Airdropped 100 SOL/);
 });
 
 test('/airdrop and every chain command refuse an RPC that is not the task loopback Surfpool', async () => {
-  for (const url of ['https://api.devnet.solana.com', 'https://api.mainnet-beta.solana.com', 'http://10.0.0.5:8899',
-    'http://127.0.0.1.evil.example:8899', 'http://user:pw@127.0.0.1:8899', 'ftp://127.0.0.1:8899', 'not a url']) {
+  for (const url of [
+    'https://api.devnet.solana.com',
+    'https://api.mainnet-beta.solana.com',
+    'http://10.0.0.5:8899',
+    'http://127.0.0.1.evil.example:8899',
+    'http://user:pw@127.0.0.1:8899',
+    'ftp://127.0.0.1:8899',
+    'not a url',
+  ]) {
     const fake = chainFake(url);
     const harness = harnessFake({ chain: fake.chain });
-    for (const [name, argument] of [['airdrop', WALLET], ['account', WALLET], ['tx', SIGNATURE], ['chain', '']] as const) {
+    for (const [name, argument] of [
+      ['airdrop', WALLET],
+      ['account', WALLET],
+      ['tx', SIGNATURE],
+      ['chain', ''],
+    ] as const) {
       await assert.rejects(run(prepareSlash(name, argument, harness)), /Refusing/, `${name} ${url}`);
     }
     assert.equal(fake.calls.length, 0, url);
   }
-  const down = chainFake(); down.chain.rpcUrl = () => undefined as unknown as string;
+  const down = chainFake();
+  down.chain.rpcUrl = () => undefined as unknown as string;
   await assert.rejects(run(prepareSlash('airdrop', WALLET, harnessFake({ chain: down.chain }))), /not running/);
 });
 
 test('/account shows owner with its program name, lamports in SOL, data length, executable and a hex preview', async () => {
   const fake = chainFake();
-  fake.handlers.getAccountInfo = () => ({ value: { lamports: 1_500_000_000, owner: SYSTEM, executable: false, data: [Buffer.from('hello').toString('base64'), 'base64'] } });
+  fake.handlers.getAccountInfo = () => ({
+    value: {
+      lamports: 1_500_000_000,
+      owner: SYSTEM,
+      executable: false,
+      data: [Buffer.from('hello').toString('base64'), 'base64'],
+    },
+  });
   const harness = harnessFake({ chain: fake.chain });
   assert.match(refusal(prepareSlash('account', 'bad', harness)), /Usage/);
   const out = await run(prepareSlash('account', WALLET, harness));
@@ -309,32 +449,49 @@ test('/account shows owner with its program name, lamports in SOL, data length, 
 
 test('/account decodes a token mint and a token account owned by the Token program', async () => {
   const mint = Buffer.alloc(82);
-  mint.writeUInt32LE(1, 0); Buffer.from(new Uint8Array(32).fill(4)).copy(mint, 4);
-  mint.writeBigUInt64LE(1_000_000n, 36); mint[44] = 6; mint[45] = 1;
+  mint.writeUInt32LE(1, 0);
+  Buffer.from(new Uint8Array(32).fill(4)).copy(mint, 4);
+  mint.writeBigUInt64LE(1_000_000n, 36);
+  mint[44] = 6;
+  mint[45] = 1;
   const account = Buffer.alloc(165);
-  Buffer.from(new Uint8Array(32).fill(1)).copy(account, 0); Buffer.from(new Uint8Array(32).fill(2)).copy(account, 32);
-  account.writeBigUInt64LE(42n, 64); account[108] = 1;
+  Buffer.from(new Uint8Array(32).fill(1)).copy(account, 0);
+  Buffer.from(new Uint8Array(32).fill(2)).copy(account, 32);
+  account.writeBigUInt64LE(42n, 64);
+  account[108] = 1;
   const fake = chainFake();
   const harness = harnessFake({ chain: fake.chain });
-  fake.handlers.getAccountInfo = () => ({ value: { lamports: 1, owner: TOKEN, executable: false, data: [mint.toString('base64'), 'base64'] } });
+  fake.handlers.getAccountInfo = () => ({
+    value: { lamports: 1, owner: TOKEN, executable: false, data: [mint.toString('base64'), 'base64'] },
+  });
   const minted = (await run(prepareSlash('account', WALLET, harness))).text;
   assert.match(minted, /Owner: Tokenkeg\S+ \(SPL Token\)/);
-  assert.match(minted, /Token mint:/); assert.match(minted, /decimals: 6/); assert.match(minted, /supply: 1000000/);
+  assert.match(minted, /Token mint:/);
+  assert.match(minted, /decimals: 6/);
+  assert.match(minted, /supply: 1000000/);
   assert.match(minted, new RegExp(`mint authority: ${base58Encode(new Uint8Array(32).fill(4))}`));
-  fake.handlers.getAccountInfo = () => ({ value: { lamports: 1, owner: TOKEN, executable: false, data: [account.toString('base64'), 'base64'] } });
+  fake.handlers.getAccountInfo = () => ({
+    value: { lamports: 1, owner: TOKEN, executable: false, data: [account.toString('base64'), 'base64'] },
+  });
   const held = (await run(prepareSlash('account', WALLET, harness))).text;
-  assert.match(held, /Token account:/); assert.match(held, /amount: 42/); assert.match(held, /state: initialized/);
+  assert.match(held, /Token account:/);
+  assert.match(held, /amount: 42/);
+  assert.match(held, /state: initialized/);
   assert.match(held, new RegExp(`owner: ${base58Encode(new Uint8Array(32).fill(2))}`));
   assert.deepEqual(describeTokenData(new Uint8Array(10)), []);
-  const extended = Buffer.alloc(170); extended[165] = 2;
+  const extended = Buffer.alloc(170);
+  extended[165] = 2;
   assert.equal(describeTokenData(extended)[0], 'Token account:');
 });
 
 test('/tx shows status, decoded error, compute units, fee and bounded logs', async () => {
   const fake = chainFake();
   const logs = Array.from({ length: 60 }, (_, i) => `Program log: line ${i}${'x'.repeat(i === 0 ? 400 : 0)}`);
-  fake.handlers.getTransaction = () => ({ slot: 77, transaction: { message: { accountKeys: [WALLET, TOKEN], instructions: [{ programIdIndex: 1 }] } },
-    meta: { err: { InstructionError: [0, { Custom: 1 }] }, fee: 5000, computeUnitsConsumed: 4321, logMessages: logs } });
+  fake.handlers.getTransaction = () => ({
+    slot: 77,
+    transaction: { message: { accountKeys: [WALLET, TOKEN], instructions: [{ programIdIndex: 1 }] } },
+    meta: { err: { InstructionError: [0, { Custom: 1 }] }, fee: 5000, computeUnitsConsumed: 4321, logMessages: logs },
+  });
   const harness = harnessFake({ chain: fake.chain });
   assert.match(refusal(prepareSlash('tx', 'abc', harness)), /Usage/);
   const out = (await run(prepareSlash('tx', SIGNATURE, harness))).text;
@@ -345,12 +502,19 @@ test('/tx shows status, decoded error, compute units, fee and bounded logs', asy
   assert.match(out, /Slot: 77/);
   assert.match(out, /\[20 more lines\]/);
   assert.equal(out.includes('x'.repeat(400)), false);
-  fake.handlers.getTransaction = () => ({ slot: 1, transaction: { message: { accountKeys: [WALLET], instructions: [] } }, meta: { err: null, fee: 0, logMessages: [] } });
+  fake.handlers.getTransaction = () => ({
+    slot: 1,
+    transaction: { message: { accountKeys: [WALLET], instructions: [] } },
+    meta: { err: null, fee: 0, logMessages: [] },
+  });
   assert.match((await run(prepareSlash('tx', SIGNATURE, harness))).text, /Status: success/);
   fake.handlers.getTransaction = () => null;
   assert.match((await run(prepareSlash('tx', SIGNATURE, harness))).text, /No transaction/);
   assert.match(describeTransactionError('AccountNotFound', [], [], []), /AccountNotFound/);
-  assert.match(describeTransactionError({ InstructionError: [0, { Custom: 3012 }] }, [WALLET], [0], []), /AccountNotInitialized/);
+  assert.match(
+    describeTransactionError({ InstructionError: [0, { Custom: 3012 }] }, [WALLET], [0], []),
+    /AccountNotInitialized/,
+  );
 });
 
 test('/program prints the program reference text without a network or chain', async () => {
@@ -363,7 +527,8 @@ test('/program prints the program reference text without a network or chain', as
 
 test('/error decodes locally across Anchor, System and Token tables, local IDLs, and says when nothing answers', async () => {
   const harness = harnessFake();
-  const text = async (argument: string, h: HarnessSession = harness) => (await run(prepareSlash('error', argument, h))).text;
+  const text = async (argument: string, h: HarnessSession = harness) =>
+    (await run(prepareSlash('error', argument, h))).text;
   assert.match(await text('3012'), /Anchor framework: AccountNotInitialized/);
   assert.match(await text('0xbc4'), /AccountNotInitialized/);
   assert.match(await text('custom program error: 0x1 token'), /SPL Token: InsufficientFunds/);
@@ -381,12 +546,27 @@ test('/error decodes locally across Anchor, System and Token tables, local IDLs,
   assert.match(refusal(prepareSlash('error', '-5', harness)), /Usage/);
 
   const asked: string[][] = [];
-  const served = harnessFake({ knowledge: { config: () => undefined, async decodeError(code: string, program?: string) { asked.push([code, program ?? '']); return 'ProgramX: BadThing'; } } });
+  const served = harnessFake({
+    knowledge: {
+      config: () => undefined,
+      async decodeError(code: string, program?: string) {
+        asked.push([code, program ?? '']);
+        return 'ProgramX: BadThing';
+      },
+    },
+  });
   assert.match(await text('4242 ProgramX', served), /BadThing/);
   assert.deepEqual(asked, [['4242', 'ProgramX']]);
   await text('3012', served);
   assert.equal(asked.length, 1, 'a locally known code never calls the service');
-  const broken = harnessFake({ knowledge: { config: () => undefined, async decodeError() { throw new Error('service down'); } } });
+  const broken = harnessFake({
+    knowledge: {
+      config: () => undefined,
+      async decodeError() {
+        throw new Error('service down');
+      },
+    },
+  });
   const failed = await text('4242', broken);
   assert.match(failed, /not in the built-in tables or local IDLs/);
   assert.doesNotMatch(failed, /service down|knowledge/i, 'a failed lookup shows no service text');
@@ -396,23 +576,41 @@ test('/error reads the task IDLs for program-defined codes', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-error-'));
   try {
     mkdirSync(join(root, 'target', 'idl'), { recursive: true });
-    writeFileSync(join(root, 'target', 'idl', 'vault.json'), JSON.stringify({ address: WALLET, metadata: { name: 'vault' },
-      errors: [{ code: 6001, name: 'Locked', msg: 'Vault is locked' }] }));
+    writeFileSync(
+      join(root, 'target', 'idl', 'vault.json'),
+      JSON.stringify({
+        address: WALLET,
+        metadata: { name: 'vault' },
+        errors: [{ code: 6001, name: 'Locked', msg: 'Vault is locked' }],
+      }),
+    );
     const harness = harnessFake({ task: { id: 't', codeRoot: root, baseOid: 'a'.repeat(40), branch: 'b' } });
     const out = (await run(prepareSlash('error', '6001', harness))).text;
     assert.match(out, /vault: Locked — Vault is locked \[local IDL\]/);
     assert.match((await run(prepareSlash('error', `6001 ${WALLET}`, harness))).text, /Locked/);
-    assert.match((await run(prepareSlash('error', '3012 vault', harness))).text, /Anchor framework: AccountNotInitialized/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+    assert.match(
+      (await run(prepareSlash('error', '3012 vault', harness))).text,
+      /Anchor framework: AccountNotInitialized/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // ------------------------------------------------------------------ work commands
 
 function gitRepo() {
   const root = mkdtempSync(join(tmpdir(), 'oms-diff-'));
-  const git = (...args: string[]) => execFileSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { encoding: 'utf8' }).trim();
-  git('init', '-q'); writeFileSync(join(root, 'a.txt'), 'one\n'); mkdirSync(join(root, 'src'));
-  writeFileSync(join(root, 'src', 'b.txt'), 'two\n'); git('add', '.'); git('commit', '-qm', 'base');
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', root, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], {
+      encoding: 'utf8',
+    }).trim();
+  git('init', '-q');
+  writeFileSync(join(root, 'a.txt'), 'one\n');
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, 'src', 'b.txt'), 'two\n');
+  git('add', '.');
+  git('commit', '-qm', 'base');
   return { root, git, base: git('rev-parse', 'HEAD') };
 }
 
@@ -421,26 +619,32 @@ test('/diff shows staged, unstaged and untracked changes against the base, scope
   try {
     const harness = harnessFake({ task: { id: 't', codeRoot: repo.root, baseOid: repo.base, branch: 'oms/t' } });
     assert.match((await run(prepareSlash('diff', '', harness))).text, /No changes/);
-    writeFileSync(join(repo.root, 'a.txt'), 'one\nchanged\n'); repo.git('add', 'a.txt');
+    writeFileSync(join(repo.root, 'a.txt'), 'one\nchanged\n');
+    repo.git('add', 'a.txt');
     writeFileSync(join(repo.root, 'src', 'b.txt'), 'two\nmore\n');
     writeFileSync(join(repo.root, 'new.txt'), 'fresh\n');
     const all = await run(prepareSlash('diff', '', harness));
-    assert.match(all.text, /\+changed/); assert.match(all.text, /\+more/);
+    assert.match(all.text, /\+changed/);
+    assert.match(all.text, /\+more/);
     assert.match(all.text, /Untracked \(1\):\n  new\.txt/);
     assert.match(all.text, new RegExp(`Against base ${repo.base.slice(0, 12)}`));
     assert.equal(all.report, undefined);
     const scoped = (await run(prepareSlash('diff', 'src', harness))).text;
-    assert.match(scoped, /\+more/); assert.equal(scoped.includes('+changed'), false);
+    assert.match(scoped, /\+more/);
+    assert.equal(scoped.includes('+changed'), false);
     for (const bad of ['../outside', '/etc/passwd', '.git/config', 'a\nb']) {
       await assert.rejects(run(prepareSlash('diff', bad, harness)), /inside the task worktree/, bad);
     }
-    writeFileSync(join(repo.root, 'big.txt'), 'line\n'.repeat(20_000)); repo.git('add', 'big.txt');
+    writeFileSync(join(repo.root, 'big.txt'), 'line\n'.repeat(20_000));
+    repo.git('add', 'big.txt');
     const long = await run(prepareSlash('diff', '', harness));
     assert.ok(long.text.length < 9_500);
     assert.match(long.text, /opened in the workbench/);
     assert.ok(long.report && long.report.text.includes('+line') && long.report.id.startsWith('diff-'));
     assert.ok(Buffer.byteLength(long.report.text) <= 61 * 1024);
-  } finally { rmSync(repo.root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
 });
 
 test('/usage reports token breakdown, spend, time, caps and the remaining line', async () => {
@@ -470,8 +674,20 @@ test('/test picks Anchor, then an npm test script, then Cargo, and refuses when 
     assert.match(testCommand(root)!, /^anchor test --skip-local-validator --provider\.cluster "\$SURFNET_RPC_URL"$/);
 
     const ran: string[] = [];
-    const harness = harnessFake({ task: { id: 't', codeRoot: root, baseOid: 'a'.repeat(40), branch: 'b' },
-      async runCommand(command: string) { ran.push(command); return { exitCode: 3, stdout: 'x'.repeat(20_000) + 'END', stderr: 'boom', timedOut: false, cancelled: false, truncated: true }; } });
+    const harness = harnessFake({
+      task: { id: 't', codeRoot: root, baseOid: 'a'.repeat(40), branch: 'b' },
+      async runCommand(command: string) {
+        ran.push(command);
+        return {
+          exitCode: 3,
+          stdout: 'x'.repeat(20_000) + 'END',
+          stderr: 'boom',
+          timedOut: false,
+          cancelled: false,
+          truncated: true,
+        };
+      },
+    });
     const out = await run(prepareSlash('test', '', harness));
     assert.match(out.text, /^\$ anchor test/);
     assert.match(out.text, /Exit: 3/);
@@ -480,15 +696,21 @@ test('/test picks Anchor, then an npm test script, then Cargo, and refuses when 
     assert.ok(out.text.length < 8_400);
     assert.equal(ran.length, 1);
     assert.match(refusal(prepareSlash('test', 'extra', harness)), /Usage/);
-    rmSync(join(root, 'Anchor.toml')); rmSync(join(root, 'package.json')); rmSync(join(root, 'Cargo.toml'));
+    rmSync(join(root, 'Anchor.toml'));
+    rmSync(join(root, 'package.json'));
+    rmSync(join(root, 'Cargo.toml'));
     assert.match(refusal(prepareSlash('test', '', harness)), /No tests found/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('only the read-only commands may run while work is busy', () => {
   const runsWhileBusy = (name: string, argument: string) => canRunWhileBusy(findCommand(name)!, argument);
-  for (const name of ['usage', 'diff', 'chain', 'account', 'tx', 'program', 'error', 'status', 'session']) assert.ok(runsWhileBusy(name, ''), name);
-  for (const name of ['airdrop', 'rewind', 'test', 'goal', 'clear', 'run', 'verify', 'review']) assert.equal(runsWhileBusy(name, 'x'), false, name);
+  for (const name of ['usage', 'diff', 'chain', 'account', 'tx', 'program', 'error', 'status', 'session'])
+    assert.ok(runsWhileBusy(name, ''), name);
+  for (const name of ['airdrop', 'rewind', 'test', 'goal', 'clear', 'run', 'verify', 'review'])
+    assert.equal(runsWhileBusy(name, 'x'), false, name);
   // /goal alone only shows the goal; with text or "clear" it changes state.
   assert.equal(runsWhileBusy('goal', ''), true);
   // Interface-only commands run while busy for the arguments they accept, and no others.
@@ -519,7 +741,12 @@ test('arguments a command does not accept are refused the same way whether or no
 });
 
 test('the command table is one registry: unique names, review and verification are the only uncancellable work', () => {
-  assert.deepEqual(OMS_COMMANDS.filter(command => command.cancellable === false).map(command => command.name).sort(), ['review', 'verify']);
+  assert.deepEqual(
+    OMS_COMMANDS.filter((command) => command.cancellable === false)
+      .map((command) => command.name)
+      .sort(),
+    ['review', 'verify'],
+  );
   for (const command of OMS_COMMANDS) {
     assert.equal(typeof command.run, 'function', command.name);
     assert.ok(command.description && command.group, command.name);

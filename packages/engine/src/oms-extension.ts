@@ -1,28 +1,18 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
-import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import {
-  createDeepRedactor,
-  type BudgetSource,
-  type TraceWriter,
-} from "@oms/core";
-import type { Evaluator, Proposer } from "@oms/contract";
-import { createGuardsExtension, type GuardsConfig } from "./guards.ts";
-import { createProposeDoneExtension } from "./propose-tool.ts";
-import { createSettleExtension, type SettleExtension, type SettleTraceSink } from "./settle.ts";
-import { createTraceExtension } from "./trace-extension.ts";
-import { createEvaluatorVerifierPort } from "./verifier.ts";
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
+import { createDeepRedactor, type BudgetSource, type TraceWriter } from '@oms/core';
+import type { Evaluator, Proposer } from '@oms/contract';
+import { createGuardsExtension, type GuardsConfig } from './guards.ts';
+import { createProposeDoneExtension } from './propose-tool.ts';
+import { createSettleExtension, type SettleExtension, type SettleTraceSink } from './settle.ts';
+import { createTraceExtension } from './trace-extension.ts';
+import { createEvaluatorVerifierPort } from './verifier.ts';
 
 /** Key material and oms state that no model-reachable tool may read or write. */
 export function defaultDeniedRoots(extra: readonly string[] = []): string[] {
   const home = homedir();
-  return [
-    join(home, ".config", "solana"),
-    join(home, ".ssh"),
-    join(home, ".oms"),
-    join(home, ".gnupg"),
-    ...extra,
-  ];
+  return [join(home, '.config', 'solana'), join(home, '.ssh'), join(home, '.oms'), join(home, '.gnupg'), ...extra];
 }
 
 export interface OmsExtensionOptions {
@@ -43,7 +33,7 @@ export interface OmsExtensionOptions {
   maxAttempts?: number;
   /** Bounded runs stop at a successful propose_done; the settle gate then verifies without a closing model reply. */
   endRunOnProposal?: boolean;
-  guards?: Pick<GuardsConfig, "repetition" | "maxEditBytes" | "approveHostCommands">;
+  guards?: Pick<GuardsConfig, 'repetition' | 'maxEditBytes' | 'approveHostCommands'>;
   now?: () => number;
   /** Extra extensions composed after the core ones. */
   extra?: readonly ExtensionFactory[];
@@ -61,7 +51,7 @@ export const DEFAULT_MAX_ATTEMPTS = 5;
 function activeItemId(proposer: Proposer): string | null {
   const read = proposer.read();
   if (!read.ok) return null;
-  return read.value.items.find((i) => i.status === "active")?.id ?? null;
+  return read.value.items.find((i) => i.status === 'active')?.id ?? null;
 }
 
 /**

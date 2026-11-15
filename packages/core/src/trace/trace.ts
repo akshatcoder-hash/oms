@@ -80,14 +80,20 @@ export function createTraceWriter(options: TraceWriterOptions): TraceWriter {
     fd = openSync(options.path, 'a+', 0o600);
     const existing = parseTrace(readFileSync(fd, 'utf8'));
     if (existing.issues.length > 0 || existing.tornLastLine !== null) {
-      throw new Error('trace append refused: existing trace is corrupt or has an unterminated tail; preserve and recover it explicitly');
+      throw new Error(
+        'trace append refused: existing trace is corrupt or has an unterminated tail; preserve and recover it explicitly',
+      );
     }
     nextSeq = (existing.events.at(-1)?.seq ?? 0) + 1;
     if (!Number.isSafeInteger(nextSeq)) throw new Error('trace sequence exhausted');
   } catch (error) {
     openError = errorMessage(error);
     if (fd !== null) {
-      try { closeSync(fd); } catch { /* Preserve the original open/recovery failure. */ }
+      try {
+        closeSync(fd);
+      } catch {
+        /* Preserve the original open/recovery failure. */
+      }
       fd = null;
     }
   }
@@ -181,13 +187,7 @@ export function createTraceWriter(options: TraceWriterOptions): TraceWriter {
   };
 }
 
-export type TraceIssueCode =
-  | 'invalid_json'
-  | 'not_object'
-  | 'bad_seq'
-  | 'bad_time'
-  | 'bad_type'
-  | 'read_error';
+export type TraceIssueCode = 'invalid_json' | 'not_object' | 'bad_seq' | 'bad_time' | 'bad_type' | 'read_error';
 
 export interface TraceIssue {
   /** 1-based line number; 0 for a file-level read error. */
@@ -289,10 +289,7 @@ export interface ReplayOptions {
 }
 
 /** Iterate the readable prefix of a trace, optionally filtered by event type. */
-export function* replayTrace(
-  result: TraceParseResult,
-  options: ReplayOptions = {},
-): Generator<TraceEvent> {
+export function* replayTrace(result: TraceParseResult, options: ReplayOptions = {}): Generator<TraceEvent> {
   const types = options.types;
   for (const event of result.events) {
     if (types !== undefined && !types.includes(event.type)) continue;

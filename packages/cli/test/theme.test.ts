@@ -17,13 +17,15 @@ async function parsedRow(output: string, width: number): Promise<Terminal> {
   vt.loadAddon(new unicodeGraphemes.UnicodeGraphemesAddon());
   vt.unicode.activeVersion = '15-graphemes';
   // TUI consumes hardware-cursor markers before handing rendered bytes to a VT.
-  await new Promise<void>(resolve => vt.write(output.replaceAll(CURSOR_MARKER, ''), resolve));
+  await new Promise<void>((resolve) => vt.write(output.replaceAll(CURSOR_MARKER, ''), resolve));
   return vt;
 }
 
-function rgb(hex: string): number { return Number.parseInt(hex.slice(1), 16); }
+function rgb(hex: string): number {
+  return Number.parseInt(hex.slice(1), 16);
+}
 function luminance(hex: string): number {
-  const linear = [1, 3, 5].map(start => {
+  const linear = [1, 3, 5].map((start) => {
     const value = Number.parseInt(hex.slice(start, start + 2), 16) / 255;
     return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
   });
@@ -31,15 +33,16 @@ function luminance(hex: string): number {
 }
 
 test('rows preserve terminal-default backgrounds through nested resets and padding', async () => {
-  const vt = await parsedRow('\x1b[48;2;1;2;3m' +
-    paintThemeRow(theme('gruvbox'), 'A\x1b[0mB\x1b[49mC', 9), 9);
+  const vt = await parsedRow('\x1b[48;2;1;2;3m' + paintThemeRow(theme('gruvbox'), 'A\x1b[0mB\x1b[49mC', 9), 9);
   try {
     const line = vt.buffer.active.getLine(0)!;
     assert.equal(line.translateToString(false).trimEnd(), 'ABC');
     for (let column = 0; column < 9; column++) {
       assert.ok(line.getCell(column)!.isBgDefault(), `column ${column} overrides the terminal background`);
     }
-  } finally { vt.dispose(); }
+  } finally {
+    vt.dispose();
+  }
 });
 
 for (const id of THEME_IDS) {
@@ -58,7 +61,9 @@ for (const id of THEME_IDS) {
           assert.ok(cell.isFgRGB());
           assert.equal(cell.getFgColor(), rgb(palette.colors.foreground));
         }
-      } finally { vt.dispose(); }
+      } finally {
+        vt.dispose();
+      }
     }
   });
 
@@ -75,7 +80,9 @@ for (const id of THEME_IDS) {
         assert.ok(cell.isFgRGB());
         assert.equal(cell.getFgColor(), rgb(column === 0 ? palette.colors.warning : palette.colors.foreground));
       }
-    } finally { vt.dispose(); }
+    } finally {
+      vt.dispose();
+    }
   });
 
   test(`${id}: body and status roles have readable contrast using valid RGB palette data`, () => {
@@ -86,7 +93,8 @@ for (const id of THEME_IDS) {
     for (const role of ['foreground', 'muted', 'accent', 'success', 'warning', 'error', 'border'] as const) {
       assert.match(palette.colors[role], /^#[0-9a-f]{6}$/i);
       if (role === 'border') continue;
-      const a = luminance(palette.colors[role]); const b = luminance(palette.background);
+      const a = luminance(palette.colors[role]);
+      const b = luminance(palette.background);
       assert.ok((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 4.5, `${id}.${role} fails normal-text contrast`);
     }
   });
@@ -99,13 +107,15 @@ test('truecolor channel zeros are not mistaken for SGR reset parameters', async 
     assert.equal(line.getCell(0)!.getFgColor(), 0x008000);
     assert.equal(line.getCell(1)!.getFgColor(), rgb(palette.colors.foreground));
     assert.ok(line.getCell(2)!.isBgDefault());
-  } finally { vt.dispose(); }
+  } finally {
+    vt.dispose();
+  }
 });
 
 test('inline backgrounds survive foreground and attribute resets but not background resets or padding', async () => {
   const palette = theme('gruvbox');
-  const text = '\x1b[48;2;0;128;0;1mA\x1b[39mB\x1b[22mC\x1b[49mD' +
-    '\x1b[48;5;0mE\x1b[0;4mF\x1b[24mG\x1b[48;2;0;0;128mH';
+  const text =
+    '\x1b[48;2;0;128;0;1mA\x1b[39mB\x1b[22mC\x1b[49mD' + '\x1b[48;5;0mE\x1b[0;4mF\x1b[24mG\x1b[48;2;0;0;128mH';
   const vt = await parsedRow(paintThemeRow(palette, text, 10), 10);
   try {
     const line = vt.buffer.active.getLine(0)!;
@@ -133,7 +143,9 @@ test('inline backgrounds survive foreground and attribute resets but not backgro
     for (let column = 0; column < 10; column++) {
       assert.equal(line.getCell(column)!.getFgColor(), rgb(palette.colors.foreground));
     }
-  } finally { vt.dispose(); }
+  } finally {
+    vt.dispose();
+  }
 });
 
 test('styled Unicode graphemes and zero-width cursor markers survive row painting', async () => {
@@ -144,8 +156,11 @@ test('styled Unicode graphemes and zero-width cursor markers survive row paintin
   assert.equal(visibleWidth(output), 10);
   assert.equal(stripTerminalSequences(output), 'e\u0301界👩‍💻!    ');
   const vt = await parsedRow(output, 10);
-  try { assert.equal(vt.buffer.active.getLine(0)!.translateToString(false).trimEnd(), 'e\u0301界👩‍💻!'); }
-  finally { vt.dispose(); }
+  try {
+    assert.equal(vt.buffer.active.getLine(0)!.translateToString(false).trimEnd(), 'e\u0301界👩‍💻!');
+  } finally {
+    vt.dispose();
+  }
 });
 
 test('truncation respects wide grapheme boundaries, styles and a cursor before the cut', async () => {
@@ -155,14 +170,17 @@ test('truncation respects wide grapheme boundaries, styles and a cursor before t
   assert.equal(visibleWidth(output), 4);
   assert.equal(stripTerminalSequences(output), 'A界 ');
   const vt = await parsedRow(output, 4);
-  try { assert.equal(vt.buffer.active.getLine(0)!.translateToString(false).trimEnd(), 'A界'); }
-  finally { vt.dispose(); }
+  try {
+    assert.equal(vt.buffer.active.getLine(0)!.translateToString(false).trimEnd(), 'A界');
+  } finally {
+    vt.dispose();
+  }
 });
 
 test('controlled spans color only their text and return following content to the base foreground', async () => {
   const palette = theme('dracula');
   const roles: ThemeRole[] = ['foreground', 'muted', 'accent', 'success', 'warning', 'error', 'border'];
-  const output = paintThemeRow(palette, roles.map(role => colorText(palette, role, 'X') + '.').join(''), 14);
+  const output = paintThemeRow(palette, roles.map((role) => colorText(palette, role, 'X') + '.').join(''), 14);
   const vt = await parsedRow(output, 14);
   try {
     const line = vt.buffer.active.getLine(0)!;
@@ -170,7 +188,9 @@ test('controlled spans color only their text and return following content to the
       assert.equal(line.getCell(index * 2)!.getFgColor(), rgb(palette.colors[role]));
       assert.equal(line.getCell(index * 2 + 1)!.getFgColor(), rgb(palette.colors.foreground));
     }
-  } finally { vt.dispose(); }
+  } finally {
+    vt.dispose();
+  }
 });
 
 test('painting is local SGR styling rather than terminal-global palette mutation', () => {
@@ -185,7 +205,19 @@ test('painting is local SGR styling rather than terminal-global palette mutation
 });
 
 test('unknown names, aliases and inherited object keys are not usable themes', () => {
-  for (const name of ['', 'unknown', 'Gruvbox', ' gruvbox', 'gruvbox ', 'mocha', 'tokyonight', 'rosepine', 'constructor', '__proto__', 'toString']) {
+  for (const name of [
+    '',
+    'unknown',
+    'Gruvbox',
+    ' gruvbox',
+    'gruvbox ',
+    'mocha',
+    'tokyonight',
+    'rosepine',
+    'constructor',
+    '__proto__',
+    'toString',
+  ]) {
     assert.equal(getTheme(name), undefined, name);
   }
   for (const id of THEME_IDS) assert.equal(theme(id).id, id);

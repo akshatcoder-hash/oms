@@ -117,7 +117,10 @@ test('a planted 32-byte secret never reaches the trace file or, with redactModel
           redactModelView,
         }),
       ],
-      responses: [fauxAssistantMessage(fauxToolCall('read', { path: 'key-material.txt' })), fauxAssistantMessage(fauxText('done'))],
+      responses: [
+        fauxAssistantMessage(fauxToolCall('read', { path: 'key-material.txt' })),
+        fauxAssistantMessage(fauxText('done')),
+      ],
       tools: ['read'],
     });
     try {

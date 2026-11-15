@@ -17,12 +17,7 @@
  * request admission belong to composition; this gate only reads its snapshot.
  */
 
-import {
-  decideSettle,
-  type BudgetSource,
-  type SettleAction,
-  type SettleReason,
-} from '@oms/core';
+import { decideSettle, type BudgetSource, type SettleAction, type SettleReason } from '@oms/core';
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
 
 export type VerifierRunStatus = 'pass' | 'fail' | 'unavailable';
@@ -144,7 +139,10 @@ export function createSettleExtension(options: SettleExtensionOptions): SettleEx
     previousFailureDigest = undefined;
   };
 
-  const message = (content: string, display: boolean): {
+  const message = (
+    content: string,
+    display: boolean,
+  ): {
     type: 'custom_message';
     customType: typeof CUSTOM_TYPE;
     content: string;
@@ -277,9 +275,7 @@ export function createSettleExtension(options: SettleExtensionOptions): SettleEx
         if (decision.action === 'continue') {
           return {
             continue: true,
-            entries: [
-              message(`${decision.summary} Verifier: ${run.summary}`, false),
-            ],
+            entries: [message(`${decision.summary} Verifier: ${run.summary}`, false)],
           };
         }
 
@@ -293,10 +289,7 @@ export function createSettleExtension(options: SettleExtensionOptions): SettleEx
         resetLoop();
         return {
           entries: [
-            message(
-              `settle gate error (${describeError(error)}); settle is not allowed, the user is needed`,
-              true,
-            ),
+            message(`settle gate error (${describeError(error)}); settle is not allowed, the user is needed`, true),
           ],
         };
       }

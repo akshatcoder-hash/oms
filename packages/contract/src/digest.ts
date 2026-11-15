@@ -12,13 +12,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { readCheckedFile } from './source-files.ts';
 import { withSourceAccess, type SourceAccessOptions } from './source-access.ts';
-import {
-  PathError,
-  isPathError,
-  realDirectory,
-  resolveFileInsideRoot,
-  toPosixRelative,
-} from './paths.ts';
+import { PathError, isPathError, realDirectory, resolveFileInsideRoot, toPosixRelative } from './paths.ts';
 
 export type DigestCode = 'E_NOT_CANONICAL' | 'E_CIRCULAR';
 
@@ -122,8 +116,12 @@ export function digestFileEntries(files: readonly FileDigest[]): string {
  * Throws `PathError` for absolute paths, `..` traversal, symlinks that leave
  * the root, directories, duplicates and missing files.
  */
-export function digestFiles(root: string, relativePaths: readonly string[], options: SourceAccessOptions = {}): DigestSet {
-  return withSourceAccess(root, canonicalRoot => digestFilesHeld(canonicalRoot, relativePaths), options);
+export function digestFiles(
+  root: string,
+  relativePaths: readonly string[],
+  options: SourceAccessOptions = {},
+): DigestSet {
+  return withSourceAccess(root, (canonicalRoot) => digestFilesHeld(canonicalRoot, relativePaths), options);
 }
 
 function digestFilesHeld(root: string, relativePaths: readonly string[]): DigestSet {

@@ -367,14 +367,38 @@ export async function startTestSigner(options: TestSignerOptions = {}) {
   const dir = makeTempDir();
   const signerDir = join(dir, 'keys');
   const socketDir = join(dir, 'socket');
-  const profile = { kind: 'devnet' as const, endpoint: rpc.endpoint, genesisHash: DEVNET_GENESIS_HASH, authorization: 'user-approved' as const };
+  const profile = {
+    kind: 'devnet' as const,
+    endpoint: rpc.endpoint,
+    genesisHash: DEVNET_GENESIS_HASH,
+    authorization: 'user-approved' as const,
+  };
   const generated = generateSignerKeypair({ signerDir, alias: 'dev', profile });
   const path = join(signerDir, 'dev.key.json');
   const fixture = { ...readFixtureKeypair(path), path };
   const config = createConfig({ accountIds: options.destinations ?? [], ...options.configOverrides });
-  const serverOptions = { config, signerDir, alias: 'dev', socketDir, ...(options.testHooks ? { testHooks: options.testHooks } : {}) };
+  const serverOptions = {
+    config,
+    signerDir,
+    alias: 'dev',
+    socketDir,
+    ...(options.testHooks ? { testHooks: options.testHooks } : {}),
+  };
   const running = await startSignerServer(serverOptions);
-  return { running, fixture, config, dir, signerDir, socketDir, profile, generated, rpc, serverOptions,
-    async close() { await running.close(); await rpc.close(); },
+  return {
+    running,
+    fixture,
+    config,
+    dir,
+    signerDir,
+    socketDir,
+    profile,
+    generated,
+    rpc,
+    serverOptions,
+    async close() {
+      await running.close();
+      await rpc.close();
+    },
   };
 }

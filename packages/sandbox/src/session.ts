@@ -17,7 +17,12 @@ import { sandboxDocker, type DockerClient } from './docker.ts';
 import { requirePinnedImage } from './resources.ts';
 import { validateBindSources } from './bind-sources.ts';
 import {
-  acquireExclusion, cappedChunks, closeEnvironment, DEFAULT_OUTPUT_LIMIT, openEnvironment, validateRunOptions,
+  acquireExclusion,
+  cappedChunks,
+  closeEnvironment,
+  DEFAULT_OUTPUT_LIMIT,
+  openEnvironment,
+  validateRunOptions,
   type Environment,
 } from './execution.ts';
 import type { SandboxResult } from './exec.ts';
@@ -57,15 +62,17 @@ const IDLE_ARGV = ['sleep', 'infinity'];
 /** Kills every process except PID 1 (the init), the idle process and this shell, until none is left.
  * `kill -9 -1` would also kill the idle process and stop the container. Builtins only: no fork, no
  * parsing the agent can spoof (the state is read after the last ") " of /proc/PID/stat). */
-const SWEEP = 'n=0; while [ $n -lt 8 ]; do left=; for p in /proc/[0-9]*; do p=${p#/proc/}; '
-  + 'case $p in 1|"$idle"|$$) continue;; esac; read -r line < /proc/$p/stat 2>/dev/null || continue; '
-  + 'state=${line##*) }; case $state in Z*) ;; *) left="$left $p";; esac; done; '
-  + '[ -z "$left" ] && break; kill -9 $left 2>/dev/null; n=$((n+1)); done; [ -z "$left" ]';
+const SWEEP =
+  'n=0; while [ $n -lt 8 ]; do left=; for p in /proc/[0-9]*; do p=${p#/proc/}; ' +
+  'case $p in 1|"$idle"|$$) continue;; esac; read -r line < /proc/$p/stat 2>/dev/null || continue; ' +
+  'state=${line##*) }; case $state in Z*) ;; *) left="$left $p";; esac; done; ' +
+  '[ -z "$left" ] && break; kill -9 $left 2>/dev/null; n=$((n+1)); done; [ -z "$left" ]';
 /** The sweep runs after every command, so no process outlives it; a sweep that cannot finish reports a signal-range exit. */
 const EXEC_WRAPPER = `idle=$1; shift; "$@"; code=$?; ${SWEEP} || code=137; exit $code`;
 const SWEEP_ONLY = `idle=$1; ${SWEEP}`;
 /** Before any command runs, the only process named sleep is the idle one. */
-const FIND_IDLE = 'for p in /proc/[0-9]*; do read -r name < $p/comm 2>/dev/null; [ "$name" = sleep ] && echo ${p#/proc/} && exit 0; done; exit 1';
+const FIND_IDLE =
+  'for p in /proc/[0-9]*; do read -r name < $p/comm 2>/dev/null; [ "$name" = sleep ] && echo ${p#/proc/} && exit 0; done; exit 1';
 /** Exit codes at or above this are signal deaths, where the wrapper may not have swept. */
 const SIGNALLED = 128;
 
@@ -77,7 +84,8 @@ interface Live {
   idle: string;
 }
 
-const gone = (error: unknown) => error instanceof SandboxError && /No such (?:container|object)/i.test(String(error.details.stderr ?? ''));
+const gone = (error: unknown) =>
+  error instanceof SandboxError && /No such (?:container|object)/i.test(String(error.details.stderr ?? ''));
 
 export function createSandboxSession(o: SandboxSessionOptions, docker: DockerClient = sandboxDocker): SandboxSession {
   const validate = (timeoutMs: number) => {
@@ -86,7 +94,13 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
     requirePinnedImage(o.forwarderImage, 'forwarderImage');
     sandboxUser();
   };
-  const exclusion = { taskName: o.taskName, phase: 'run' as const, mounts: o.mounts, leaseDir: o.leaseDir, sourceControlDir: o.sourceControlDir };
+  const exclusion = {
+    taskName: o.taskName,
+    phase: 'run' as const,
+    mounts: o.mounts,
+    leaseDir: o.leaseDir,
+    sourceControlDir: o.sourceControlDir,
+  };
   const lifetime = new AbortController();
   let live: Live | undefined;
   let active: Promise<unknown> | undefined;
@@ -94,8 +108,12 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
 
   const healthy = async (current: Live): Promise<boolean> => {
     try {
-      const states = (await docker.out(['inspect', '-f', '{{.State.Running}}', current.id, current.environment.egress.forwarderName])).trim().split('\n');
-      return states.length === 2 && states.every(state => state.trim() === 'true');
+      const states = (
+        await docker.out(['inspect', '-f', '{{.State.Running}}', current.id, current.environment.egress.forwarderName])
+      )
+        .trim()
+        .split('\n');
+      return states.length === 2 && states.every((state) => state.trim() === 'true');
     } catch (error) {
       if (gone(error)) return false;
       throw error;
@@ -110,13 +128,26 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
   };
 
   const create = async (signal: AbortSignal): Promise<Live> => {
-    const environment = await openEnvironment({ ...exclusion, image: o.image, forwarderImage: o.forwarderImage, env: o.env, surfnet: o.surfnet }, docker, signal);
+    const environment = await openEnvironment(
+      { ...exclusion, image: o.image, forwarderImage: o.forwarderImage, env: o.env, surfnet: o.surfnet },
+      docker,
+      signal,
+    );
     const name = `oms-${o.taskName}-run-${randomUUID()}`;
     let attempted = false;
     try {
       const args = buildRunArgs({
-        image: o.image, name, argv: IDLE_ARGV, cwd: o.cwd ?? '/work', env: environment.env, mounts: environment.mounts,
-        network: environment.egress.networkName, labels: environment.egress.labels, limits: o.limits, init: true, autoRemove: false,
+        image: o.image,
+        name,
+        argv: IDLE_ARGV,
+        cwd: o.cwd ?? '/work',
+        env: environment.env,
+        mounts: environment.mounts,
+        network: environment.egress.networkName,
+        labels: environment.egress.labels,
+        limits: o.limits,
+        init: true,
+        autoRemove: false,
         addHosts: [{ host: 'host.docker.internal', ip: environment.egress.forwarderIP }],
       });
       args[0] = 'create';
@@ -128,8 +159,11 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
       const idle = (await docker.out(['exec', id, '/bin/sh', '-c', FIND_IDLE])).trim();
       return { environment, name, id, idle };
     } catch (error) {
-      try { await closeEnvironment(environment, docker, attempted ? name : undefined); }
-      catch (cleanup) { throw new AggregateError([error, ...(cleanup as AggregateError).errors], 'sandbox setup cleanup failed'); }
+      try {
+        await closeEnvironment(environment, docker, attempted ? name : undefined);
+      } catch (cleanup) {
+        throw new AggregateError([error, ...(cleanup as AggregateError).errors], 'sandbox setup cleanup failed');
+      }
       throw error;
     }
   };
@@ -141,17 +175,25 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
     let timedOut = false;
     let cancelled = false;
     const cancel = (reason: unknown) => {
-      if (!controller.signal.aborted) { cancelled = true; controller.abort(reason); }
+      if (!controller.signal.aborted) {
+        cancelled = true;
+        controller.abort(reason);
+      }
     };
     const external = [options.signal, lifetime.signal];
-    const listeners = external.map(signal => {
+    const listeners = external.map((signal) => {
       const listener = () => cancel(signal?.reason);
       signal?.addEventListener('abort', listener, { once: true });
       return listener;
     });
-    external.forEach((signal, index) => { if (signal?.aborted) listeners[index]!(); });
+    external.forEach((signal, index) => {
+      if (signal?.aborted) listeners[index]!();
+    });
     const timer = setTimeout(() => {
-      if (!controller.signal.aborted) { timedOut = true; controller.abort(new Error('sandbox timeout')); }
+      if (!controller.signal.aborted) {
+        timedOut = true;
+        controller.abort(new Error('sandbox timeout'));
+      }
     }, options.timeoutMs);
     const signal = controller.signal;
     let release: (() => void) | undefined;
@@ -167,10 +209,20 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
       live ??= await create(signal);
       signal.throwIfAborted();
       started = true;
-      exitCode = await docker.capture(['exec', live.id, '/bin/sh', '-c', EXEC_WRAPPER, 'oms-exec', live.idle, ...argv], { signal,
-        stdout: chunk => { options.onOutput?.(chunk); out.push(chunk); },
-        stderr: chunk => { options.onOutput?.(chunk); err.push(chunk); },
-      });
+      exitCode = await docker.capture(
+        ['exec', live.id, '/bin/sh', '-c', EXEC_WRAPPER, 'oms-exec', live.idle, ...argv],
+        {
+          signal,
+          stdout: (chunk) => {
+            options.onOutput?.(chunk);
+            out.push(chunk);
+          },
+          stderr: (chunk) => {
+            options.onOutput?.(chunk);
+            err.push(chunk);
+          },
+        },
+      );
     } catch (error) {
       cleanupFailed = error instanceof AggregateError;
       if (!signal.aborted || cleanupFailed) failure = error;
@@ -180,43 +232,74 @@ export function createSandboxSession(o: SandboxSessionOptions, docker: DockerCli
         // Killing the exec client leaves its process tree running; sweep it
         // without touching the container. If the sweep cannot be confirmed,
         // the container is removed so nothing can outlive this command.
-        try { await docker.out(['exec', live.id, '/bin/sh', '-c', SWEEP_ONLY, 'oms-sweep', live.idle]); }
-        catch {
-          try { await destroy(); } catch (error) { failures.push(...(error as AggregateError).errors); }
+        try {
+          await docker.out(['exec', live.id, '/bin/sh', '-c', SWEEP_ONLY, 'oms-sweep', live.idle]);
+        } catch {
+          try {
+            await destroy();
+          } catch (error) {
+            failures.push(...(error as AggregateError).errors);
+          }
         }
       }
       if (!cleanupFailed && failures.length === 0 && release) {
-        try { release(); } catch (error) { failures.push(error); }
+        try {
+          release();
+        } catch (error) {
+          failures.push(error);
+        }
       }
       clearTimeout(timer);
       external.forEach((signal, index) => signal?.removeEventListener('abort', listeners[index]!));
-      if (failures.length) failure = new AggregateError(failure ? [failure, ...failures] : failures, 'sandbox cleanup failed; retained source/volume leases require host recovery');
+      if (failures.length)
+        failure = new AggregateError(
+          failure ? [failure, ...failures] : failures,
+          'sandbox cleanup failed; retained source/volume leases require host recovery',
+        );
     }
     if (failure) throw failure;
     return {
       exitCode: timedOut ? 124 : cancelled ? 130 : exitCode,
-      stdout: out.toString(), stderr: err.toString(), truncated: out.isTruncated() || err.isTruncated(), timedOut, cancelled,
+      stdout: out.toString(),
+      stderr: err.toString(),
+      truncated: out.isTruncated() || err.isTruncated(),
+      timedOut,
+      cancelled,
     };
   };
 
-  o.signal?.addEventListener('abort', () => { void session.close().catch(() => {}); }, { once: true });
+  o.signal?.addEventListener(
+    'abort',
+    () => {
+      void session.close().catch(() => {});
+    },
+    { once: true },
+  );
   const session: SandboxSession = {
     exec(argv, options) {
-      if (!argv.length || argv.some(arg => typeof arg !== 'string' || arg.includes('\0'))) {
+      if (!argv.length || argv.some((arg) => typeof arg !== 'string' || arg.includes('\0'))) {
         return Promise.reject(new SandboxError('E_BAD_ARGUMENT', 'invalid sandbox argv'));
       }
-      try { validate(options.timeoutMs); } catch (error) { return Promise.reject(error); }
-      if (closing || lifetime.signal.aborted) return Promise.reject(new SandboxError('E_BAD_ARGUMENT', 'sandbox session is closed'));
-      if (active) return Promise.reject(new SandboxError('E_RESOURCE_BUSY', 'sandbox session runs one command at a time'));
+      try {
+        validate(options.timeoutMs);
+      } catch (error) {
+        return Promise.reject(error);
+      }
+      if (closing || lifetime.signal.aborted)
+        return Promise.reject(new SandboxError('E_BAD_ARGUMENT', 'sandbox session is closed'));
+      if (active)
+        return Promise.reject(new SandboxError('E_RESOURCE_BUSY', 'sandbox session runs one command at a time'));
       active = run(argv, options);
-      return (active as Promise<SandboxResult>).finally(() => { active = undefined; });
+      return (active as Promise<SandboxResult>).finally(() => {
+        active = undefined;
+      });
     },
     close() {
-      return closing ??= (async () => {
+      return (closing ??= (async () => {
         lifetime.abort(new Error('sandbox session closed'));
         await active?.catch(() => {});
         await destroy();
-      })();
+      })());
     },
   };
   if (o.signal?.aborted) void session.close().catch(() => {});

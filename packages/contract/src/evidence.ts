@@ -37,11 +37,7 @@ export function isDigest(value: unknown): value is string {
 }
 
 function isIsoTimestamp(value: unknown): value is string {
-  return (
-    typeof value === 'string' &&
-    ISO_UTC.test(value) &&
-    !Number.isNaN(Date.parse(value))
-  );
+  return typeof value === 'string' && ISO_UTC.test(value) && !Number.isNaN(Date.parse(value));
 }
 
 /**
@@ -101,9 +97,7 @@ export function parseEvidence(input: unknown): Result<Evidence> {
   }
   const mode = input['mode'];
   if (mode !== 'offline-snapshot' && mode !== 'forked') {
-    issues.push(
-      validationIssue('mode', 'E_BAD_MODE', 'mode must be "offline-snapshot" or "forked"'),
-    );
+    issues.push(validationIssue('mode', 'E_BAD_MODE', 'mode must be "offline-snapshot" or "forked"'));
   }
   if (typeof input['passed'] !== 'boolean') {
     issues.push(validationIssue('passed', 'E_BAD_BOOLEAN', 'passed must be a boolean'));

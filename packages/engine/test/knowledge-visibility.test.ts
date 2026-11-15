@@ -4,9 +4,20 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  ModelRuntime,
+  SessionManager,
+} from '@earendil-works/pi-coding-agent';
 import { createFauxCore, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
-import { accountKnowledgeSource, createKnowledgeExtension, createKnowledgeVisibility, KNOWLEDGE_TOOL_NAMES, type KnowledgeConfig } from '../src/runtime/knowledge-service.ts';
+import {
+  accountKnowledgeSource,
+  createKnowledgeExtension,
+  createKnowledgeVisibility,
+  KNOWLEDGE_TOOL_NAMES,
+  type KnowledgeConfig,
+} from '../src/runtime/knowledge-service.ts';
 import { createHarnessSettings } from '../src/runtime/settings-controls.ts';
 import { knowledgeHint } from '../src/runtime/session.ts';
 
@@ -17,87 +28,206 @@ const HINT = /look the fact up with search_docs/;
 async function gateway(status = 200) {
   const calls: Array<{ path: string; auth: string | undefined; tool: string }> = [];
   const server = createServer(async (req, res) => {
-    let raw = ''; for await (const chunk of req) raw += chunk;
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
     const rpc = JSON.parse(raw) as { id: number; params: { name: string } };
     calls.push({ path: req.url ?? '', auth: req.headers.authorization, tool: rpc.params.name });
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { content: [{ type: 'text', text: 'doc text' }] } }));
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  return { origin, calls, close: () => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }) };
+  return {
+    origin,
+    calls,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
 }
 
 /** A real pi session with the same extensions and prompt hooks the harness installs; the faux model records what it is shown. */
-async function rig(inputs: { account: () => { origin: string; token: string } | undefined; env?: NodeJS.ProcessEnv; pinned?: KnowledgeConfig }) {
+async function rig(inputs: {
+  account: () => { origin: string; token: string } | undefined;
+  env?: NodeJS.ProcessEnv;
+  pinned?: KnowledgeConfig;
+}) {
   const root = mkdtempSync(join(tmpdir(), 'oms-kv-'));
-  const agentDir = join(root, 'agent'); const cwd = join(root, 'project');
+  const agentDir = join(root, 'agent');
+  const cwd = join(root, 'project');
   mkdirSync(cwd);
   const seen: Array<{ tools: string[]; prompt: string; wire: string }> = [];
   const script: Array<ReturnType<typeof fauxAssistantMessage>> = [];
-  const faux = createFauxCore({ api: 'openai-completions', provider: 'oms-knowledge', models: [{ id: 'm', contextWindow: 8192, maxTokens: 256, cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } }] });
-  const runtime = await ModelRuntime.create({ authPath: join(root, 'auth.json'), modelsPath: null, refreshOnCreate: false });
-  runtime.registerProvider('oms-knowledge', { api: faux.api, apiKey: 'synthetic-offline', baseUrl: 'http://127.0.0.1:1', streamSimple: faux.streamSimple,
-    models: faux.models.map(model => ({ type: 'chat' as const, id: model.id, name: model.name, reasoning: model.reasoning, input: model.input, cost: model.cost, contextWindow: model.contextWindow, maxTokens: model.maxTokens })) });
+  const faux = createFauxCore({
+    api: 'openai-completions',
+    provider: 'oms-knowledge',
+    models: [
+      { id: 'm', contextWindow: 8192, maxTokens: 256, cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 } },
+    ],
+  });
+  const runtime = await ModelRuntime.create({
+    authPath: join(root, 'auth.json'),
+    modelsPath: null,
+    refreshOnCreate: false,
+  });
+  runtime.registerProvider('oms-knowledge', {
+    api: faux.api,
+    apiKey: 'synthetic-offline',
+    baseUrl: 'http://127.0.0.1:1',
+    streamSimple: faux.streamSimple,
+    models: faux.models.map((model) => ({
+      type: 'chat' as const,
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      input: model.input,
+      cost: model.cost,
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+    })),
+  });
   const source = accountKnowledgeSource({ ...inputs, env: inputs.env ?? {} });
   const promptFor = (config: KnowledgeConfig | undefined) => `Base prompt.${knowledgeHint({}, config)}`;
   const settingsManager = createHarnessSettings(agentDir);
-  const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, noExtensions: true, noSkills: true, noContextFiles: true, noPromptTemplates: true, noThemes: true,
-    appendSystemPrompt: [], extensionFactories: [createKnowledgeExtension(source)!, createKnowledgeVisibility(source, promptFor, () => source() !== undefined)], systemPrompt: promptFor(source()) });
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir,
+    settingsManager,
+    noExtensions: true,
+    noSkills: true,
+    noContextFiles: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    appendSystemPrompt: [],
+    extensionFactories: [
+      createKnowledgeExtension(source)!,
+      createKnowledgeVisibility(source, promptFor, () => source() !== undefined),
+    ],
+    systemPrompt: promptFor(source()),
+  });
   await loader.reload();
-  const { session } = await createAgentSession({ cwd, agentDir, modelRuntime: runtime, model: runtime.getModel('oms-knowledge', 'm')!, settingsManager, resourceLoader: loader,
-    sessionManager: SessionManager.inMemory(cwd), noTools: 'builtin', tools: KNOWLEDGE_TOOL_NAMES });
+  const { session } = await createAgentSession({
+    cwd,
+    agentDir,
+    modelRuntime: runtime,
+    model: runtime.getModel('oms-knowledge', 'm')!,
+    settingsManager,
+    resourceLoader: loader,
+    sessionManager: SessionManager.inMemory(cwd),
+    noTools: 'builtin',
+    tools: KNOWLEDGE_TOOL_NAMES,
+  });
   await session.bindExtensions({});
   const turn = async (reply = fauxAssistantMessage('ok')) => {
-    faux.setResponses([(context) => { seen.push({ tools: session.getActiveToolNames(), prompt: session.systemPrompt, wire: JSON.stringify(context.messages) }); return reply; }]);
+    faux.setResponses([
+      (context) => {
+        seen.push({
+          tools: session.getActiveToolNames(),
+          prompt: session.systemPrompt,
+          wire: JSON.stringify(context.messages),
+        });
+        return reply;
+      },
+    ]);
     await session.prompt('hello');
     return seen.at(-1)!;
   };
-  return { session, seen, turn, faux, cleanup: () => { session.dispose(); rmSync(root, { recursive: true, force: true }); } };
+  return {
+    session,
+    seen,
+    turn,
+    faux,
+    cleanup: () => {
+      session.dispose();
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
 }
 
 test('signed out: the model sees no knowledge tools and no look-it-up rules', async () => {
   const r = await rig({ account: () => undefined });
   try {
     const shown = await r.turn();
-    assert.deepEqual(shown.tools.filter(name => KNOWLEDGE_TOOL_NAMES.includes(name)), []);
+    assert.deepEqual(
+      shown.tools.filter((name) => KNOWLEDGE_TOOL_NAMES.includes(name)),
+      [],
+    );
     assert.doesNotMatch(shown.prompt, HINT);
     assert.doesNotMatch(shown.prompt, /search_docs|knowledge/i);
-    assert.doesNotMatch(shown.wire, /search_docs|api_lookup|untrusted reference/i, 'nothing about the tools reaches the provider request');
-  } finally { r.cleanup(); }
+    assert.doesNotMatch(
+      shown.wire,
+      /search_docs|api_lookup|untrusted reference/i,
+      'nothing about the tools reaches the provider request',
+    );
+  } finally {
+    r.cleanup();
+  }
 });
 
 test('signed in: the tools call <origin>/api/knowledge/mcp with the account bearer token, and the rules are on by default', async () => {
   const gw = await gateway();
   const r = await rig({ account: () => ({ origin: gw.origin, token: ACCOUNT }) });
   try {
-    const shown = await r.turn(fauxAssistantMessage(fauxToolCall('search_docs', { query: 'pda' }), { stopReason: 'toolUse' }));
-    assert.deepEqual(KNOWLEDGE_TOOL_NAMES.filter(name => !shown.tools.includes(name)), []);
+    const shown = await r.turn(
+      fauxAssistantMessage(fauxToolCall('search_docs', { query: 'pda' }), { stopReason: 'toolUse' }),
+    );
+    assert.deepEqual(
+      KNOWLEDGE_TOOL_NAMES.filter((name) => !shown.tools.includes(name)),
+      [],
+    );
     assert.match(shown.prompt, HINT);
     assert.match(shown.wire, /look the fact up with search_docs/, 'the rules reach the provider request');
     await r.turn();
     assert.deepEqual(gw.calls, [{ path: '/api/knowledge/mcp', auth: `Bearer ${ACCOUNT}`, tool: 'search_docs' }]);
     assert.match(JSON.stringify(r.session.messages), /Untrusted reference data/);
     assert.ok(!JSON.stringify(r.session.messages).includes(ACCOUNT));
-  } finally { r.cleanup(); await gw.close(); }
+  } finally {
+    r.cleanup();
+    await gw.close();
+  }
 });
 
 test('OMS_KNOWLEDGE_URL plus OMS_KNOWLEDGE_TOKEN win over the account; one of the two alone does not', async () => {
   const account = { origin: 'http://127.0.0.1:1', token: ACCOUNT };
-  const both = accountKnowledgeSource({ env: { OMS_KNOWLEDGE_URL: 'http://svc.test/mcp', OMS_KNOWLEDGE_TOKEN: ENV_TOKEN }, account: () => account });
+  const both = accountKnowledgeSource({
+    env: { OMS_KNOWLEDGE_URL: 'http://svc.test/mcp', OMS_KNOWLEDGE_TOKEN: ENV_TOKEN },
+    account: () => account,
+  });
   assert.deepEqual(both(), { endpoint: 'http://svc.test/mcp', token: ENV_TOKEN });
-  assert.deepEqual(accountKnowledgeSource({ env: { OMS_KNOWLEDGE_TOKEN: ENV_TOKEN }, account: () => account })(), { endpoint: 'http://127.0.0.1:1/api/knowledge/mcp', token: ACCOUNT });
-  assert.equal(accountKnowledgeSource({ env: { OMS_KNOWLEDGE_URL: 'http://svc.test/mcp' }, account: () => undefined })(), undefined);
+  assert.deepEqual(accountKnowledgeSource({ env: { OMS_KNOWLEDGE_TOKEN: ENV_TOKEN }, account: () => account })(), {
+    endpoint: 'http://127.0.0.1:1/api/knowledge/mcp',
+    token: ACCOUNT,
+  });
+  assert.equal(
+    accountKnowledgeSource({ env: { OMS_KNOWLEDGE_URL: 'http://svc.test/mcp' }, account: () => undefined })(),
+    undefined,
+  );
   const pinned = { endpoint: 'http://bench.test/mcp', token: 'pinned-token' };
-  assert.deepEqual(accountKnowledgeSource({ pinned, env: { OMS_KNOWLEDGE_URL: 'http://svc.test/mcp', OMS_KNOWLEDGE_TOKEN: ENV_TOKEN }, account: () => account })(), pinned, 'a benchmark cell keeps its pinned service');
+  assert.deepEqual(
+    accountKnowledgeSource({
+      pinned,
+      env: { OMS_KNOWLEDGE_URL: 'http://svc.test/mcp', OMS_KNOWLEDGE_TOKEN: ENV_TOKEN },
+      account: () => account,
+    })(),
+    pinned,
+    'a benchmark cell keeps its pinned service',
+  );
   const gw = await gateway();
-  const r = await rig({ account: () => undefined, env: { OMS_KNOWLEDGE_URL: `${gw.origin}/mcp`, OMS_KNOWLEDGE_TOKEN: ENV_TOKEN } });
+  const r = await rig({
+    account: () => undefined,
+    env: { OMS_KNOWLEDGE_URL: `${gw.origin}/mcp`, OMS_KNOWLEDGE_TOKEN: ENV_TOKEN },
+  });
   try {
     const shown = await r.turn(fauxAssistantMessage(fauxToolCall('list_sources', {}), { stopReason: 'toolUse' }));
     assert.ok(shown.tools.includes('list_sources'), 'env credentials expose the tools with no account');
     await r.turn();
     assert.deepEqual(gw.calls, [{ path: '/mcp', auth: `Bearer ${ENV_TOKEN}`, tool: 'list_sources' }]);
-  } finally { r.cleanup(); await gw.close(); }
+  } finally {
+    r.cleanup();
+    await gw.close();
+  }
 });
 
 test('a /login mid-session shows the tools and rules from the next turn, and a /logout hides them again', async () => {
@@ -106,19 +236,33 @@ test('a /login mid-session shows the tools and rules from the next turn, and a /
   const r = await rig({ account: () => credential });
   try {
     const before = await r.turn();
-    assert.deepEqual(before.tools.filter(name => KNOWLEDGE_TOOL_NAMES.includes(name)), []);
+    assert.deepEqual(
+      before.tools.filter((name) => KNOWLEDGE_TOOL_NAMES.includes(name)),
+      [],
+    );
     credential = { origin: gw.origin, token: ACCOUNT };
-    const during = await r.turn(fauxAssistantMessage(fauxToolCall('api_lookup', { name: 'invoke' }), { stopReason: 'toolUse' }));
-    assert.deepEqual(KNOWLEDGE_TOOL_NAMES.filter(name => !during.tools.includes(name)), []);
+    const during = await r.turn(
+      fauxAssistantMessage(fauxToolCall('api_lookup', { name: 'invoke' }), { stopReason: 'toolUse' }),
+    );
+    assert.deepEqual(
+      KNOWLEDGE_TOOL_NAMES.filter((name) => !during.tools.includes(name)),
+      [],
+    );
     assert.match(during.prompt, HINT);
     await r.turn();
     assert.equal(gw.calls.length, 1);
     assert.equal(gw.calls[0]!.auth, `Bearer ${ACCOUNT}`);
     credential = undefined;
     const after = await r.turn();
-    assert.deepEqual(after.tools.filter(name => KNOWLEDGE_TOOL_NAMES.includes(name)), []);
+    assert.deepEqual(
+      after.tools.filter((name) => KNOWLEDGE_TOOL_NAMES.includes(name)),
+      [],
+    );
     assert.doesNotMatch(after.prompt, HINT);
-  } finally { r.cleanup(); await gw.close(); }
+  } finally {
+    r.cleanup();
+    await gw.close();
+  }
 });
 
 for (const status of [401, 403, 500]) {
@@ -132,7 +276,10 @@ for (const status of [401, 403, 500]) {
       assert.match(transcript, /Reference lookup is unavailable right now/);
       assert.ok(!transcript.includes(ACCOUNT));
       assert.doesNotMatch(transcript, /HTTP \d{3}|rejected the credential/);
-    } finally { r.cleanup(); await gw.close(); }
+    } finally {
+      r.cleanup();
+      await gw.close();
+    }
   });
 }
 
@@ -140,9 +287,14 @@ test('a call made after sign-out fails neutrally without any request', async () 
   const gw = await gateway();
   const r = await rig({ account: () => undefined });
   try {
-    const tool = r.session.getAllTools().find(entry => entry.name === 'search_docs');
+    const tool = r.session.getAllTools().find((entry) => entry.name === 'search_docs');
     assert.ok(tool, 'registered even while hidden');
-    await r.turn(fauxAssistantMessage(fauxToolCall('search_docs', { query: 'q' }), { stopReason: 'toolUse' })).catch(() => {});
+    await r
+      .turn(fauxAssistantMessage(fauxToolCall('search_docs', { query: 'q' }), { stopReason: 'toolUse' }))
+      .catch(() => {});
     assert.equal(gw.calls.length, 0);
-  } finally { r.cleanup(); await gw.close(); }
+  } finally {
+    r.cleanup();
+    await gw.close();
+  }
 });

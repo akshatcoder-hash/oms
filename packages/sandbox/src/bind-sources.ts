@@ -4,14 +4,23 @@ import type { MountBinding, MountPlan } from './mounts.ts';
 import { SandboxError } from './errors.ts';
 import { isWithinOrEqual } from './paths.ts';
 
-interface Identity { path: string; stat: Stats; canonical: string }
-interface Approval { material: string; identities: Identity[] }
+interface Identity {
+  path: string;
+  stat: Stats;
+  canonical: string;
+}
+interface Approval {
+  material: string;
+  identities: Identity[];
+}
 const approvals = new WeakMap<MountPlan, Approval>();
 
 function overlaps(a: string, b: string): boolean {
   return isWithinOrEqual(a, b) || isWithinOrEqual(b, a);
 }
-function fail(message: string): never { throw new SandboxError('E_MOUNT_FORBIDDEN', message); }
+function fail(message: string): never {
+  throw new SandboxError('E_MOUNT_FORBIDDEN', message);
+}
 function material(plan: MountPlan): string {
   return JSON.stringify([plan.projectMount, plan.extraMounts, plan.readOnlyMounts]);
 }
@@ -22,10 +31,13 @@ function sourceChain(source: MountBinding): Identity[] {
     // Read-only system libraries commonly use root-owned /lib aliases. Pin both
     // the alias chain and its canonical target; writable mounts never do this.
     if (source.mode !== 'ro') fail(`writable bind source is not canonical: ${source.hostPath}`);
-    for (let current = source.hostPath;; current = path.dirname(current)) {
+    for (let current = source.hostPath; ; current = path.dirname(current)) {
       const stat = lstatSync(current);
-      if (stat.uid !== 0 || (!stat.isSymbolicLink() && (stat.mode & 0o022) !== 0) ||
-          (current !== source.hostPath && !stat.isDirectory() && !stat.isSymbolicLink())) {
+      if (
+        stat.uid !== 0 ||
+        (!stat.isSymbolicLink() && (stat.mode & 0o022) !== 0) ||
+        (current !== source.hostPath && !stat.isDirectory() && !stat.isSymbolicLink())
+      ) {
         fail(`read-only bind alias is not root-controlled: ${current}`);
       }
       identities.push({ path: current, stat, canonical: realpathSync(current) });
@@ -33,16 +45,24 @@ function sourceChain(source: MountBinding): Identity[] {
     }
     return [...identities, ...sourceChain({ ...source, hostPath: canonicalSource })];
   }
-  for (let current = source.hostPath;; current = path.dirname(current)) {
+  for (let current = source.hostPath; ; current = path.dirname(current)) {
     const stat = lstatSync(current);
-    if (realpathSync(current) !== current || stat.isSymbolicLink() ||
-        (current === source.hostPath ? !stat.isFile() && !stat.isDirectory() : !stat.isDirectory())) {
+    if (
+      realpathSync(current) !== current ||
+      stat.isSymbolicLink() ||
+      (current === source.hostPath ? !stat.isFile() && !stat.isDirectory() : !stat.isDirectory())
+    ) {
       fail(`bind source or ancestor is not canonical: ${current}`);
     }
-    if (current === source.hostPath && source.mode !== 'ro' && process.getuid && stat.uid !== process.getuid()) fail(`bind source is not host-owned: ${current}`);
-    if (current === source.hostPath && (stat.mode & 0o022) !== 0) fail(`bind source is writable by other host users: ${current}`);
-    if (current !== source.hostPath && ((stat.uid !== 0 && process.getuid && stat.uid !== process.getuid()) ||
-        ((stat.mode & 0o022) !== 0 && !(stat.uid === 0 && (stat.mode & 0o1000) !== 0)))) {
+    if (current === source.hostPath && source.mode !== 'ro' && process.getuid && stat.uid !== process.getuid())
+      fail(`bind source is not host-owned: ${current}`);
+    if (current === source.hostPath && (stat.mode & 0o022) !== 0)
+      fail(`bind source is writable by other host users: ${current}`);
+    if (
+      current !== source.hostPath &&
+      ((stat.uid !== 0 && process.getuid && stat.uid !== process.getuid()) ||
+        ((stat.mode & 0o022) !== 0 && !(stat.uid === 0 && (stat.mode & 0o1000) !== 0)))
+    ) {
       fail(`bind ancestor is not protected against other host users: ${current}`);
     }
     identities.push({ path: current, stat, canonical: current });
@@ -55,7 +75,10 @@ export function approveBindSources(plan: MountPlan): MountPlan {
   const sources = [plan.projectMount, ...plan.extraMounts, ...plan.readOnlyMounts];
   for (let index = 0; index < plan.extraMounts.length; index++) {
     const extra = plan.extraMounts[index]!;
-    if (overlaps(extra.hostPath, plan.projectMount.hostPath) || plan.extraMounts.slice(0, index).some(other => overlaps(extra.hostPath, other.hostPath))) {
+    if (
+      overlaps(extra.hostPath, plan.projectMount.hostPath) ||
+      plan.extraMounts.slice(0, index).some((other) => overlaps(extra.hostPath, other.hostPath))
+    ) {
       fail('extra bind sources must be disjoint from the project and every other writable bind');
     }
     if (extra.mode === 'rw') {
@@ -81,8 +104,14 @@ export function validateBindSources(plan: MountPlan): void {
   try {
     for (const identity of approval.identities) {
       const current = lstatSync(identity.path);
-      if (current.dev !== identity.stat.dev || current.ino !== identity.stat.ino || current.mode !== identity.stat.mode ||
-          current.uid !== identity.stat.uid || current.gid !== identity.stat.gid || realpathSync(identity.path) !== identity.canonical) {
+      if (
+        current.dev !== identity.stat.dev ||
+        current.ino !== identity.stat.ino ||
+        current.mode !== identity.stat.mode ||
+        current.uid !== identity.stat.uid ||
+        current.gid !== identity.stat.gid ||
+        realpathSync(identity.path) !== identity.canonical
+      ) {
         fail(`approved bind source or ancestor identity changed: ${identity.path}`);
       }
     }

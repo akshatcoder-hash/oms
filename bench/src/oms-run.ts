@@ -28,7 +28,8 @@ export interface OmsContenderRun {
  */
 export function onlineStamp(contender: string, args: readonly string[]): Pick<RunRecord, 'online'> {
   const online = parseContender(contender)?.online;
-  if (Boolean(online) !== args.includes('--web')) throw new Error(`${contender} ${online ? 'needs' : 'must not get'} --web`);
+  if (Boolean(online) !== args.includes('--web'))
+    throw new Error(`${contender} ${online ? 'needs' : 'must not get'} --web`);
   return online ? { online } : {};
 }
 
@@ -40,9 +41,13 @@ export function onlineStamp(contender: string, args: readonly string[]): Pick<Ru
 export function omsWebArgs(contender: string, env: NodeJS.ProcessEnv = process.env): string[] {
   if (!parseContender(contender)?.online) return [];
   if (!env.OMS_SEARCH_TOKEN || !omsBase(env.OMS_SEARCH_URL)) {
-    throw new Error(`${contender} needs OMS_SEARCH_TOKEN and an https: or loopback OMS_SEARCH_URL (the oms-search stack)`);
+    throw new Error(
+      `${contender} needs OMS_SEARCH_TOKEN and an https: or loopback OMS_SEARCH_URL (the oms-search stack)`,
+    );
   }
-  const byok = SEARCH_BACKENDS.filter(backend => backend.name !== 'oms' && env[backend.key]).map(backend => backend.key);
+  const byok = SEARCH_BACKENDS.filter((backend) => backend.name !== 'oms' && env[backend.key]).map(
+    (backend) => backend.key,
+  );
   if (byok.length) throw new Error(`${contender} searches through oms-search only; unset ${byok.join(', ')}`);
   return ['--web'];
 }
@@ -54,18 +59,43 @@ export async function runOmsContender(o: OmsContenderRun): Promise<number> {
   try {
     const authPath = join(scratch, 'auth.json');
     writeFileSync(authPath, JSON.stringify({ 'openai-codex': o.subscriptionCredential }), { mode: 0o600 });
-    const runtime = await ModelRuntime.create({ authPath, modelsPath: null, allowModelNetwork: false, refreshOnCreate: false });
+    const runtime = await ModelRuntime.create({
+      authPath,
+      modelsPath: null,
+      allowModelNetwork: false,
+      refreshOnCreate: false,
+    });
     if (!o.args.includes('--task') || !o.args[o.args.indexOf('--task') + 1]) throw new Error('Cell runs need --task');
     registerOmsCatalog(runtime);
     const model = runtime.getModel(o.selection.provider, o.selection.id);
     if (!model) throw new Error(`Unknown model ${o.selection.provider}/${o.selection.id}`);
     const headlessOut = join(scratch, 'record.json');
-    const exitCode = await runHarnessCommand('run', ['--headless', ...o.args, '--subscription-spend-exempt',
-      '--provider', model.provider, '--model', model.id, '--json-out', headlessOut], { modelRuntime: runtime });
-    const record = parseRunRecord({ ...JSON.parse(readFileSync(headlessOut, 'utf8')),
-      contender: o.contender, runIndex: o.runIndex, funding: 'subscription', ...stamp });
+    const exitCode = await runHarnessCommand(
+      'run',
+      [
+        '--headless',
+        ...o.args,
+        '--subscription-spend-exempt',
+        '--provider',
+        model.provider,
+        '--model',
+        model.id,
+        '--json-out',
+        headlessOut,
+      ],
+      { modelRuntime: runtime },
+    );
+    const record = parseRunRecord({
+      ...JSON.parse(readFileSync(headlessOut, 'utf8')),
+      contender: o.contender,
+      runIndex: o.runIndex,
+      funding: 'subscription',
+      ...stamp,
+    });
     mkdirSync(dirname(o.jsonOut), { recursive: true, mode: 0o700 });
     writeFileSync(o.jsonOut, JSON.stringify(record, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
     return exitCode;
-  } finally { rmSync(scratch, { recursive: true, force: true }); }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }

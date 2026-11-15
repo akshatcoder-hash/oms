@@ -26,7 +26,10 @@ export function stageSubscriptionLogin(harness: SubscriptionHarness, home: strin
   } else if (harness === 'claude-code') {
     // The CLI uses the access token as is; without the refresh token it can never extend the login past this run.
     const auth = read('.claude/.credentials.json');
-    if (auth.claudeAiOauth) { delete auth.claudeAiOauth.refreshToken; delete auth.claudeAiOauth.refreshTokenExpiresAt; }
+    if (auth.claudeAiOauth) {
+      delete auth.claudeAiOauth.refreshToken;
+      delete auth.claudeAiOauth.refreshTokenExpiresAt;
+    }
     write('.claude/.credentials.json', auth);
   }
 }
@@ -38,8 +41,13 @@ export function lostSubscriptionAuth(stdout: string): boolean {
   const last = stdout.trim().split('\n').at(-1) ?? '';
   try {
     const result = JSON.parse(last) as { type?: unknown; is_error?: unknown; result?: unknown };
-    return result.type === 'result' && result.is_error === true && typeof result.result === 'string' &&
-      /Not logged in|Please run \/login|OAuth token has expired/.test(result.result);
-  } catch { return false; }
+    return (
+      result.type === 'result' &&
+      result.is_error === true &&
+      typeof result.result === 'string' &&
+      /Not logged in|Please run \/login|OAuth token has expired/.test(result.result)
+    );
+  } catch {
+    return false;
+  }
 }
-

@@ -151,14 +151,15 @@ test('mounts render in order: project rw, readOnly :ro on top, named volumes, tm
     const bindValues = args.flatMap((a, i) => (a === '-v' ? [args[i + 1]] : []));
     assert.ok(bindValues.includes(`${realpathSync(verify)}:/work/.oms/verify:ro`));
     assert.equal(flagValue(args, '--volume'), 'oms-t1-node_modules:/work/node_modules');
-    assert.equal(flagValue(args, '--tmpfs', ) !== undefined, true);
+    assert.equal(flagValue(args, '--tmpfs') !== undefined, true);
     assert.ok(
-      args.some((a) => a.startsWith(`/work/.oms-signer:rw,size=64k,uid=${process.getuid!()},gid=${process.getgid!()},mode=700`)),
+      args.some((a) =>
+        a.startsWith(`/work/.oms-signer:rw,size=64k,uid=${process.getuid!()},gid=${process.getgid!()},mode=700`),
+      ),
     );
     // readOnly overlay must come after the project mount
     assert.ok(
-      args.indexOf(`${realpathSync(project)}:/work:rw`) <
-        args.indexOf(`${realpathSync(verify)}:/work/.oms/verify:ro`),
+      args.indexOf(`${realpathSync(project)}:/work:rw`) < args.indexOf(`${realpathSync(verify)}:/work/.oms/verify:ro`),
     );
   } finally {
     removeScratchDir(base);
@@ -193,7 +194,7 @@ test('install proxy env points only at the internal forwarder', () => {
   assert.ok(!Object.values(env).some((v) => v.includes('host.docker.internal')));
 });
 
-test('task and shadow ownership comes from the trusted non-root host identity', t => {
+test('task and shadow ownership comes from the trusted non-root host identity', (t) => {
   assert.equal(typeof process.getuid, 'function');
   assert.equal(typeof process.getgid, 'function');
   const host = process as typeof process & Required<Pick<typeof process, 'getuid' | 'getgid'>>;
@@ -212,7 +213,7 @@ test('task and shadow ownership comes from the trusted non-root host identity', 
   }
 });
 
-test('root host identity is an explicit prerequisite failure, not a privileged task', t => {
+test('root host identity is an explicit prerequisite failure, not a privileged task', (t) => {
   assert.equal(typeof process.getuid, 'function');
   const host = process as typeof process & Required<Pick<typeof process, 'getuid'>>;
   t.mock.method(host, 'getuid', () => 0);

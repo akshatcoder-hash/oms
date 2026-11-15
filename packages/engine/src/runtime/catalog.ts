@@ -1,7 +1,13 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
-import { MODEL_CATALOG, MIMO_BINDINGS, resolveMimoWorker, type MimoProvider, type TokenRates,
-  type WorkerSpec } from '@oms/core/catalog';
+import {
+  MODEL_CATALOG,
+  MIMO_BINDINGS,
+  resolveMimoWorker,
+  type MimoProvider,
+  type TokenRates,
+  type WorkerSpec,
+} from '@oms/core/catalog';
 
 type ProviderConfig = Parameters<ModelRuntime['registerProvider']>[1];
 type ProviderModelConfig = NonNullable<ProviderConfig['models']>[number];
@@ -21,9 +27,17 @@ function definition(spec: WorkerSpec, original: Model<Api>): ProviderModelConfig
     baseUrl: spec.baseUrl,
     contextWindow: Math.min(original.contextWindow, spec.effectiveContextWindow),
     maxTokens: Math.min(original.maxTokens, spec.maxOutputTokens),
-    cost: { ...canonicalRates(spec.cost), ...(spec.cost.tiers ? {
-      tiers: spec.cost.tiers.map(tier => ({ ...canonicalRates(tier), inputTokensAbove: tier.inputTokensAbove })),
-    } : {}) },
+    cost: {
+      ...canonicalRates(spec.cost),
+      ...(spec.cost.tiers
+        ? {
+            tiers: spec.cost.tiers.map((tier) => ({
+              ...canonicalRates(tier),
+              inputTokensAbove: tier.inputTokensAbove,
+            })),
+          }
+        : {}),
+    },
   };
 }
 
@@ -38,13 +52,20 @@ export function registerOmsCatalog(runtime: ModelRuntime): void {
   for (const spec of specs) {
     // registerProvider deliberately replaces native registrations; explicit host overrides keep their auth and transport.
     // A host-registered provider with its own baseUrl (e.g. the bench metering proxy) must never be re-pointed at the vendor.
-    if (runtime.getRegisteredNativeProvider(spec.provider) || runtime.getRegisteredProviderConfig(spec.provider)?.baseUrl) continue;
+    if (
+      runtime.getRegisteredNativeProvider(spec.provider) ||
+      runtime.getRegisteredProviderConfig(spec.provider)?.baseUrl
+    )
+      continue;
     let overlay = overlays.get(spec.provider);
     if (!overlay) {
       if (!runtime.getProvider(spec.provider)) continue;
       // registerProvider replaces its model array; retain chat, image and classifier
       // definitions, and leave canonical auth/transport composition to the SDK.
-      overlay = { ...runtime.getRegisteredProviderConfig(spec.provider), models: [...runtime.getAllModels(spec.provider)] };
+      overlay = {
+        ...runtime.getRegisteredProviderConfig(spec.provider),
+        models: [...runtime.getAllModels(spec.provider)],
+      };
       overlays.set(spec.provider, overlay);
     }
     let original = runtime.getPhysicalModel(spec.provider, spec.modelId);
@@ -53,13 +74,24 @@ export function registerOmsCatalog(runtime: ModelRuntime): void {
       if (!sol) continue;
       // Terra's documented Responses tools/structured outputs and supported efforts:
       // https://developers.openai.com/api/docs/models/gpt-6.1-terra
-      original = { ...sol, thinkingLevelMap: {
-        off: 'none', minimal: null, low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max',
-      } };
+      original = {
+        ...sol,
+        thinkingLevelMap: {
+          off: 'none',
+          minimal: null,
+          low: 'low',
+          medium: 'medium',
+          high: 'high',
+          xhigh: 'xhigh',
+          max: 'max',
+        },
+      };
     }
     if (!original) continue;
     const models = overlay.models!;
-    const index = models.findIndex(model => (model.type === undefined || model.type === 'chat') && model.id === spec.modelId);
+    const index = models.findIndex(
+      (model) => (model.type === undefined || model.type === 'chat') && model.id === spec.modelId,
+    );
     const updated = definition(spec, original);
     if (index === -1) models.push(updated);
     else models[index] = updated;

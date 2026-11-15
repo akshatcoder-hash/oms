@@ -13,16 +13,33 @@ test('terminal stop blocks input before asynchronous cleanup finishes', async ()
   let closing = false;
   let writes = 0;
   const terminal: TaskTerminal = {
-    write() { if (closing) throw new Error('terminal closing'); writes++; },
-    resize() {}, subscribe() { return () => {}; }, exited: exit.promise,
-    async close() { closing = true; await exit.promise; },
+    write() {
+      if (closing) throw new Error('terminal closing');
+      writes++;
+    },
+    resize() {},
+    subscribe() {
+      return () => {};
+    },
+    exited: exit.promise,
+    async close() {
+      closing = true;
+      await exit.promise;
+    },
   };
   const harness = { startTerminal: async () => terminal } as Pick<HarnessSession, 'startTerminal'>;
-  const pane = new TerminalPane(harness, { theme: () => getTheme('gruvbox')!,
-    columns: () => 80, rows: () => 10, render() {}, notice() {} });
+  const pane = new TerminalPane(harness, {
+    theme: () => getTheme('gruvbox')!,
+    columns: () => 80,
+    rows: () => 10,
+    render() {},
+    notice() {},
+  });
   try {
-    await pane.start(); pane.focus.focused = true;
-    pane.focus.handleInput?.('a'); assert.equal(writes, 1);
+    await pane.start();
+    pane.focus.focused = true;
+    pane.focus.handleInput?.('a');
+    assert.equal(writes, 1);
     const stopped = pane.stop();
     await Promise.resolve();
     assert.equal(closing, true);
@@ -41,16 +58,34 @@ test('resize during natural terminal shutdown stops the pane without ending the 
   let stopped = false;
   let writes = 0;
   const terminal: TaskTerminal = {
-    write() { if (stopped) throw new TerminalStoppedError(); writes++; },
-    resize() { if (stopped) throw new TerminalStoppedError(); },
-    subscribe() { return () => {}; }, exited: exit.promise,
-    async close() { await exit.promise; },
+    write() {
+      if (stopped) throw new TerminalStoppedError();
+      writes++;
+    },
+    resize() {
+      if (stopped) throw new TerminalStoppedError();
+    },
+    subscribe() {
+      return () => {};
+    },
+    exited: exit.promise,
+    async close() {
+      await exit.promise;
+    },
   };
-  const pane = new TerminalPane({ startTerminal: async () => terminal }, {
-    theme: () => getTheme('gruvbox')!, columns: () => 80, rows: () => 10, render() {}, notice() {},
-  });
+  const pane = new TerminalPane(
+    { startTerminal: async () => terminal },
+    {
+      theme: () => getTheme('gruvbox')!,
+      columns: () => 80,
+      rows: () => 10,
+      render() {},
+      notice() {},
+    },
+  );
   try {
-    await pane.start(); pane.focus.focused = true;
+    await pane.start();
+    pane.focus.focused = true;
     stopped = true;
     pane.focus.render(41);
     pane.focus.handleInput?.('x');
@@ -68,12 +103,32 @@ test('authoritative terminal cleanup failure cannot advertise or attempt a fake 
   let starts = 0;
   let writes = 0;
   const terminal: TaskTerminal = {
-    write() { writes++; }, resize() {}, subscribe: () => () => {}, exited: exit.promise,
-    close() { attempts++; return closed; },
+    write() {
+      writes++;
+    },
+    resize() {},
+    subscribe: () => () => {},
+    exited: exit.promise,
+    close() {
+      attempts++;
+      return closed;
+    },
   };
-  const pane = new TerminalPane({ startTerminal: async () => { starts++; return terminal; } }, {
-    theme: () => getTheme('gruvbox')!, columns: () => 40, rows: () => 8, render() {}, notice() {},
-  });
+  const pane = new TerminalPane(
+    {
+      startTerminal: async () => {
+        starts++;
+        return terminal;
+      },
+    },
+    {
+      theme: () => getTheme('gruvbox')!,
+      columns: () => 40,
+      rows: () => 8,
+      render() {},
+      notice() {},
+    },
+  );
   try {
     await pane.start();
     const stopping = pane.stop();
@@ -85,8 +140,11 @@ test('authoritative terminal cleanup failure cannot advertise or attempt a fake 
     assert.equal(pane.running, false);
     assert.match(pane.hint, /recover/i);
     assert.doesNotMatch(pane.hint, /retr|Enter start/i);
-    await pane.stop(); await pane.start();
+    await pane.stop();
+    await pane.start();
     assert.equal(attempts, 1);
     assert.equal(starts, 1);
-  } finally { await pane.dispose(); }
+  } finally {
+    await pane.dispose();
+  }
 });

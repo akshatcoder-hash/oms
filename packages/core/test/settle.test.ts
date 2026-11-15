@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_BUDGET_CAPS, snapshotFor, type BudgetSnapshot } from '../src/budget/meter.ts';
-import {
-  decideSettle,
-  type SettleDecision,
-  type SettleState,
-  type VerifierStatus,
-} from '../src/settle/gate.ts';
+import { decideSettle, type SettleDecision, type SettleState, type VerifierStatus } from '../src/settle/gate.ts';
 
 const FRESH: BudgetSnapshot = snapshotFor(DEFAULT_BUDGET_CAPS, {
   tokens: 0,
@@ -34,7 +29,11 @@ function state(overrides: Partial<SettleState> = {}): SettleState {
 
 test('settle decisions table', () => {
   const cases: Array<{ name: string; input: SettleState; expected: Partial<SettleDecision> }> = [
-    { name: 'pass allows', input: state({ verifierStatus: 'pass' }), expected: { action: 'allow', reason: 'verifier_passed', askUser: false } },
+    {
+      name: 'pass allows',
+      input: state({ verifierStatus: 'pass' }),
+      expected: { action: 'allow', reason: 'verifier_passed', askUser: false },
+    },
     {
       name: 'pass wins over an exhausted budget',
       input: state({ verifierStatus: 'pass', budget: EXHAUSTED }),

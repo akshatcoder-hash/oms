@@ -9,8 +9,14 @@ test('one allocator orders every tool continuation within the same turn', () => 
   const allocate = createDispatchAllocator();
   const roles: DispatchRole[] = ['worker', 'worker', 'worker', 'worker'];
   const identities = roles.map((role) => allocate('turn', role, model));
-  assert.deepEqual(identities.map((identity) => identity.attempt), [1, 2, 3, 4]);
-  assert.deepEqual(identities.map((identity) => identity.role), roles);
+  assert.deepEqual(
+    identities.map((identity) => identity.attempt),
+    [1, 2, 3, 4],
+  );
+  assert.deepEqual(
+    identities.map((identity) => identity.role),
+    roles,
+  );
   assert.equal(new Set(identities.map((identity) => identity.dispatchId)).size, roles.length);
   for (const identity of identities) {
     assert.match(identity.dispatchId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
@@ -23,8 +29,13 @@ test('one allocator orders every tool continuation within the same turn', () => 
 });
 
 test('restored allocations advance beyond every historical reservation without mutating the seed', () => {
-  const previous = Object.freeze([{ logicalTurnId: 'turn', attempt: 8 }, { logicalTurnId: 'turn', attempt: 3 },
-    { logicalTurnId: 'other', attempt: 2 }].map((reservation) => Object.freeze(reservation)));
+  const previous = Object.freeze(
+    [
+      { logicalTurnId: 'turn', attempt: 8 },
+      { logicalTurnId: 'turn', attempt: 3 },
+      { logicalTurnId: 'other', attempt: 2 },
+    ].map((reservation) => Object.freeze(reservation)),
+  );
   const allocate = createDispatchAllocator(previous);
   assert.equal(allocate('turn', 'worker', model).attempt, 9);
   assert.equal(allocate('turn', 'worker', model).attempt, 10);

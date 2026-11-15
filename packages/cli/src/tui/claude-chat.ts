@@ -3,13 +3,20 @@ import type { HarnessSession } from '@oms/engine';
 /** Restore display-only native boundaries without inserting them into model context. */
 export function nativeChatDisplayHistory(harness: Pick<HarnessSession, 'session'>): readonly unknown[] {
   const branch = harness.session.sessionManager.getBranch?.();
-  if (!branch?.some(entry => entry.type === 'custom' && entry.customType === 'oms.claude.native-boundary')) return harness.session.messages;
-  return branch.flatMap<unknown>(entry => {
+  if (!branch?.some((entry) => entry.type === 'custom' && entry.customType === 'oms.claude.native-boundary'))
+    return harness.session.messages;
+  return branch.flatMap<unknown>((entry) => {
     if (entry.type === 'message') return [entry.message];
     if (entry.type !== 'custom' || entry.customType !== 'oms.claude.native-boundary') return [];
     const data = entry.data as { sessionId?: unknown } | undefined;
-    return [{ role: 'session', content: 'Fresh native Claude chat boundary. Previous chat history is not replayed.' +
-      (typeof data?.sessionId === 'string' ? ` Native session: ${data.sessionId}` : '') }];
+    return [
+      {
+        role: 'session',
+        content:
+          'Fresh native Claude chat boundary. Previous chat history is not replayed.' +
+          (typeof data?.sessionId === 'string' ? ` Native session: ${data.sessionId}` : ''),
+      },
+    ];
   });
 }
 

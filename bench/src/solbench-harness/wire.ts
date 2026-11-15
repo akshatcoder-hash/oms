@@ -6,13 +6,23 @@ export function base58(bytes: Uint8Array): string {
   let value = 0n;
   for (const byte of bytes) value = value * 256n + BigInt(byte);
   let out = '';
-  while (value > 0n) { out = ALPHABET[Number(value % 58n)] + out; value /= 58n; }
-  for (const byte of bytes) { if (byte !== 0) break; out = '1' + out; }
+  while (value > 0n) {
+    out = ALPHABET[Number(value % 58n)] + out;
+    value /= 58n;
+  }
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    out = '1' + out;
+  }
   return out;
 }
 
 /** `accounts` index the message's keys: static keys first, then lookup-table writable, then readonly (as the runtime orders them). */
-export interface Instruction { programId: string; accounts: number[]; data: Uint8Array }
+export interface Instruction {
+  programId: string;
+  accounts: number[];
+  data: Uint8Array;
+}
 
 export interface ParsedTransaction {
   version: 'legacy' | 0;
@@ -28,8 +38,16 @@ export interface ParsedTransaction {
 /** Throws on anything that is not exactly one well-formed transaction. */
 export function parseTransaction(bytes: Uint8Array): ParsedTransaction {
   let at = 0;
-  const byte = () => { if (at >= bytes.length) throw new Error('transaction is truncated'); return bytes[at++]!; };
-  const take = (n: number) => { if (at + n > bytes.length) throw new Error('transaction is truncated'); const out = bytes.subarray(at, at + n); at += n; return out; };
+  const byte = () => {
+    if (at >= bytes.length) throw new Error('transaction is truncated');
+    return bytes[at++]!;
+  };
+  const take = (n: number) => {
+    if (at + n > bytes.length) throw new Error('transaction is truncated');
+    const out = bytes.subarray(at, at + n);
+    at += n;
+    return out;
+  };
   const shortVec = () => {
     let value = 0;
     for (let shift = 0; shift < 21; shift += 7) {
@@ -50,7 +68,8 @@ export function parseTransaction(bytes: Uint8Array): ParsedTransaction {
   const required = byte();
   take(2);
   const keys = Array.from({ length: shortVec() }, () => base58(take(32)));
-  if (required !== signatureCount || required > keys.length) throw new Error('signature count does not match the message header');
+  if (required !== signatureCount || required > keys.length)
+    throw new Error('signature count does not match the message header');
   take(32);
   const instructions = Array.from({ length: shortVec() }, () => {
     const programIndex = byte();
@@ -62,7 +81,11 @@ export function parseTransaction(bytes: Uint8Array): ParsedTransaction {
     return { programId, accounts, data: Uint8Array.from(data) };
   });
   if (version === 0) {
-    for (let n = shortVec(); n > 0; n--) { take(32); take(shortVec()); take(shortVec()); }
+    for (let n = shortVec(); n > 0; n--) {
+      take(32);
+      take(shortVec());
+      take(shortVec());
+    }
   }
   if (at !== bytes.length) throw new Error('trailing bytes after the transaction');
   return { version, signatureCount, signers: keys.slice(0, required), messageOffset, staticKeys: keys, instructions };

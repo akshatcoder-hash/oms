@@ -19,12 +19,14 @@ test('config web: on|off in <state root>/config.json; missing means on; anything
     assert.throws(() => webSetting(root), /web must be "on" or "off"/);
     writeFileSync(join(root, 'config.json'), '{web');
     assert.throws(() => webSetting(root), /not valid JSON/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('--no-web is a launch switch for oms run and npm start; /web is a listed command', () => {
   assert.equal(parseLaunchOptions(['--no-web']).values.has('--no-web'), true);
   assert.equal(parseLaunchOptions([]).values.has('--no-web'), false);
   assert.throws(() => parseLaunchOptions(['--web']), /Unknown option --web/, '--web exists only for headless oms run');
-  assert.ok(OMS_COMMANDS.some(command => command.name === 'web' && command.argument === '[on|off]'));
+  assert.ok(OMS_COMMANDS.some((command) => command.name === 'web' && command.argument === '[on|off]'));
 });

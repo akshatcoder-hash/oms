@@ -100,7 +100,9 @@ export function formatMicroUsd(microUsd: number): string {
   const negative = microUsd < 0;
   const abs = Math.abs(microUsd);
   const whole = Math.trunc(abs / 1_000_000);
-  const fraction = String(abs % 1_000_000).padStart(6, '0').replace(/0+$/, '');
+  const fraction = String(abs % 1_000_000)
+    .padStart(6, '0')
+    .replace(/0+$/, '');
   const body = fraction.length > 0 ? `${formatInteger(whole)}.${fraction}` : formatInteger(whole);
   return negative ? `-$${body}` : `$${body}`;
 }

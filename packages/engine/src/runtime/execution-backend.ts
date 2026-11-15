@@ -8,8 +8,14 @@
  * Each implementation builds only the run options its sandbox backend takes.
  */
 import {
-  buildMounts, createSandboxSession, hostSandbox, recoverTaskExecutionResources, requirePinnedImage,
-  type MountPlan, type RunInSandboxOptions, type SandboxSession,
+  buildMounts,
+  createSandboxSession,
+  hostSandbox,
+  recoverTaskExecutionResources,
+  requirePinnedImage,
+  type MountPlan,
+  type RunInSandboxOptions,
+  type SandboxSession,
 } from '@oms/sandbox';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -117,11 +123,18 @@ export interface ExecutionBackend {
   /** The git control file to pin, when the verifier pins one. */
   gitControlPath(codeRoot: string): string | undefined;
   /** Extra read-only mounts a task's tool commands need. */
-  taskMounts(spec: { binary: string; dependencies?: string; sourcesDir: string }): { extra: Array<{ hostPath: string; containerPath: string; mode: 'ro' }> } | Record<never, never>;
+  taskMounts(spec: {
+    binary: string;
+    dependencies?: string;
+    sourcesDir: string;
+  }): { extra: Array<{ hostPath: string; containerPath: string; mode: 'ro' }> } | Record<never, never>;
   /** A once-per-workspace notice about what this backend does not isolate. */
   notice(): { key: string; text: string } | undefined;
   /** Tool descriptions this backend replaces (the defaults describe the container), and the closing sentence of the shell guideline. */
-  toolText(root: string): { descriptions?: { read: string; edit: string; write: string; bash: string }; guideline: string };
+  toolText(root: string): {
+    descriptions?: { read: string; edit: string; write: string; bash: string };
+    guideline: string;
+  };
 
   runOptions(spec: ToolRunSpec, run: CommandTiming): RunInSandboxOptions;
   /** The dependency-fetch run (install phase, allowlisted egress on Docker). */
@@ -146,11 +159,13 @@ export interface ExecutionBackend {
 
 // Bump when execution policy changes: this identity participates in the pin
 // and evidence cache, not merely diagnostics. No untrusted cache is mounted.
-const ADAPTER_POLICY = 'oms.verifier-backend/4:offline:no-airdrop:ro-work:fresh-output:no-volumes:run-egress:nonroot:source-exclusion:checked-binds:rpc-env-both:host-loopback-relay:locked-deps:trusted-surfpool';
+const ADAPTER_POLICY =
+  'oms.verifier-backend/4:offline:no-airdrop:ro-work:fresh-output:no-volumes:run-egress:nonroot:source-exclusion:checked-binds:rpc-env-both:host-loopback-relay:locked-deps:trusted-surfpool';
 
 const HOST_WARNING = {
-  seatbelt: "OMS host mode runs commands under macOS Seatbelt: writes stay in the worktree and temp, ~/.ssh, ~/.config/solana, keypairs and other repos are unreadable, and network is limited to the Surfnet port. Seatbelt is not a VM; use --sandbox docker for untrusted repositories.\n",
-  none: "OMS host mode has NO sandbox here (Linux in v0.1, or macOS without sandbox-exec). Commands can access your host files and unrestricted network. Environment scrubbing, approvals and file-tool protections reduce accidents; they do not isolate code. Use --sandbox docker for untrusted repositories.\n",
+  seatbelt:
+    'OMS host mode runs commands under macOS Seatbelt: writes stay in the worktree and temp, ~/.ssh, ~/.config/solana, keypairs and other repos are unreadable, and network is limited to the Surfnet port. Seatbelt is not a VM; use --sandbox docker for untrusted repositories.\n',
+  none: 'OMS host mode has NO sandbox here (Linux in v0.1, or macOS without sandbox-exec). Commands can access your host files and unrestricted network. Environment scrubbing, approvals and file-tool protections reduce accidents; they do not isolate code. Use --sandbox docker for untrusted repositories.\n',
 };
 
 const NO_IMAGES: BackendImages = { image: '', forwarderImage: '' };
@@ -171,7 +186,11 @@ function hostBase(spec: ToolRunSpec) {
 }
 
 export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend {
-  const toolRun = (spec: ToolRunSpec) => ({ ...hostBase(spec), backend: 'host' as const, protectedPaths: spec.protectedPaths });
+  const toolRun = (spec: ToolRunSpec) => ({
+    ...hostBase(spec),
+    backend: 'host' as const,
+    protectedPaths: spec.protectedPaths,
+  });
   return {
     name: 'host',
     images,
@@ -182,37 +201,47 @@ export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend
     requiresDocker: false,
     probesSeatbelt: true,
 
-    taskRoot: codeRoot => codeRoot,
-    commandRoot: projectHostPath => realpathSync(projectHostPath),
-    rpcUrl: port => `http://127.0.0.1:${port}`,
-    surfpoolPath: environment => environment.binary,
+    taskRoot: (codeRoot) => codeRoot,
+    commandRoot: (projectHostPath) => realpathSync(projectHostPath),
+    rpcUrl: (port) => `http://127.0.0.1:${port}`,
+    surfpoolPath: (environment) => environment.binary,
     commandEnv: ({ rpcUrl, buildProfile, surfpool }) => ({
       ...(buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}),
-      SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, ...(surfpool ? { SURFPOOL_BINARY: surfpool } : {}),
+      SOLANA_RPC_URL: rpcUrl,
+      SURFNET_RPC_URL: rpcUrl,
+      ...(surfpool ? { SURFPOOL_BINARY: surfpool } : {}),
     }),
-    runtimeRoots: codeRoot => [codeRoot],
-    gitControlPath: codeRoot => join(codeRoot, '.git'),
+    runtimeRoots: (codeRoot) => [codeRoot],
+    gitControlPath: (codeRoot) => join(codeRoot, '.git'),
     // source_fetch's folder: host commands read it through the temp directory, so nothing is mounted.
     taskMounts: () => ({}),
     notice: () => {
       const sandbox = hostSandbox();
       return { key: sandbox, text: sandbox === 'seatbelt' ? HOST_WARNING.seatbelt : HOST_WARNING.none };
     },
-    toolText: root => ({
+    toolText: (root) => ({
       descriptions: {
         read: `Read a task file under ${root}; private/control files are unavailable.`,
         edit: `Edit a task file under ${root}; pinned verifier and private/control files are protected.`,
         write: `Write a task file under ${root}; pinned verifier and private/control files are protected.`,
-        bash: hostSandbox() === 'seatbelt'
-          ? `Run a command on the host in ${root} under Seatbelt: writes stay in the task and temp, network only to Surfnet, scrubbed environment. User approval is required.`
-          : `Run a command on the host in ${root}, with unrestricted network and scrubbed environment. User approval is required.`,
+        bash:
+          hostSandbox() === 'seatbelt'
+            ? `Run a command on the host in ${root} under Seatbelt: writes stay in the task and temp, network only to Surfnet, scrubbed environment. User approval is required.`
+            : `Run a command on the host in ${root}, with unrestricted network and scrubbed environment. User approval is required.`,
       },
-      guideline: hostSandbox() === 'seatbelt' ? 'Commands run under Seatbelt and require approval.' : 'Host mode has no sandbox; commands require approval.',
+      guideline:
+        hostSandbox() === 'seatbelt'
+          ? 'Commands run under Seatbelt and require approval.'
+          : 'Host mode has no sandbox; commands require approval.',
     }),
 
     runOptions: (spec, run) => ({ ...toolRun(spec), ...run }),
-    installOptions: (spec, run) => ({ ...toolRun(spec), ...run, phase: 'install',
-      env: { HOME: '/tmp', TMPDIR: '/tmp', CARGO_HOME: '/work/.oms-cargo' } }),
+    installOptions: (spec, run) => ({
+      ...toolRun(spec),
+      ...run,
+      phase: 'install',
+      env: { HOME: '/tmp', TMPDIR: '/tmp', CARGO_HOME: '/work/.oms-cargo' },
+    }),
     openSession: () => undefined,
     recoverResources: async () => {},
 
@@ -221,9 +250,14 @@ export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend
     verifierPolicy: () => 'oms.verifier-host/2:unsandboxed:scrubbed:loopback:git-control-pin',
     verifierMounts: ({ codeRoot, dependencyModules }) => ({
       projectMount: { hostPath: codeRoot, containerPath: codeRoot, mode: 'ro' as const },
-      extraMounts: [], readOnlyMounts: dependencyModules ? [{ hostPath: dependencyModules, containerPath: join(codeRoot, 'node_modules'), mode: 'ro' as const }] : [], volumes: [], shadowMounts: [],
+      extraMounts: [],
+      readOnlyMounts: dependencyModules
+        ? [{ hostPath: dependencyModules, containerPath: join(codeRoot, 'node_modules'), mode: 'ro' as const }]
+        : [],
+      volumes: [],
+      shadowMounts: [],
     }),
-    verifierRun: spec => ({
+    verifierRun: (spec) => ({
       onSpawn: spec.onSpawn,
       taskName: spec.buildTask,
       phase: 'run' as const,
@@ -233,18 +267,33 @@ export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend
       surfnet: { port: spec.surfnetPort },
       mounts: spec.mounts,
       backend: 'host' as const,
-      argv: spec.argv.map(arg => arg.replaceAll('/work/', spec.codeRoot + '/').replaceAll(TRUSTED_SURFPOOL, spec.binary)),
+      argv: spec.argv.map((arg) =>
+        arg.replaceAll('/work/', spec.codeRoot + '/').replaceAll(TRUSTED_SURFPOOL, spec.binary),
+      ),
       cwd: spec.codeRoot,
-      env: { ...(spec.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: spec.output, SOLANA_RPC_URL: spec.rpcUrl, SURFNET_RPC_URL: spec.rpcUrl, SURFPOOL_BINARY: spec.binary },
+      env: {
+        ...(spec.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}),
+        OMS_OUTPUT_DIR: spec.output,
+        SOLANA_RPC_URL: spec.rpcUrl,
+        SURFNET_RPC_URL: spec.rpcUrl,
+        SURFPOOL_BINARY: spec.binary,
+      },
     }),
 
-    doctorDetail: seatbelt => seatbelt ? 'host (macOS Seatbelt: worktree writes, Surfnet-only network)' : 'host (no sandbox; unrestricted network)',
+    doctorDetail: (seatbelt) =>
+      seatbelt
+        ? 'host (macOS Seatbelt: worktree writes, Surfnet-only network)'
+        : 'host (no sandbox; unrestricted network)',
   };
 }
 
 export function dockerBackend(images: BackendImages = NO_IMAGES): ExecutionBackend {
   const toolRun = (spec: ToolRunSpec) => ({
-    ...hostBase(spec), backend: 'docker' as const, image: images.image, forwarderImage: images.forwarderImage, leaseDir: spec.leaseDir,
+    ...hostBase(spec),
+    backend: 'docker' as const,
+    image: images.image,
+    forwarderImage: images.forwarderImage,
+    leaseDir: spec.leaseDir,
     ...(spec.buildProfile ? { limits: BUILD_LIMITS } : {}),
   });
   return {
@@ -259,26 +308,37 @@ export function dockerBackend(images: BackendImages = NO_IMAGES): ExecutionBacke
 
     taskRoot: () => '/work',
     commandRoot: () => '/work',
-    rpcUrl: port => `http://host.docker.internal:${port}`,
-    surfpoolPath: environment => environment.dependencies ? TRUSTED_SURFPOOL : undefined,
+    rpcUrl: (port) => `http://host.docker.internal:${port}`,
+    surfpoolPath: (environment) => (environment.dependencies ? TRUSTED_SURFPOOL : undefined),
     commandEnv: ({ rpcUrl, buildProfile, surfpool }) => ({
-      HOME: '/tmp', TMPDIR: '/tmp',
+      HOME: '/tmp',
+      TMPDIR: '/tmp',
       ...(buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}),
-      SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, ...(surfpool ? { SURFPOOL_BINARY: surfpool } : {}),
+      SOLANA_RPC_URL: rpcUrl,
+      SURFNET_RPC_URL: rpcUrl,
+      ...(surfpool ? { SURFPOOL_BINARY: surfpool } : {}),
     }),
     runtimeRoots: () => [],
     gitControlPath: () => undefined,
     taskMounts: ({ binary, dependencies, sourcesDir }) => ({
       // The task's own tests start Surfpool, so the agent sees the same trusted binary the verifier does.
       // source_fetch's folder: a container needs it mounted at the same path.
-      extra: [...(dependencies ? trustedSurfpoolMounts(binary) : []), { hostPath: sourcesDir, containerPath: sourcesDir, mode: 'ro' as const }],
+      extra: [
+        ...(dependencies ? trustedSurfpoolMounts(binary) : []),
+        { hostPath: sourcesDir, containerPath: sourcesDir, mode: 'ro' as const },
+      ],
     }),
     notice: () => undefined,
     toolText: () => ({ guideline: 'Host paths and credentials are unavailable.' }),
 
     runOptions: (spec, run) => ({ ...toolRun(spec), ...run }),
-    installOptions: (spec, run) => ({ ...toolRun(spec), ...run, phase: 'install', installAllowlist: DEPENDENCY_ALLOWLIST,
-      env: { HOME: '/tmp', TMPDIR: '/tmp', CARGO_HOME: '/work/.oms-cargo' } }),
+    installOptions: (spec, run) => ({
+      ...toolRun(spec),
+      ...run,
+      phase: 'install',
+      installAllowlist: DEPENDENCY_ALLOWLIST,
+      env: { HOME: '/tmp', TMPDIR: '/tmp', CARGO_HOME: '/work/.oms-cargo' },
+    }),
     openSession: (spec, signal) => createSandboxSession({ ...toolRun(spec), signal }),
     recoverResources: (taskName, assertOwner) => recoverTaskExecutionResources(taskName, assertOwner),
 
@@ -287,14 +347,20 @@ export function dockerBackend(images: BackendImages = NO_IMAGES): ExecutionBacke
       requirePinnedImage(images.forwarderImage, 'verifier forwarderImage');
     },
     pinnedImages: () => ({ image: images.image, forwarderImage: images.forwarderImage }),
-    verifierPolicy: ({ buildProfile, npmDependencies }) => buildProfile
-      ? `${ADAPTER_POLICY}:program-build/2:fresh-volumes:locked-install-fetch${npmDependencies ? ':npm-locked/1' : ''}` : ADAPTER_POLICY,
-    verifierMounts: ({ buildRoot, buildTask, output, leaseDir, trustedMounts, buildProfile, npmDependencies }) => buildMounts({
-      projectRoot: buildRoot, projectMode: 'ro', taskName: buildTask,
-      extra: [{ hostPath: output, containerPath: '/output' }, ...trustedMounts],
-      heavyDirs: buildProfile ? ['target', '.oms-cargo', ...(npmDependencies ? ['node_modules'] : [])] : [], forbidden: { signerDir: leaseDir },
-    }),
-    verifierRun: spec => ({
+    verifierPolicy: ({ buildProfile, npmDependencies }) =>
+      buildProfile
+        ? `${ADAPTER_POLICY}:program-build/2:fresh-volumes:locked-install-fetch${npmDependencies ? ':npm-locked/1' : ''}`
+        : ADAPTER_POLICY,
+    verifierMounts: ({ buildRoot, buildTask, output, leaseDir, trustedMounts, buildProfile, npmDependencies }) =>
+      buildMounts({
+        projectRoot: buildRoot,
+        projectMode: 'ro',
+        taskName: buildTask,
+        extra: [{ hostPath: output, containerPath: '/output' }, ...trustedMounts],
+        heavyDirs: buildProfile ? ['target', '.oms-cargo', ...(npmDependencies ? ['node_modules'] : [])] : [],
+        forbidden: { signerDir: leaseDir },
+      }),
+    verifierRun: (spec) => ({
       onSpawn: spec.onSpawn,
       taskName: spec.buildTask,
       phase: 'run' as const,
@@ -310,7 +376,12 @@ export function dockerBackend(images: BackendImages = NO_IMAGES): ExecutionBacke
       leaseDir: spec.leaseDir,
       ...(spec.buildProfile ? { limits: BUILD_LIMITS } : {}),
       cwd: '/work',
-      env: { ...(spec.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: '/output', SOLANA_RPC_URL: spec.rpcUrl, SURFNET_RPC_URL: spec.rpcUrl },
+      env: {
+        ...(spec.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}),
+        OMS_OUTPUT_DIR: '/output',
+        SOLANA_RPC_URL: spec.rpcUrl,
+        SURFNET_RPC_URL: spec.rpcUrl,
+      },
     }),
 
     doctorDetail: () => 'docker (strict sandbox)',
@@ -323,5 +394,7 @@ export function executionBackend(name: BackendName | undefined, images?: Backend
 }
 
 /** The backend an environment selects, with the images it pins. */
-export const backendFor = (environment: Pick<HarnessEnvironment, 'backend' | 'image' | 'forwarderImage'>): ExecutionBackend =>
+export const backendFor = (
+  environment: Pick<HarnessEnvironment, 'backend' | 'image' | 'forwarderImage'>,
+): ExecutionBackend =>
   executionBackend(environment.backend, { image: environment.image, forwarderImage: environment.forwarderImage });

@@ -71,14 +71,7 @@ export function decodeBase58(text: string): Uint8Array | null {
   return out;
 }
 
-export type SecretEncoding =
-  | 'hex'
-  | 'hex_upper'
-  | 'base58'
-  | 'base64'
-  | 'base64url'
-  | 'json_array'
-  | 'csv';
+export type SecretEncoding = 'hex' | 'hex_upper' | 'base58' | 'base64' | 'base64url' | 'json_array' | 'csv';
 
 export interface SecretForm {
   readonly encoding: SecretEncoding;
@@ -239,8 +232,12 @@ function isSecretBytes(value: object, secrets: readonly Uint8Array[]): boolean {
   }
   if (bytes === undefined) return false;
   const candidate = bytes;
-  return secrets.some((secret) => secret.length > 0 && candidate.length === secret.length &&
-    secret.every((byte, index) => candidate[index] === byte));
+  return secrets.some(
+    (secret) =>
+      secret.length > 0 &&
+      candidate.length === secret.length &&
+      secret.every((byte, index) => candidate[index] === byte),
+  );
 }
 
 function scrubValue(value: unknown, secrets: readonly Uint8Array[], ancestors: WeakSet<object>): unknown {
@@ -260,7 +257,10 @@ function scrubValue(value: unknown, secrets: readonly Uint8Array[], ancestors: W
       let safeKey = key;
       for (const secret of secrets) safeKey = redactSecret(safeKey, secret).text;
       Object.defineProperty(out, safeKey, {
-        value: scrubValue(item, secrets, ancestors), enumerable: true, writable: true, configurable: true,
+        value: scrubValue(item, secrets, ancestors),
+        enumerable: true,
+        writable: true,
+        configurable: true,
       });
     }
     return out;

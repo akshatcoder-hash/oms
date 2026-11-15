@@ -1,19 +1,19 @@
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
-import { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
-import type { SandboxResult } from "@oms/sandbox";
-import { createChainControls } from "./chain.ts";
-import { backendFor } from "./execution-backend.ts";
-import { remoteDecodeError } from "./knowledge-service.ts";
-import type { OmsAccountControls } from "./oms-account.ts";
-import { createProviderControls } from "./provider-controls.ts";
-import type { TaskEnvironment } from "./session-environment.ts";
-import type { SessionLifecycle } from "./session-lifecycle.ts";
-import type { SessionModel } from "./session-model.ts";
-import type { SessionTools } from "./session-tools.ts";
-import type { HarnessSession, HarnessSessionOptions, HarnessVerification } from "./session-types.ts";
-import { createHarnessSettingsControls, flushHarnessSettings } from "./settings-controls.ts";
-import { modelReadiness } from "./usage.ts";
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { AgentSessionRuntime } from '@earendil-works/pi-coding-agent';
+import type { SandboxResult } from '@oms/sandbox';
+import { createChainControls } from './chain.ts';
+import { backendFor } from './execution-backend.ts';
+import { remoteDecodeError } from './knowledge-service.ts';
+import type { OmsAccountControls } from './oms-account.ts';
+import { createProviderControls } from './provider-controls.ts';
+import type { TaskEnvironment } from './session-environment.ts';
+import type { SessionLifecycle } from './session-lifecycle.ts';
+import type { SessionModel } from './session-model.ts';
+import type { SessionTools } from './session-tools.ts';
+import type { HarnessSession, HarnessSessionOptions, HarnessVerification } from './session-types.ts';
+import { createHarnessSettingsControls, flushHarnessSettings } from './settings-controls.ts';
+import { modelReadiness } from './usage.ts';
 
 const MAX_TIMER_MS = 2_147_483_647;
 
@@ -29,39 +29,58 @@ export interface SessionApiParts {
 }
 
 /** Arms the task wall-clock deadline of a bounded session; the timer is cleared by `life.releaseResources`. */
-function enforceTaskDeadline(life: SessionLifecycle, env: TaskEnvironment, session: SessionModel["session"]): void {
+function enforceTaskDeadline(life: SessionLifecycle, env: TaskEnvironment, session: SessionModel['session']): void {
   const enforce = () => {
     const remaining = env.budget.snapshot().remaining.wallClockMs;
     if (remaining > 0) {
       life.deadline = setTimeout(enforce, Math.min(remaining, MAX_TIMER_MS));
       return;
     }
-    life.controller.abort(new Error("Task wall-clock budget exhausted"));
+    life.controller.abort(new Error('Task wall-clock budget exhausted'));
     void session.abort().catch(() => {});
   };
-  if (env.executionMode === "bounded") enforce();
+  if (env.executionMode === 'bounded') enforce();
 }
 
 /** The pi runtime whose disposal releases everything the task session owns. */
 function createTaskRuntime(parts: SessionApiParts): AgentSessionRuntime {
   const { options, life, model } = parts;
-  const services = { cwd: options.task.codeRoot, agentDir: parts.agentRoot, modelRuntime: model.modelRuntime,
-    settingsManager: model.settingsManager, resourceLoader: model.resourceLoader, diagnostics: [] };
+  const services = {
+    cwd: options.task.codeRoot,
+    agentDir: parts.agentRoot,
+    modelRuntime: model.modelRuntime,
+    settingsManager: model.settingsManager,
+    resourceLoader: model.resourceLoader,
+    diagnostics: [],
+  };
   class TaskSessionRuntime extends AgentSessionRuntime {
     #disposal: Promise<void> | undefined;
     override dispose(): Promise<void> {
-      return this.#disposal ??= (async () => {
-        try { await life.releaseResources(); }
-        catch (error) {
-          process.stderr.write(`OMS cleanup uncertain for task ${options.task.id}; ownership retained. Stop and inspect task processes before lease recovery.\n`);
+      return (this.#disposal ??= (async () => {
+        try {
+          await life.releaseResources();
+        } catch (error) {
+          process.stderr.write(
+            `OMS cleanup uncertain for task ${options.task.id}; ownership retained. Stop and inspect task processes before lease recovery.\n`,
+          );
           throw error;
-        } finally { await super.dispose(); }
-      })();
+        } finally {
+          await super.dispose();
+        }
+      })());
     }
   }
-  return new TaskSessionRuntime(model.session, services, async () => {
-    throw new Error("Live session replacement is unavailable in this preview; use the OMS launcher to select a task session");
-  }, [], model.created.modelFallbackMessage);
+  return new TaskSessionRuntime(
+    model.session,
+    services,
+    async () => {
+      throw new Error(
+        'Live session replacement is unavailable in this preview; use the OMS launcher to select a task session',
+      );
+    },
+    [],
+    model.created.modelFallbackMessage,
+  );
 }
 
 /** The returned session API: verification, commands, controls for settings, providers, web and chain, and `close`. */
@@ -70,60 +89,110 @@ export function createSessionApi(parts: SessionApiParts): HarnessSession {
   const { session } = model;
   const { sandboxTools } = tools;
   const { web } = tools;
-  const webControls = web && { enabled: web.enabled, usage: web.usage, set(on: boolean) {
-    web.setEnabled(on);
-    const others = session.getActiveToolNames().filter(name => !web.toolNames.includes(name));
-    session.setActiveToolsByName(on ? [...others, ...web.toolNames] : others);
-  } };
+  const webControls = web && {
+    enabled: web.enabled,
+    usage: web.usage,
+    set(on: boolean) {
+      web.setEnabled(on);
+      const others = session.getActiveToolNames().filter((name) => !web.toolNames.includes(name));
+      session.setActiveToolsByName(on ? [...others, ...web.toolNames] : others);
+    },
+  };
   if (webControls && !web.enabled()) webControls.set(false);
-  const settings = createHarnessSettingsControls({ session, backend: backendFor(options.environment).name, withUserOperation: life.withUserOperation });
-  const providerControls = createProviderControls({
-    modelRuntime: model.modelRuntime, session, maxOutputTokens: options.maxOutputTokens,
-    signal: life.controller.signal, withUserOperation: life.withUserOperation,
-    checkAuthFile: model.checkAuthFile,
-    loginOptions: { agentName: "OMS", getDeviceId: () => model.settingsManager.getOrCreateDeviceId() },
-    flushSettings: () => flushHarnessSettings(model.settingsManager),
-    inferencePreferencesPath: join(parts.agentRoot, "inference.json"),
-    modelReadiness: m => modelReadiness(m, env.budget, options.maxOutputTokens, env.executionMode, options.maxInputTokens, options.subscriptionSpendExempt),
+  const settings = createHarnessSettingsControls({
+    session,
+    backend: backendFor(options.environment).name,
+    withUserOperation: life.withUserOperation,
   });
-  const verify = (itemId?: string): Promise<HarnessVerification> => life.withUserOperation(() => env.withExecution(randomUUID(), () => sandboxTools.withVerification(async () => {
-    const state = env.evaluator.read();
-    if (!state.ok) throw new Error("Task state is unreadable");
-    const item = itemId ? state.value.items.find(item => item.id === itemId)
-      : state.value.items.find(item => ["active", "proposed", "stale"].includes(item.status));
-    if (!item) throw new Error("Select an active, proposed or stale task item");
-    if (item.status === "stale") {
-      const reopened = env.evaluator.reopen(item.id);
-      if (!reopened.ok) throw new Error(reopened.message);
-    }
-    if (item.status !== "proposed") {
-      const proposal = env.proposer.propose(item.id);
-      if (!proposal.ok) throw new Error(proposal.message);
-    }
-    await life.backend!.assertIntegrity();
-    return { itemId: item.id, result: await env.baseEvaluator.evaluate(item.id) };
-  })));
-  const runCommand = (command: string, signal?: AbortSignal): Promise<SandboxResult> => life.withUserOperation(() => env.withExecution(randomUUID(), async operationSignal => {
-    if (!command.trim()) throw new Error("A command is required");
-    const result = await sandboxTools.execute(["/bin/sh", "-c", command], signal ? AbortSignal.any([operationSignal, signal]) : operationSignal,
-      env.budget.snapshot().remaining.wallClockMs);
-    session.recordBashResult(command, { output: result.stdout + result.stderr,
-      exitCode: result.cancelled ? undefined : result.exitCode,
-      cancelled: result.cancelled, truncated: result.truncated });
-    return result;
-  }));
+  const providerControls = createProviderControls({
+    modelRuntime: model.modelRuntime,
+    session,
+    maxOutputTokens: options.maxOutputTokens,
+    signal: life.controller.signal,
+    withUserOperation: life.withUserOperation,
+    checkAuthFile: model.checkAuthFile,
+    loginOptions: { agentName: 'OMS', getDeviceId: () => model.settingsManager.getOrCreateDeviceId() },
+    flushSettings: () => flushHarnessSettings(model.settingsManager),
+    inferencePreferencesPath: join(parts.agentRoot, 'inference.json'),
+    modelReadiness: (m) =>
+      modelReadiness(
+        m,
+        env.budget,
+        options.maxOutputTokens,
+        env.executionMode,
+        options.maxInputTokens,
+        options.subscriptionSpendExempt,
+      ),
+  });
+  const verify = (itemId?: string): Promise<HarnessVerification> =>
+    life.withUserOperation(() =>
+      env.withExecution(randomUUID(), () =>
+        sandboxTools.withVerification(async () => {
+          const state = env.evaluator.read();
+          if (!state.ok) throw new Error('Task state is unreadable');
+          const item = itemId
+            ? state.value.items.find((item) => item.id === itemId)
+            : state.value.items.find((item) => ['active', 'proposed', 'stale'].includes(item.status));
+          if (!item) throw new Error('Select an active, proposed or stale task item');
+          if (item.status === 'stale') {
+            const reopened = env.evaluator.reopen(item.id);
+            if (!reopened.ok) throw new Error(reopened.message);
+          }
+          if (item.status !== 'proposed') {
+            const proposal = env.proposer.propose(item.id);
+            if (!proposal.ok) throw new Error(proposal.message);
+          }
+          await life.backend!.assertIntegrity();
+          return { itemId: item.id, result: await env.baseEvaluator.evaluate(item.id) };
+        }),
+      ),
+    );
+  const runCommand = (command: string, signal?: AbortSignal): Promise<SandboxResult> =>
+    life.withUserOperation(() =>
+      env.withExecution(randomUUID(), async (operationSignal) => {
+        if (!command.trim()) throw new Error('A command is required');
+        const result = await sandboxTools.execute(
+          ['/bin/sh', '-c', command],
+          signal ? AbortSignal.any([operationSignal, signal]) : operationSignal,
+          env.budget.snapshot().remaining.wallClockMs,
+        );
+        session.recordBashResult(command, {
+          output: result.stdout + result.stderr,
+          exitCode: result.cancelled ? undefined : result.exitCode,
+          cancelled: result.cancelled,
+          truncated: result.truncated,
+        });
+        return result;
+      }),
+    );
   const runtime = createTaskRuntime(parts);
   enforceTaskDeadline(life, env, session);
-  return { workspace: options.workspace, task: options.task, runtime, session, evaluator: env.evaluator, budget: env.budget, settings, verify, runCommand,
-    nativeChat: model.nativeChat, account, ...providerControls,
-    setHostApproval: approve => sandboxTools.setHostApproval(approve),
+  return {
+    workspace: options.workspace,
+    task: options.task,
+    runtime,
+    session,
+    evaluator: env.evaluator,
+    budget: env.budget,
+    settings,
+    verify,
+    runCommand,
+    nativeChat: model.nativeChat,
+    account,
+    ...providerControls,
+    setHostApproval: (approve) => sandboxTools.setHostApproval(approve),
     chain: createChainControls({ surfnet: life.surf!, withUserOperation: life.withUserOperation }),
-    knowledge: { config: tools.knowledgeSource,
-      decodeError: (code: string, program?: string, signal?: AbortSignal) => remoteDecodeError(tools.knowledgeSource, code, program, signal) },
+    knowledge: {
+      config: tools.knowledgeSource,
+      decodeError: (code: string, program?: string, signal?: AbortSignal) =>
+        remoteDecodeError(tools.knowledgeSource, code, program, signal),
+    },
     ...(webControls ? { web: webControls } : {}),
     ...(tools.edgeCheck ? { edgeCheck: { summary: tools.edgeCheck.summary } } : {}),
-    files: sandboxTools.files, startTerminal: (columns, rows) => life.withUserOperation(() => sandboxTools.startTerminal(columns, rows)),
+    files: sandboxTools.files,
+    startTerminal: (columns, rows) => life.withUserOperation(() => sandboxTools.startTerminal(columns, rows)),
     async close() {
       await runtime.dispose();
-    } };
+    },
+  };
 }

@@ -165,7 +165,6 @@ export function decodeUnsignedTransaction(encoded: unknown): DecodedUnsignedTran
   };
 }
 
-
 /** Rebuild the wire transaction with a signature placed in the matching slot. */
 export function attachSignature(
   decoded: Pick<DecodedUnsignedTransaction, 'signatureSlots' | 'messageBytes'>,

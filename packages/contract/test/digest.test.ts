@@ -7,14 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import {
-  DigestError,
-  canonicalJson,
-  digestFileEntries,
-  digestFiles,
-  digestJson,
-  sha256Hex,
-} from '../src/digest.ts';
+import { DigestError, canonicalJson, digestFileEntries, digestFiles, digestJson, sha256Hex } from '../src/digest.ts';
 import { PathError } from '../src/paths.ts';
 import { makeProject } from '../test-support/fixture.ts';
 
@@ -82,13 +75,34 @@ test('digestFiles rejects traversal, absolute paths and duplicates', (t) => {
   t.after(() => project.cleanup());
   writeFileSync(join(project.outside, 'secret.ts'), 'outside\n');
 
-  assert.equal(pathErrorCode(() => digestFiles(project.root, ['../outside/secret.ts'])), 'E_PATH_ESCAPE');
-  assert.equal(pathErrorCode(() => digestFiles(project.root, ['src/../../outside/secret.ts'])), 'E_PATH_ESCAPE');
-  assert.equal(pathErrorCode(() => digestFiles(project.root, [project.codePath])), 'E_ABSOLUTE_PATH');
-  assert.equal(pathErrorCode(() => digestFiles(project.root, [''])), 'E_BAD_PATH');
-  assert.equal(pathErrorCode(() => digestFiles(project.root, ['src/main.ts', './src/main.ts'])), 'E_DUPLICATE_PATH');
-  assert.equal(pathErrorCode(() => digestFiles(project.root, ['src'])), 'E_NOT_A_FILE');
-  assert.equal(pathErrorCode(() => digestFiles(project.root, ['src/missing.ts'])), 'E_NOT_FOUND');
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, ['../outside/secret.ts'])),
+    'E_PATH_ESCAPE',
+  );
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, ['src/../../outside/secret.ts'])),
+    'E_PATH_ESCAPE',
+  );
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, [project.codePath])),
+    'E_ABSOLUTE_PATH',
+  );
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, [''])),
+    'E_BAD_PATH',
+  );
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, ['src/main.ts', './src/main.ts'])),
+    'E_DUPLICATE_PATH',
+  );
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, ['src'])),
+    'E_NOT_A_FILE',
+  );
+  assert.equal(
+    pathErrorCode(() => digestFiles(project.root, ['src/missing.ts'])),
+    'E_NOT_FOUND',
+  );
 });
 
 test('a symlink that leaves the root is rejected', (t) => {

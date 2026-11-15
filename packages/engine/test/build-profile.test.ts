@@ -3,7 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 
 test('trusted build profile clamps timeout and supplies resources and offline Cargo home', () => {
-  const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', `
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--experimental-test-module-mocks',
+      '--input-type=module',
+      '-e',
+      `
     import assert from 'node:assert/strict';
     import { mock } from 'node:test';
     import * as sandbox from '@oms/sandbox';
@@ -40,6 +46,9 @@ test('trusted build profile clamps timeout and supplies resources and offline Ca
       assert.equal(fetch.env.CARGO_NET_OFFLINE,undefined);
       assert.equal(fetch.timeoutMs,120_000);
     } finally { await tools.dispose(); }
-  `], { cwd: new URL('../../../', import.meta.url), encoding: 'utf8', timeout: 30_000 });
+  `,
+    ],
+    { cwd: new URL('../../../', import.meta.url), encoding: 'utf8', timeout: 30_000 },
+  );
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });

@@ -68,7 +68,13 @@ test('idle resolves only after all queued jobs finish', async () => {
 });
 
 test('isReadMethod classifies reads vs writes; unknown surfnet_* is a write', () => {
-  for (const read of ['getHealth', 'getAccountInfo', 'getLatestBlockhash', 'surfnet_getSurfnetInfo', 'surfnet_getLocalSignatures']) {
+  for (const read of [
+    'getHealth',
+    'getAccountInfo',
+    'getLatestBlockhash',
+    'surfnet_getSurfnetInfo',
+    'surfnet_getLocalSignatures',
+  ]) {
     assert.equal(isReadMethod(read), true, read);
   }
   for (const write of [

@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -11,7 +21,12 @@ import { test } from 'node:test';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { DEFAULT_BUDGET_CAPS } from '@oms/core';
 import { acquireMutationLease, acquireTaskLease, defaultHarnessEnvironment, openBudgetJournal } from '@oms/engine';
-import { prepareLocalStarter, localStarterPaths, savedBudgetUsable, selectStarterSession } from '../../../scripts/start-local.ts';
+import {
+  prepareLocalStarter,
+  localStarterPaths,
+  savedBudgetUsable,
+  selectStarterSession,
+} from '../../../scripts/start-local.ts';
 import { parseLaunchOptions } from '../src/harness.ts';
 import { writePrivateJson } from '../../../packages/engine/src/workspace/storage.ts';
 
@@ -24,7 +39,7 @@ function fixture(t: { after(fn: () => void): void }) {
   return root;
 }
 
-test('starter initialization pins a real independent verifier and preserves edits, session and budget on repeat', async t => {
+test('starter initialization pins a real independent verifier and preserves edits, session and budget on repeat', async (t) => {
   const root = fixture(t);
   const first = await prepareLocalStarter(root, environment);
   assert.deepEqual(first.caps, DEFAULT_BUDGET_CAPS);
@@ -39,7 +54,11 @@ test('starter initialization pins a real independent verifier and preserves edit
   const sessionDir = join(first.workspace.stateDir, 'sessions', first.task.id);
   const sessionFile = SessionManager.findById(first.task.codeRoot, first.sessionId, sessionDir);
   assert.ok(sessionFile);
-  SessionManager.open(sessionFile, sessionDir).appendMessage({ role: 'user', content: 'Keep this local conversation without dispatching a model.', timestamp: 1 });
+  SessionManager.open(sessionFile, sessionDir).appendMessage({
+    role: 'user',
+    content: 'Keep this local conversation without dispatching a model.',
+    timestamp: 1,
+  });
   const historyBefore = readFileSync(sessionFile, 'utf8');
   const journal = join(sessionDir, `${first.sessionId}.budget.jsonl`);
   writeFileSync(journal, 'existing-budget-do-not-reset\n');
@@ -58,10 +77,13 @@ test('starter initialization pins a real independent verifier and preserves edit
   writeFileSync(source, 'export function totalCents() { return 0; }\n');
   const broken = spawnSync(process.execPath, [verifier], { encoding: 'utf8' });
   assert.notEqual(broken.status, 0, 'independent verification must reject incorrect source');
-  assert.equal(execFileSync('git', ['-C', first.workspace.root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), first.task.baseOid);
+  assert.equal(
+    execFileSync('git', ['-C', first.workspace.root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    first.task.baseOid,
+  );
 });
 
-test('starter refuses foreign or incomplete paths without adopting or deleting them', async t => {
+test('starter refuses foreign or incomplete paths without adopting or deleting them', async (t) => {
   const root = fixture(t);
   const paths = localStarterPaths(root);
   mkdirSync(paths.repository, { recursive: true });
@@ -72,7 +94,7 @@ test('starter refuses foreign or incomplete paths without adopting or deleting t
   assert.equal(existsSync(paths.stateRoot), false);
 });
 
-test('starter refuses malformed ownership and missing pinned state without reseeding', async t => {
+test('starter refuses malformed ownership and missing pinned state without reseeding', async (t) => {
   const root = fixture(t);
   const first = await prepareLocalStarter(root, environment);
   const paths = localStarterPaths(root);
@@ -88,7 +110,9 @@ test('starter refuses malformed ownership and missing pinned state without resee
 
 test('run rejects presentation flags and help advertises only in-app switching', () => {
   for (const flag of ['--view', '--theme']) {
-    const result = spawnSync(process.execPath, [bin, 'run', flag, flag === '--view' ? 'workbench' : 'gruvbox'], { encoding: 'utf8' });
+    const result = spawnSync(process.execPath, [bin, 'run', flag, flag === '--view' ? 'workbench' : 'gruvbox'], {
+      encoding: 'utf8',
+    });
     assert.equal(result.status, 1);
     assert.match(result.stderr, new RegExp(`Unknown option ${flag}`));
   }
@@ -107,27 +131,33 @@ test('bare CLI follows local launch and refuses noninteractive use before prepar
   assert.match(result.stderr, /interactive terminal/i);
 });
 
-test('concurrent starter initialization waits for the owned setup and returns one task and session', async t => {
+test('concurrent starter initialization waits for the owned setup and returns one task and session', async (t) => {
   const root = fixture(t);
-  const [first, second] = await Promise.all([prepareLocalStarter(root, environment), prepareLocalStarter(root, environment)]);
+  const [first, second] = await Promise.all([
+    prepareLocalStarter(root, environment),
+    prepareLocalStarter(root, environment),
+  ]);
   assert.equal(first.workspace.id, second.workspace.id);
   assert.equal(first.sessionId, second.sessionId);
   assert.deepEqual(first.task, second.task);
 });
 
-test('the readable contract convention does not relax private metadata or writable-contract ownership checks', async t => {
+test('the readable contract convention does not relax private metadata or writable-contract ownership checks', async (t) => {
   const root = fixture(t);
   const options = await prepareLocalStarter(root, environment);
   assert.equal(statSync(options.task.taskFile).mode & 0o777, 0o644);
   const owner = join(localStarterPaths(root).metadata, 'owner.json');
   chmodSync(owner, 0o644);
-  await assert.rejects(prepareLocalStarter(root, environment), error => error instanceof Error && error.cause instanceof Error);
+  await assert.rejects(
+    prepareLocalStarter(root, environment),
+    (error) => error instanceof Error && error.cause instanceof Error,
+  );
   chmodSync(owner, 0o600);
   chmodSync(options.task.taskFile, 0o666);
   await assert.rejects(prepareLocalStarter(root, environment), /incomplete|owned/i);
 });
 
-test('existing ready metadata is not read until live initialization finishes publishing', async t => {
+test('existing ready metadata is not read until live initialization finishes publishing', async (t) => {
   const root = fixture(t);
   const first = await prepareLocalStarter(root, environment);
   const paths = localStarterPaths(root);
@@ -137,8 +167,14 @@ test('existing ready metadata is not read until live initialization finishes pub
   writeFileSync(readyFile, '{"schema":');
   let settled = false;
   const reopening = prepareLocalStarter(root, environment).then(
-    value => { settled = true; return { value, error: undefined }; },
-    error => { settled = true; return { value: undefined, error }; },
+    (value) => {
+      settled = true;
+      return { value, error: undefined };
+    },
+    (error) => {
+      settled = true;
+      return { value: undefined, error };
+    },
   );
   try {
     await delay(30);
@@ -152,19 +188,20 @@ test('existing ready metadata is not read until live initialization finishes pub
   assert.equal(result.value?.sessionId, first.sessionId);
 });
 
-test('bounded expired saved budgets require explicit new-session consent and retain old accounting and history', async t => {
+test('bounded expired saved budgets require explicit new-session consent and retain old accounting and history', async (t) => {
   const root = fixture(t);
   const original = await prepareLocalStarter(root, environment, parseLaunchOptions(['--bounded']));
   const directory = join(original.workspace.stateDir, 'sessions', original.task.id);
   const journal = join(directory, `${original.sessionId}.budget.jsonl`);
-  const contents = JSON.stringify({ type: 'budget_open', seq: 1, version: 1, caps: original.caps, startedAt: 0 }) + '\n';
+  const contents =
+    JSON.stringify({ type: 'budget_open', seq: 1, version: 1, caps: original.caps, startedAt: 0 }) + '\n';
   writeFileSync(journal, contents, { mode: 0o600 });
   assert.equal(savedBudgetUsable(original, 1), true);
   assert.equal(savedBudgetUsable(original, original.caps.wallClockMs + 1), false);
   const before = readFileSync(join(localStarterPaths(root).metadata, 'ready.json'), 'utf8');
   assert.equal(await selectStarterSession(root, original, async () => undefined), undefined);
   assert.equal(readFileSync(join(localStarterPaths(root).metadata, 'ready.json'), 'utf8'), before);
-  const renewed = await selectStarterSession(root, original, async message => {
+  const renewed = await selectStarterSession(root, original, async (message) => {
     assert.match(message, /bounded/);
     assert.match(message, /retained/);
     return 'new';
@@ -177,28 +214,45 @@ test('bounded expired saved budgets require explicit new-session consent and ret
   assert.equal(existsSync(join(directory, `${renewed.sessionId}.budget.jsonl`)), true);
 });
 
-test('interactive startup keeps the same saved idle conversation and legacy journal without a renewal prompt', async t => {
+test('interactive startup keeps the same saved idle conversation and legacy journal without a renewal prompt', async (t) => {
   const root = fixture(t);
   const original = await prepareLocalStarter(root, environment);
   const directory = join(original.workspace.stateDir, 'sessions', original.task.id);
   const journal = join(directory, `${original.sessionId}.budget.jsonl`);
-  const contents = JSON.stringify({ type: 'budget_open', seq: 1, version: 1, caps: original.caps, startedAt: 0 }) + '\n';
+  const contents =
+    JSON.stringify({ type: 'budget_open', seq: 1, version: 1, caps: original.caps, startedAt: 0 }) + '\n';
   writeFileSync(journal, contents, { mode: 0o600 });
   const sessionFile = SessionManager.findById(original.task.codeRoot, original.sessionId!, directory)!;
-  SessionManager.open(sessionFile, directory).appendMessage({ role: 'user', content: 'Keep this conversation after an idle night.', timestamp: 1 });
+  SessionManager.open(sessionFile, directory).appendMessage({
+    role: 'user',
+    content: 'Keep this conversation after an idle night.',
+    timestamp: 1,
+  });
   const conversation = readFileSync(sessionFile, 'utf8');
   const metadata = readFileSync(join(localStarterPaths(root).metadata, 'ready.json'), 'utf8');
   assert.equal(savedBudgetUsable(original, original.caps.wallClockMs * 100), true);
-  const resumed = await selectStarterSession(root, original, async () => { assert.fail('Idle conversation must not need renewal'); });
+  const resumed = await selectStarterSession(root, original, async () => {
+    assert.fail('Idle conversation must not need renewal');
+  });
   assert.equal(resumed?.sessionId, original.sessionId);
   assert.equal(readFileSync(sessionFile, 'utf8'), conversation);
   assert.equal(readFileSync(journal, 'utf8'), contents);
   assert.equal(readFileSync(join(localStarterPaths(root).metadata, 'ready.json'), 'utf8'), metadata);
 });
 
-test('starter bounded launch persists explicit caps without inflating limits', async t => {
+test('starter bounded launch persists explicit caps without inflating limits', async (t) => {
   const root = fixture(t);
-  const launch = parseLaunchOptions(['--bounded', '--tokens', '123', '--spend-usd', '0.000123', '--minutes', '2', '--output-tokens', '17']);
+  const launch = parseLaunchOptions([
+    '--bounded',
+    '--tokens',
+    '123',
+    '--spend-usd',
+    '0.000123',
+    '--minutes',
+    '2',
+    '--output-tokens',
+    '17',
+  ]);
   const options = await prepareLocalStarter(root, environment, launch);
   assert.equal(options.executionMode, 'bounded');
   assert.deepEqual(options.caps, launch.caps);
@@ -211,11 +265,15 @@ test('starter bounded launch persists explicit caps without inflating limits', a
   assert.equal(reopened.sessionId, options.sessionId);
   assert.deepEqual(reopened.caps, launch.caps);
   assert.equal(savedBudgetUsable(reopened), true);
-  assert.equal(savedBudgetUsable({ ...reopened, caps: DEFAULT_BUDGET_CAPS }), false, 'resuming must not silently enlarge explicitly selected caps');
+  assert.equal(
+    savedBudgetUsable({ ...reopened, caps: DEFAULT_BUDGET_CAPS }),
+    false,
+    'resuming must not silently enlarge explicitly selected caps',
+  );
   assert.equal(readFileSync(journal, 'utf8'), before);
 });
 
-test('unknown or truncated accounting is not silently reset', async t => {
+test('unknown or truncated accounting is not silently reset', async (t) => {
   const root = fixture(t);
   const options = await prepareLocalStarter(root, environment);
   const journal = join(options.workspace.stateDir, 'sessions', options.task.id, `${options.sessionId}.budget.jsonl`);
@@ -225,24 +283,31 @@ test('unknown or truncated accounting is not silently reset', async t => {
   assert.equal(readFileSync(journal, 'utf8'), '{"type":"budget_open"');
 });
 
-test('publishing a starter session includes its actual persisted budget journal', async t => {
+test('publishing a starter session includes its actual persisted budget journal', async (t) => {
   const root = fixture(t);
   const options = await prepareLocalStarter(root, environment);
   const journal = join(options.workspace.stateDir, 'sessions', options.task.id, `${options.sessionId}.budget.jsonl`);
   assert.equal(existsSync(journal), true, 'ready session must already have accounting');
-  const events = readFileSync(journal, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const events = readFileSync(journal, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
   assert.equal(events[0].type, 'budget_open');
   assert.deepEqual(events[0].caps, DEFAULT_BUDGET_CAPS);
   assert.equal(savedBudgetUsable(options), true);
 });
 
-test('missing accounting with retained conversation requires consent rather than reopening with a fresh budget', async t => {
+test('missing accounting with retained conversation requires consent rather than reopening with a fresh budget', async (t) => {
   const root = fixture(t);
   const options = await prepareLocalStarter(root, environment);
   const directory = join(options.workspace.stateDir, 'sessions', options.task.id);
   const sessionFile = SessionManager.findById(options.task.codeRoot, options.sessionId!, directory);
   assert.ok(sessionFile);
-  SessionManager.open(sessionFile, directory).appendMessage({ role: 'user', content: 'Retain this conversation.', timestamp: 1 });
+  SessionManager.open(sessionFile, directory).appendMessage({
+    role: 'user',
+    content: 'Retain this conversation.',
+    timestamp: 1,
+  });
   const conversation = readFileSync(sessionFile, 'utf8');
   const journal = join(directory, `${options.sessionId}.budget.jsonl`);
   rmSync(journal, { force: true });
@@ -252,7 +317,7 @@ test('missing accounting with retained conversation requires consent rather than
   assert.equal(readFileSync(sessionFile, 'utf8'), conversation);
 });
 
-test('pending dispatch accounting is restart-unknown without mutating the existing journal', async t => {
+test('pending dispatch accounting is restart-unknown without mutating the existing journal', async (t) => {
   const root = fixture(t);
   const options = await prepareLocalStarter(root, environment);
   const path = join(options.workspace.stateDir, 'sessions', options.task.id, `${options.sessionId}.budget.jsonl`);
@@ -261,17 +326,30 @@ test('pending dispatch accounting is restart-unknown without mutating the existi
     const journal = openBudgetJournal({ path, caps: options.caps, clock: Date.now });
     try {
       assert.equal(journal.ledger.beginOperation('turn').ok, true);
-      assert.equal(journal.ledger.reserve({ dispatchId: 'pending', logicalTurnId: 'turn', attempt: 1, tokens: 10, spendMicroUsd: 100 }).ok, true);
+      assert.equal(
+        journal.ledger.reserve({
+          dispatchId: 'pending',
+          logicalTurnId: 'turn',
+          attempt: 1,
+          tokens: 10,
+          spendMicroUsd: 100,
+        }).ok,
+        true,
+      );
       assert.equal(journal.ledger.snapshot().accounting, 'pending');
-    } finally { journal.close(); }
-  } finally { lease.release(); }
+    } finally {
+      journal.close();
+    }
+  } finally {
+    lease.release();
+  }
   const before = readFileSync(path, 'utf8');
   assert.equal(savedBudgetUsable(options), false);
   assert.equal(await selectStarterSession(root, options, async () => undefined), undefined);
   assert.equal(readFileSync(path, 'utf8'), before);
 });
 
-test('interactive startup blocks unknown usage but preserves a known spend-exhausted conversation for subscription chat', async t => {
+test('interactive startup blocks unknown usage but preserves a known spend-exhausted conversation for subscription chat', async (t) => {
   for (const outcome of ['uncertain', 'known'] as const) {
     const root = fixture(t);
     const options = await prepareLocalStarter(root, environment);
@@ -279,12 +357,40 @@ test('interactive startup blocks unknown usage but preserves a known spend-exhau
     const journal = openBudgetJournal({ path, caps: options.caps, clock: Date.now });
     try {
       assert.equal(journal.ledger.beginOperation('turn').ok, true);
-      assert.equal(journal.ledger.reserve({ dispatchId: outcome, logicalTurnId: 'turn', attempt: 1, tokens: 10, spendMicroUsd: options.caps.spendMicroUsd }).ok, true);
-      assert.equal(journal.ledger.settle({ dispatchId: outcome, receiptId: 'receipt', outcome,
-        tokens: outcome === 'known' ? 10 : null, spendMicroUsd: outcome === 'known' ? options.caps.spendMicroUsd : null }).ok, true);
+      assert.equal(
+        journal.ledger.reserve({
+          dispatchId: outcome,
+          logicalTurnId: 'turn',
+          attempt: 1,
+          tokens: 10,
+          spendMicroUsd: options.caps.spendMicroUsd,
+        }).ok,
+        true,
+      );
+      assert.equal(
+        journal.ledger.settle({
+          dispatchId: outcome,
+          receiptId: 'receipt',
+          outcome,
+          tokens: outcome === 'known' ? 10 : null,
+          spendMicroUsd: outcome === 'known' ? options.caps.spendMicroUsd : null,
+        }).ok,
+        true,
+      );
       assert.equal(journal.ledger.snapshot().remaining.spendMicroUsd, 0);
-      assert.equal(journal.ledger.reserve({ dispatchId: 'paid-next', logicalTurnId: 'turn', attempt: 2, tokens: 1, spendMicroUsd: 1 }).ok, false);
-    } finally { journal.close(); }
+      assert.equal(
+        journal.ledger.reserve({
+          dispatchId: 'paid-next',
+          logicalTurnId: 'turn',
+          attempt: 2,
+          tokens: 1,
+          spendMicroUsd: 1,
+        }).ok,
+        false,
+      );
+    } finally {
+      journal.close();
+    }
     const before = readFileSync(path, 'utf8');
     assert.equal(savedBudgetUsable(options), outcome === 'known');
     const resumed = await selectStarterSession(root, options, async () => {
@@ -297,7 +403,7 @@ test('interactive startup blocks unknown usage but preserves a known spend-exhau
   }
 });
 
-test('a controlled pre-lease publication barrier longer than 100ms does not reject a concurrent launcher', async t => {
+test('a controlled pre-lease publication barrier longer than 100ms does not reject a concurrent launcher', async (t) => {
   const root = fixture(t);
   const first = await prepareLocalStarter(root, environment);
   const paths = localStarterPaths(root);
@@ -309,8 +415,14 @@ test('a controlled pre-lease publication barrier longer than 100ms does not reje
   rmSync(readyFile);
   let settled = false;
   const reopening = prepareLocalStarter(root, environment).then(
-    value => { settled = true; return { value, error: undefined }; },
-    error => { settled = true; return { value: undefined, error }; },
+    (value) => {
+      settled = true;
+      return { value, error: undefined };
+    },
+    (error) => {
+      settled = true;
+      return { value: undefined, error };
+    },
   );
   await delay(250);
   const settledBeforePublication = settled;
@@ -318,14 +430,16 @@ test('a controlled pre-lease publication barrier longer than 100ms does not reje
   try {
     writeFileSync(ownerFile, owner, { mode: 0o600, flag: 'wx' });
     writeFileSync(readyFile, ready, { mode: 0o600, flag: 'wx' });
-  } finally { lease.release(); }
+  } finally {
+    lease.release();
+  }
   const result = await reopening;
   assert.equal(settledBeforePublication, false);
   assert.equal(result.error, undefined);
   assert.equal(result.value?.sessionId, first.sessionId);
 });
 
-test('atomic owner and ready publication cannot be combined with an earlier absent-owner observation', async t => {
+test('atomic owner and ready publication cannot be combined with an earlier absent-owner observation', async (t) => {
   const root = fixture(t);
   const first = await prepareLocalStarter(root, environment);
   const paths = localStarterPaths(root);
@@ -338,15 +452,18 @@ test('atomic owner and ready publication cannot be combined with an earlier abse
   const original = fs.lstatSync;
   let published = false;
   const intercepted = t.mock.method(fs, 'lstatSync', (path: unknown, ...args: unknown[]) => {
-    try { return Reflect.apply(original, fs, [path, ...args]); }
-    catch (error) {
+    try {
+      return Reflect.apply(original, fs, [path, ...args]);
+    } catch (error) {
       if (!published && String(path) === ownerFile && (error as NodeJS.ErrnoException).code === 'ENOENT') {
         published = true;
         const lease = acquireMutationLease(join(paths.metadata, 'initialization.lease'));
         try {
           writePrivateJson(ownerFile, owner);
           writePrivateJson(readyFile, ready);
-        } finally { lease.release(); }
+        } finally {
+          lease.release();
+        }
       }
       throw error;
     }
@@ -362,24 +479,41 @@ test('atomic owner and ready publication cannot be combined with an earlier abse
   }
 });
 
-test('starter Git creation ignores executable ambient filters and global attributes', t => {
+test('starter Git creation ignores executable ambient filters and global attributes', (t) => {
   const root = fixture(t);
   const sentinel = join(root, 'global-filter-ran');
   const filter = join(root, 'filter.mjs');
   const attributes = join(root, 'attributes');
   const config = join(root, 'gitconfig');
-  writeFileSync(filter, `import { readFileSync, writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(sentinel)}, 'unexpected execution'); process.stdout.write(readFileSync(0));\n`);
+  writeFileSync(
+    filter,
+    `import { readFileSync, writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(sentinel)}, 'unexpected execution'); process.stdout.write(readFileSync(0));\n`,
+  );
   writeFileSync(attributes, '*.mjs filter=oms-startup-review\n');
-  writeFileSync(config, `[core]\n  attributesFile = ${JSON.stringify(attributes)}\n[filter \"oms-startup-review\"]\n  clean = ${JSON.stringify(`\"${process.execPath}\" \"${filter}\"`)}\n  required = true\n`);
+  writeFileSync(
+    config,
+    `[core]\n  attributesFile = ${JSON.stringify(attributes)}\n[filter \"oms-startup-review\"]\n  clean = ${JSON.stringify(`\"${process.execPath}\" \"${filter}\"`)}\n  required = true\n`,
+  );
   const starter = new URL('../../../scripts/start-local.ts', import.meta.url).href;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
-    `import { prepareLocalStarter } from ${JSON.stringify(starter)}; import { defaultHarnessEnvironment } from '@oms/engine'; await prepareLocalStarter(${JSON.stringify(root)}, { ...defaultHarnessEnvironment(), binary: process.execPath });`],
-    { cwd: fileURLToPath(new URL('../../../', import.meta.url)), encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: config }, timeout: 30_000 });
+  const child = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `import { prepareLocalStarter } from ${JSON.stringify(starter)}; import { defaultHarnessEnvironment } from '@oms/engine'; await prepareLocalStarter(${JSON.stringify(root)}, { ...defaultHarnessEnvironment(), binary: process.execPath });`,
+    ],
+    {
+      cwd: fileURLToPath(new URL('../../../', import.meta.url)),
+      encoding: 'utf8',
+      env: { ...process.env, GIT_CONFIG_GLOBAL: config },
+      timeout: 30_000,
+    },
+  );
   assert.equal(child.status, 0, child.stderr);
   assert.equal(existsSync(sentinel), false, 'ambient executable Git configuration must not run');
 });
 
-test('the starter lives under the given OMS home, not the package root, and survives a dependency tree beside it', async t => {
+test('the starter lives under the given OMS home, not the package root, and survives a dependency tree beside it', async (t) => {
   const home = fixture(t);
   const packageRoot = fixture(t);
   mkdirSync(join(packageRoot, 'node_modules'));
@@ -394,7 +528,7 @@ test('the starter lives under the given OMS home, not the package root, and surv
   assert.ok(options.task.codeRoot.startsWith(paths.repository));
 });
 
-test('an initialization failure reports its cause in one line and tells installed users to run oms', async t => {
+test('an initialization failure reports its cause in one line and tells installed users to run oms', async (t) => {
   const home = fixture(t);
   await assert.rejects(prepareLocalStarter(home, { ...environment, dependencies: home }), (error: Error) => {
     assert.match(error.message, /Local starter initialization stopped: .*overlap/);
@@ -405,7 +539,7 @@ test('an initialization failure reports its cause in one line and tells installe
   });
 });
 
-test('an interrupted first launch with no ready record is discarded and the next launch succeeds', async t => {
+test('an interrupted first launch with no ready record is discarded and the next launch succeeds', async (t) => {
   const home = fixture(t);
   await assert.rejects(prepareLocalStarter(home, { ...environment, dependencies: home }), /initialization stopped/);
   const paths = localStarterPaths(home);
@@ -417,7 +551,7 @@ test('an interrupted first launch with no ready record is discarded and the next
   assert.equal((await prepareLocalStarter(home, environment)).sessionId, options.sessionId);
 });
 
-test('an unpublished setup with a foreign owner is still refused and preserved', async t => {
+test('an unpublished setup with a foreign owner is still refused and preserved', async (t) => {
   const home = fixture(t);
   await assert.rejects(prepareLocalStarter(home, { ...environment, dependencies: home }), /initialization stopped/);
   const paths = localStarterPaths(home);

@@ -161,7 +161,9 @@ export function createTraceExtension(options: TraceExtensionOptions): ExtensionF
     // restore the types the event already had.
     const content = redact(event.content) as ToolResultEvent['content'];
     const structuredContent =
-      event.structuredContent === undefined ? undefined : (redact(event.structuredContent) as ToolResultEvent['structuredContent']);
+      event.structuredContent === undefined
+        ? undefined
+        : (redact(event.structuredContent) as ToolResultEvent['structuredContent']);
     // `structuredContent` must travel with a replaced `content`, or Pi drops it.
     return structuredContent === undefined ? { content } : { content, structuredContent };
   };

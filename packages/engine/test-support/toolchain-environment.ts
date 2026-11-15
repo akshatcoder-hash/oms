@@ -5,5 +5,9 @@ import { skipUnavailableToolchain } from '../../sandbox/test-support/infrastruct
 
 export function toolchainEnvironment(t: TestContext) {
   if (skipUnavailableToolchain(t, configuredToolchainImage())) return undefined;
-  return defaultHarnessEnvironment(process.env.SURFPOOL_BINARY ?? join(process.env.HOME ?? '', '.local/bin/surfpool'), 'docker', true);
+  return defaultHarnessEnvironment(
+    process.env.SURFPOOL_BINARY ?? join(process.env.HOME ?? '', '.local/bin/surfpool'),
+    'docker',
+    true,
+  );
 }

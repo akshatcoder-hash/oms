@@ -24,8 +24,7 @@ export type MutationCode =
   | 'E_BAD_EVIDENCE';
 
 export type Mutation<T> =
-  | { ok: true; contract: TaskContract; value: T }
-  | { ok: false; code: MutationCode; message: string };
+  { ok: true; contract: TaskContract; value: T } | { ok: false; code: MutationCode; message: string };
 
 export class ContractError extends Error {
   readonly code: string;
@@ -77,9 +76,7 @@ export function writeContractFileAtomic(contractPath: string, contract: TaskCont
     const first = validated.issues[0];
     throw new ContractError(
       'E_INVALID_CONTRACT',
-      first === undefined
-        ? 'contract is invalid'
-        : `${first.path === '' ? 'contract' : first.path}: ${first.message}`,
+      first === undefined ? 'contract is invalid' : `${first.path === '' ? 'contract' : first.path}: ${first.message}`,
     );
   }
   writeFileAtomic(contractPath, `${JSON.stringify(validated.value, null, 2)}\n`, { mode: 0o644 });
@@ -103,10 +100,7 @@ export function applyActivate(contract: TaskContract, itemId: string): Mutation<
   }
   const other = next.items.find((entry) => entry.status === 'active');
   if (other !== undefined) {
-    return mutationFailure(
-      'E_ALREADY_ACTIVE',
-      `item "${other.id}" is already active; only one item may be active`,
-    );
+    return mutationFailure('E_ALREADY_ACTIVE', `item "${other.id}" is already active; only one item may be active`);
   }
   item.status = 'active';
   delete item.evidence;
@@ -153,11 +147,7 @@ export function applyReopen(contract: TaskContract, itemId: string): Mutation<vo
  * enforces is enforced here, so no code path can persist a closure on
  * forked, failing, unbound or mismatched evidence.
  */
-export function applyClose(
-  contract: TaskContract,
-  itemId: string,
-  evidence: Evidence,
-): Mutation<void> {
+export function applyClose(contract: TaskContract, itemId: string, evidence: Evidence): Mutation<void> {
   const next = clone(contract);
   const item = findItem(next, itemId);
   if (item === undefined) {
@@ -176,10 +166,7 @@ export function applyClose(
     return mutationFailure('E_BAD_EVIDENCE', 'failing evidence cannot close an item');
   }
   if (evidence.mode !== 'offline-snapshot') {
-    return mutationFailure(
-      'E_BAD_EVIDENCE',
-      'only reproducible offline-snapshot evidence can close an item',
-    );
+    return mutationFailure('E_BAD_EVIDENCE', 'only reproducible offline-snapshot evidence can close an item');
   }
   item.status = 'closed';
   item.evidence = structuredClone(evidence);

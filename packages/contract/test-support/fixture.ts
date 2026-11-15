@@ -184,9 +184,10 @@ export function evidenceFor(
 }
 
 /** A runner that passes and counts its calls. */
-export function countingRunner(
-  options: { passed?: boolean; mode?: Evidence['mode'] } = {},
-): { runner: (item: ContractItem, ctx: RunnerContext) => Promise<Evidence>; calls: () => number } {
+export function countingRunner(options: { passed?: boolean; mode?: Evidence['mode'] } = {}): {
+  runner: (item: ContractItem, ctx: RunnerContext) => Promise<Evidence>;
+  calls: () => number;
+} {
   let calls = 0;
   return {
     calls: () => calls,

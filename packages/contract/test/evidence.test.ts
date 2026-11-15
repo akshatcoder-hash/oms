@@ -6,12 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import {
-  createVerifierCache,
-  evidenceCacheKey,
-  parseEvidence,
-  type Evidence,
-} from '../src/evidence.ts';
+import { createVerifierCache, evidenceCacheKey, parseEvidence, type Evidence } from '../src/evidence.ts';
 import { PathError } from '../src/paths.ts';
 import { FIXED_TIME, makeProject } from '../test-support/fixture.ts';
 
@@ -79,7 +74,13 @@ test('the cache key covers specification, code, verifier and snapshot', () => {
     }),
   );
   assert.throws(
-    () => evidenceCacheKey({ specificationDigest: 'e'.repeat(64), codeDigest: 'nope', verifierDigest: 'b'.repeat(64), snapshotDigest: 'c'.repeat(64) }),
+    () =>
+      evidenceCacheKey({
+        specificationDigest: 'e'.repeat(64),
+        codeDigest: 'nope',
+        verifierDigest: 'b'.repeat(64),
+        snapshotDigest: 'c'.repeat(64),
+      }),
     TypeError,
   );
 });

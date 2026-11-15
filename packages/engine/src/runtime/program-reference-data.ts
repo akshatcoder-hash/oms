@@ -1,15 +1,18 @@
 /** Shape of the generated Solana program reference (program-reference.json). Written only by scripts/gen-program-reference.ts. */
 /** count: no dispatch tag, the data starts with a count (see ReferenceProgram.count). none: no tag and no count. */
-export type DiscriminatorStyle = "u8" | "u32" | "anchor8" | "count" | "none";
+export type DiscriminatorStyle = 'u8' | 'u32' | 'anchor8' | 'count' | 'none';
 
 export interface ReferenceAccount {
   name: string;
   /** Absent for factsOnly entries, which carry names and order only. "either" means signer or not (e.g. a token authority or multisig). */
-  signer?: boolean | "either";
+  signer?: boolean | 'either';
   writable?: boolean;
   optional?: boolean;
 }
-export interface ReferenceArg { name: string; type: string }
+export interface ReferenceArg {
+  name: string;
+  type: string;
+}
 export interface ReferenceInstruction {
   name: string;
   /** The program's own spelling when it differs from `name` (System's `TransferSol` is the Transfer instruction). */
@@ -21,12 +24,16 @@ export interface ReferenceInstruction {
   args?: ReferenceArg[];
   note?: string;
 }
-export interface ReferenceSource { url: string; version: string; licence: string }
+export interface ReferenceSource {
+  url: string;
+  version: string;
+  licence: string;
+}
 export interface ReferenceProgram {
   name: string;
   id: string;
   /** Solana native and SPL programs, or applications chosen by the ranking. */
-  category: "native" | "application";
+  category: 'native' | 'application';
   purpose: string;
   /** Extra text for the system-prompt index, for a program whose instruction list is too long to print. */
   indexHint?: string;
@@ -45,7 +52,7 @@ export interface ReferenceProgram {
   instructions: ReferenceInstruction[];
 }
 export interface ProgramReferenceData {
-  schema: "oms.program-reference/1";
+  schema: 'oms.program-reference/1';
   generator: string;
   ranking: { source: string; asOf: string; method: string };
   programs: ReferenceProgram[];

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { DEFAULT_OPTIONS, renderText, runChecks, summarize } from "./doctor/checks.ts";
-import { nodeEnv } from "./doctor/node-env.ts";
-import { installSurfpool } from "./doctor/install.ts";
-import { readFileSync } from "node:fs";
-import { configuredBackend, defaultHarnessEnvironment } from "@oms/engine";
-import { runHarnessCommand } from "./harness.ts";
-import { toolchainCommand } from "./toolchain.ts";
-import { runReviewCommand } from "./review.ts";
-import { startLocal } from "../../../scripts/start-local.ts";
+import { DEFAULT_OPTIONS, renderText, runChecks, summarize } from './doctor/checks.ts';
+import { nodeEnv } from './doctor/node-env.ts';
+import { installSurfpool } from './doctor/install.ts';
+import { readFileSync } from 'node:fs';
+import { configuredBackend, defaultHarnessEnvironment } from '@oms/engine';
+import { runHarnessCommand } from './harness.ts';
+import { toolchainCommand } from './toolchain.ts';
+import { runReviewCommand } from './review.ts';
+import { startLocal } from '../../../scripts/start-local.ts';
 
 const HELP = `oms (oh my sol)
 
@@ -45,27 +45,29 @@ Explicit limits are never raised automatically. Saved accounting and unknown usa
 `;
 
 async function doctor(args: string[]): Promise<number> {
-  const json = args.includes("--json");
-  const rpcIdx = args.indexOf("--rpc");
+  const json = args.includes('--json');
+  const rpcIdx = args.indexOf('--rpc');
   const surfnetRpcUrl = rpcIdx >= 0 ? args[rpcIdx + 1] : process.env.SURFNET_RPC_URL;
-  const binaryIdx = args.indexOf("--surfpool-binary");
-  if (binaryIdx >= 0 && (!args[binaryIdx + 1] || args[binaryIdx + 1]!.startsWith("--"))) {
-    throw new Error("--surfpool-binary needs a path");
+  const binaryIdx = args.indexOf('--surfpool-binary');
+  if (binaryIdx >= 0 && (!args[binaryIdx + 1] || args[binaryIdx + 1]!.startsWith('--'))) {
+    throw new Error('--surfpool-binary needs a path');
   }
-  if (rpcIdx >= 0 && (!args[rpcIdx + 1] || args[rpcIdx + 1]!.startsWith("--"))) throw new Error("--rpc needs a URL");
+  if (rpcIdx >= 0 && (!args[rpcIdx + 1] || args[rpcIdx + 1]!.startsWith('--'))) throw new Error('--rpc needs a URL');
   const sandboxIdx = args.indexOf('--sandbox');
-  const backend = configuredBackend(sandboxIdx >= 0 ? args[sandboxIdx + 1] ?? '' : undefined);
+  const backend = configuredBackend(sandboxIdx >= 0 ? (args[sandboxIdx + 1] ?? '') : undefined);
   const environment = defaultHarnessEnvironment(binaryIdx >= 0 ? args[binaryIdx + 1] : undefined, backend);
-  if (args.includes("--install")) {
-    const manifest = JSON.parse(readFileSync(new URL("../../engine/runtime-manifest.json", import.meta.url), "utf8"));
+  if (args.includes('--install')) {
+    const manifest = JSON.parse(readFileSync(new URL('../../engine/runtime-manifest.json', import.meta.url), 'utf8'));
     const archive = manifest.surfpoolArchives[`${process.platform}-${process.arch}`];
-    if (!archive) throw new Error(`No Surfpool ${manifest.surfpoolVersion} build for ${process.platform}-${process.arch}`);
+    if (!archive)
+      throw new Error(`No Surfpool ${manifest.surfpoolVersion} build for ${process.platform}-${process.arch}`);
     await installSurfpool(archive, environment.binary);
     console.log(`Installed Surfpool ${manifest.surfpoolVersion} at ${environment.binary} (SHA-256 verified)`);
   }
   const results = await runChecks(nodeEnv(), {
-    ...DEFAULT_OPTIONS, backend,
-    needsPrograms: args.includes("--programs"),
+    ...DEFAULT_OPTIONS,
+    backend,
+    needsPrograms: args.includes('--programs'),
     ...(surfnetRpcUrl ? { surfnetRpcUrl } : {}),
     surfpoolBinary: environment.binary,
     sandboxImage: environment.image,
@@ -77,24 +79,24 @@ async function doctor(args: string[]): Promise<number> {
 
 const [cmd, ...rest] = process.argv.slice(2);
 try {
-  if (cmd === "--version" || cmd === "-v") {
+  if (cmd === '--version' || cmd === '-v') {
     // The packed archive's root package.json carries the release version.
-    console.log(JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8")).version);
-  } else if (cmd === undefined || (cmd.startsWith("--") && cmd !== "--help")) {
+    console.log(JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).version);
+  } else if (cmd === undefined || (cmd.startsWith('--') && cmd !== '--help')) {
     await startLocal(cmd === undefined ? [] : [cmd, ...rest]);
-  } else if (cmd === "toolchain") {
+  } else if (cmd === 'toolchain') {
     process.exitCode = await toolchainCommand(rest);
-  } else if (cmd === "review") {
+  } else if (cmd === 'review') {
     process.exitCode = await runReviewCommand(rest);
-  } else if (cmd === "doctor") {
+  } else if (cmd === 'doctor') {
     process.exitCode = await doctor(rest);
-  } else if (cmd === "workspace" || cmd === "task" || cmd === "run") {
+  } else if (cmd === 'workspace' || cmd === 'task' || cmd === 'run') {
     process.exitCode = await runHarnessCommand(cmd, rest);
   } else {
     console.log(HELP);
-    process.exitCode = cmd === undefined || cmd === "--help" || cmd === "help" ? 0 : 2;
+    process.exitCode = cmd === undefined || cmd === '--help' || cmd === 'help' ? 0 : 2;
   }
 } catch (error) {
-  console.error(`oms: ${error instanceof Error ? error.message : "local command failed"}`);
+  console.error(`oms: ${error instanceof Error ? error.message : 'local command failed'}`);
   process.exitCode = 1;
 }

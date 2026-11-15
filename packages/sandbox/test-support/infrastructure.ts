@@ -27,11 +27,13 @@ export async function skipUnavailable(t: TestContext, needs: InfrastructureNeeds
     gaps.push(['SURFPOOL', `Surfpool binary unavailable (${needs.surfpool || 'SURFPOOL_BINARY unset'})`]);
   }
   if (needs.docker) {
-    if (needs.docker.some(image => !image)) gaps.push(['DOCKER', 'pinned OMS_SANDBOX_IMAGE / OMS_SANDBOX_FORWARDER_IMAGE unset']);
+    if (needs.docker.some((image) => !image))
+      gaps.push(['DOCKER', 'pinned OMS_SANDBOX_IMAGE / OMS_SANDBOX_FORWARDER_IMAGE unset']);
     else if (!(await (daemon ??= dockerInfoWorks()))) gaps.push(['DOCKER', 'Docker daemon unavailable']);
   }
   const required = gaps.filter(([infrastructure]) => process.env[`OMS_REQUIRE_${infrastructure}`] === '1');
-  if (required.length > 0) throw new Error(required.map(([name, reason]) => `OMS_REQUIRE_${name}=1 but ${reason}`).join('; '));
+  if (required.length > 0)
+    throw new Error(required.map(([name, reason]) => `OMS_REQUIRE_${name}=1 but ${reason}`).join('; '));
   if (gaps.length === 0) return false;
   t.skip(gaps.map(([, reason]) => reason).join('; '));
   return true;
@@ -57,6 +59,7 @@ export function reviewToolsSkip(image: string | undefined): string | false {
     return reason;
   }
   if (spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status === 0) return false;
-  if (required || process.env.OMS_REQUIRE_DOCKER === '1') throw new Error('Required review-tools image is not present in Docker');
+  if (required || process.env.OMS_REQUIRE_DOCKER === '1')
+    throw new Error('Required review-tools image is not present in Docker');
   return 'Review-tools image is not present in Docker';
 }

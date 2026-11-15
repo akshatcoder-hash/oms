@@ -7,8 +7,13 @@ function harness(paths: string[], clock = { now: 0 }) {
   const handlers = new Map<string, (event: any) => any>();
   const check = createEdgeCheck({ changedPaths: () => paths, clock: () => clock.now });
   check.extension({ on: (name: string, handler: (event: any) => any) => handlers.set(name, handler) } as any);
-  const call = (toolName: string) => handlers.get('tool_call')!({ type: 'tool_call', toolName, toolCallId: 'x', input: {} }) as { block?: boolean; reason?: string } | undefined;
-  const bash = (isError: boolean) => { assert.equal(call('bash')?.block, undefined); handlers.get('tool_result')!({ type: 'tool_result', toolName: 'bash', isError, content: [] }); };
+  const call = (toolName: string) =>
+    handlers.get('tool_call')!({ type: 'tool_call', toolName, toolCallId: 'x', input: {} }) as
+      { block?: boolean; reason?: string } | undefined;
+  const bash = (isError: boolean) => {
+    assert.equal(call('bash')?.block, undefined);
+    handlers.get('tool_result')!({ type: 'tool_result', toolName: 'bash', isError, content: [] });
+  };
   const turn = () => handlers.get('turn_end')!({ type: 'turn_end' });
   return { check, call, bash, turn, clock };
 }
@@ -31,8 +36,10 @@ test('a program change gets the edge-case brief first, then at most two turns be
   assert.equal(first?.block, true);
   assert.match(first!.reason!, /missing signer.*wrong .*owner.*PDA seeds.*bump.*overflow.*close.*re-init/s);
   h.turn(); // the turn that called propose_done
-  h.bash(true); h.turn();
-  h.bash(false); h.turn();
+  h.bash(true);
+  h.turn();
+  h.bash(false);
+  h.turn();
   assert.match(h.call('bash')?.reason ?? '', /call propose_done/);
   assert.equal(h.call('task_status'), undefined);
   assert.equal(h.call('propose_done'), undefined);
@@ -42,7 +49,8 @@ test('a program change gets the edge-case brief first, then at most two turns be
 
 test('the pass ends after three minutes even inside its first turn, and a failing last check is reported', () => {
   const h = harness(['src/lib.rs']);
-  h.call('propose_done'); h.turn();
+  h.call('propose_done');
+  h.turn();
   h.bash(true);
   h.clock.now = EDGE_CHECK_LIMITS.ms;
   assert.equal(h.call('bash')?.block, true);

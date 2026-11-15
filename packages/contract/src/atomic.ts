@@ -14,11 +14,7 @@ export interface AtomicWriteOptions {
 
 let tempCounter = 0;
 
-export function writeFileAtomic(
-  filePath: string,
-  data: string | Uint8Array,
-  options: AtomicWriteOptions = {},
-): void {
+export function writeFileAtomic(filePath: string, data: string | Uint8Array, options: AtomicWriteOptions = {}): void {
   const target = resolve(filePath);
   const directory = dirname(target);
   mkdirSync(directory, { recursive: true, mode: 0o700 });

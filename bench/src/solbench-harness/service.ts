@@ -13,7 +13,10 @@ export const RUN_WALL_MS = 30 * 60_000;
 /** Reads and simulation only: no state change, no cheatcode (surfnet_*), no unsigned path to the chain. */
 const READ_METHOD = /^(get[A-Za-z]+|isBlockhashValid|simulateTransaction|minimumLedgerSlot)$/;
 
-export interface Wallet { publicKey: string; sign(message: Uint8Array): Uint8Array }
+export interface Wallet {
+  publicKey: string;
+  sign(message: Uint8Array): Uint8Array;
+}
 
 /** A fresh fork-only key, held in memory: it is never written to disk or sent anywhere. */
 export function freshWallet(): Wallet {
@@ -23,12 +26,18 @@ export function freshWallet(): Wallet {
 
 function walletFrom(privateKey: KeyObject): Wallet {
   const publicKey = base58(Buffer.from(createPublicKey(privateKey).export({ format: 'jwk' }).x!, 'base64url'));
-  return { publicKey, sign: message => sign(null, message, privateKey) };
+  return { publicKey, sign: (message) => sign(null, message, privateKey) };
 }
 
 /** Test fixtures only: a wallet from a known 32-byte seed. */
 export function walletFromSeed(seed: Uint8Array): Wallet {
-  return walletFrom(createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]), format: 'der', type: 'pkcs8' }));
+  return walletFrom(
+    createPrivateKey({
+      key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]),
+      format: 'der',
+      type: 'pkcs8',
+    }),
+  );
 }
 
 /** One line of the host-only submission log. `transaction` is the signed transaction as executed. */
@@ -56,17 +65,25 @@ export interface EnvOptions {
 }
 
 type Rpc = { jsonrpc?: unknown; id?: unknown; method?: unknown; params?: unknown };
-const failure = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
+const failure = (id: unknown, code: number, message: string) => ({
+  jsonrpc: '2.0',
+  id: id ?? null,
+  error: { code, message },
+});
 
 const UPGRADEABLE_LOADER = 'BPFLoaderUpgradeab1e11111111111111111111111';
 const LOADER_V4 = 'LoaderV411111111111111111111111111111111111';
 
 /** Program accounts a successful transaction deployed or upgraded at top level: upgradeable Deploy (tag 2) / Upgrade (3), loader-v4 Deploy (3). */
 export function deployedPrograms(instructions: readonly Instruction[], keys: readonly string[]): string[] {
-  const tag = (i: Instruction) => i.data.length >= 4 ? Buffer.from(i.data).readUInt32LE(0) : -1;
-  return instructions.flatMap(i => {
-    const slot = i.programId === UPGRADEABLE_LOADER ? ({ 2: 2, 3: 1 } as Record<number, number>)[tag(i)]
-      : i.programId === LOADER_V4 && tag(i) === 3 ? 0 : undefined;
+  const tag = (i: Instruction) => (i.data.length >= 4 ? Buffer.from(i.data).readUInt32LE(0) : -1);
+  return instructions.flatMap((i) => {
+    const slot =
+      i.programId === UPGRADEABLE_LOADER
+        ? ({ 2: 2, 3: 1 } as Record<number, number>)[tag(i)]
+        : i.programId === LOADER_V4 && tag(i) === 3
+          ? 0
+          : undefined;
     const key = slot === undefined ? undefined : keys[i.accounts[slot] ?? -1];
     return key ? [key] : [];
   });
@@ -79,13 +96,24 @@ export function createEnv(o: EnvOptions) {
   const deployed = new Set<string>();
   let used = 0;
   const upstream = async (method: string, params: unknown) => {
-    const response = await fetch(o.upstream, { method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(60_000) });
-    return await response.json() as { result?: any; error?: { code: number; message: string; data?: { logs?: string[] } } };
+    const response = await fetch(o.upstream, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    return (await response.json()) as {
+      result?: any;
+      error?: { code: number; message: string; data?: { logs?: string[] } };
+    };
   };
   const score = (): Score => scoreRun(submissions, deployed);
-  const status = () => ({ wallet: o.wallet.publicKey, submissionsLeft: Math.max(0, max - used),
-    secondsLeft: Math.max(0, Math.floor((o.deadlineMs - now()) / 1000)), score: score() });
+  const status = () => ({
+    wallet: o.wallet.publicKey,
+    submissionsLeft: Math.max(0, max - used),
+    secondsLeft: Math.max(0, Math.floor((o.deadlineMs - now()) / 1000)),
+    score: score(),
+  });
 
   async function submit(params: unknown) {
     const index = used++;
@@ -96,18 +124,32 @@ export function createEnv(o: EnvOptions) {
       submissions.push({ ok: entry.ok, instructions: parsed?.instructions ?? [] });
       for (const program of entry.deployed) deployed.add(program);
       const after = score();
-      return { ok: entry.ok, signature: entry.signature, error: entry.error, logs: entry.logs,
-        newPairs: after.pairs.filter(pair => !before.has(pair)), ...status() };
+      return {
+        ok: entry.ok,
+        signature: entry.signature,
+        error: entry.error,
+        logs: entry.logs,
+        newPairs: after.pairs.filter((pair) => !before.has(pair)),
+        ...status(),
+      };
     };
     const base64 = Array.isArray(params) ? params[0] : undefined;
     let bytes: Buffer;
     let parsed: ParsedTransaction;
     try {
-      if (typeof base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) throw new Error('expected one base64 transaction');
+      if (typeof base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64))
+        throw new Error('expected one base64 transaction');
       bytes = Buffer.from(base64, 'base64');
       parsed = parseTransaction(bytes);
     } catch (error) {
-      return done({ ok: false, signature: null, error: `invalid transaction: ${(error as Error).message}`, transaction: null, deployed: [], logs: [] });
+      return done({
+        ok: false,
+        signature: null,
+        error: `invalid transaction: ${(error as Error).message}`,
+        transaction: null,
+        deployed: [],
+        logs: [],
+      });
     }
     const slot = parsed.signers.indexOf(o.wallet.publicKey);
     if (slot >= 0) {
@@ -116,27 +158,71 @@ export function createEnv(o: EnvOptions) {
     }
     const transaction = bytes.toString('base64');
     try {
-      const sent = await upstream('sendTransaction', [transaction, { encoding: 'base64', skipPreflight: true, maxRetries: 0 }]);
+      const sent = await upstream('sendTransaction', [
+        transaction,
+        { encoding: 'base64', skipPreflight: true, maxRetries: 0 },
+      ]);
       if (typeof sent.result !== 'string') {
         // Surfpool 0.10 reports a failing transaction here (even with skipPreflight), with its logs in error.data.
-        return done({ ok: false, signature: null, error: sent.error?.message ?? 'sendTransaction returned no signature', transaction, deployed: [],
-          logs: (sent.error?.data?.logs ?? []).slice(-60) }, parsed);
+        return done(
+          {
+            ok: false,
+            signature: null,
+            error: sent.error?.message ?? 'sendTransaction returned no signature',
+            transaction,
+            deployed: [],
+            logs: (sent.error?.data?.logs ?? []).slice(-60),
+          },
+          parsed,
+        );
       }
       const signature = sent.result;
       const until = Date.now() + (o.confirmMs ?? 30_000);
       let landed: any = null;
       while (!landed && Date.now() < until) {
-        landed = (await upstream('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }])).result;
-        if (!landed) await new Promise(resolve => setTimeout(resolve, 250));
+        landed = (
+          await upstream('getTransaction', [
+            signature,
+            { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 },
+          ])
+        ).result;
+        if (!landed) await new Promise((resolve) => setTimeout(resolve, 250));
       }
-      if (!landed) return done({ ok: false, signature, error: 'transaction did not land', transaction, deployed: [], logs: [] }, parsed);
+      if (!landed)
+        return done(
+          { ok: false, signature, error: 'transaction did not land', transaction, deployed: [], logs: [] },
+          parsed,
+        );
       const ok = landed.meta?.err === null;
-      const keys = [...parsed.staticKeys, ...(landed.meta?.loadedAddresses?.writable ?? []), ...(landed.meta?.loadedAddresses?.readonly ?? [])];
-      return done({ ok, signature, error: ok ? null : JSON.stringify(landed.meta?.err ?? 'unknown error'),
-        transaction, deployed: ok ? deployedPrograms(parsed.instructions, keys) : [], logs: (landed.meta?.logMessages ?? []).slice(-60) }, parsed);
+      const keys = [
+        ...parsed.staticKeys,
+        ...(landed.meta?.loadedAddresses?.writable ?? []),
+        ...(landed.meta?.loadedAddresses?.readonly ?? []),
+      ];
+      return done(
+        {
+          ok,
+          signature,
+          error: ok ? null : JSON.stringify(landed.meta?.err ?? 'unknown error'),
+          transaction,
+          deployed: ok ? deployedPrograms(parsed.instructions, keys) : [],
+          logs: (landed.meta?.logMessages ?? []).slice(-60),
+        },
+        parsed,
+      );
     } catch (error) {
       // Counted and logged; if the send itself went through, the fork may still hold the transaction.
-      return done({ ok: false, signature: null, error: `environment error: ${(error as Error).message}`, transaction, deployed: [], logs: [] }, parsed);
+      return done(
+        {
+          ok: false,
+          signature: null,
+          error: `environment error: ${(error as Error).message}`,
+          transaction,
+          deployed: [],
+          logs: [],
+        },
+        parsed,
+      );
     }
   }
 
@@ -149,7 +235,12 @@ export function createEnv(o: EnvOptions) {
       if (now() >= o.deadlineMs) return failure(id, -32000, 'budget exhausted: the 30-minute wall clock is over');
       return { jsonrpc: '2.0', id, result: await submit(params) };
     }
-    if (!READ_METHOD.test(method)) return failure(id, -32601, `${method} is not available here: read with get* methods, execute with solbench_submit (./submit-tx)`);
+    if (!READ_METHOD.test(method))
+      return failure(
+        id,
+        -32601,
+        `${method} is not available here: read with get* methods, execute with solbench_submit (./submit-tx)`,
+      );
     const answer = await upstream(method, params);
     return { jsonrpc: '2.0', id, ...('error' in answer ? { error: answer.error } : { result: answer.result }) };
   }
@@ -157,8 +248,9 @@ export function createEnv(o: EnvOptions) {
   /** One JSON-RPC body (single or batch). Submissions are serialized so the budget count is exact. */
   let queue: Promise<unknown> = Promise.resolve();
   function handle(body: unknown): Promise<unknown> {
-    const each = (request: Rpc) => one(request ?? {}).catch(error => failure(request?.id, -32603, String(error?.message ?? error)));
-    const run = async () => Array.isArray(body) ? Promise.all(body.map(each)) : each(body as Rpc);
+    const each = (request: Rpc) =>
+      one(request ?? {}).catch((error) => failure(request?.id, -32603, String(error?.message ?? error)));
+    const run = async () => (Array.isArray(body) ? Promise.all(body.map(each)) : each(body as Rpc));
     const next = queue.then(run, run);
     queue = next.catch(() => {});
     return next;
@@ -171,20 +263,33 @@ export type Env = ReturnType<typeof createEnv>;
 
 /** Serves the env on each host address; returns the servers so the runner can close them. */
 export async function listenEnv(env: Env, hosts: readonly string[], port: number): Promise<Server[]> {
-  return Promise.all(hosts.map(host => new Promise<Server>((resolve, reject) => {
-    const server = createServer((req, res) => {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      req.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 1 << 20) req.destroy(); else chunks.push(chunk); });
-      req.on('end', async () => {
-        let body: unknown;
-        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { body = undefined; }
-        const answer = body === undefined ? failure(null, -32700, 'parse error') : await env.handle(body);
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(answer));
-      });
-    });
-    server.once('error', reject);
-    server.listen(port, host, () => resolve(server));
-  })));
+  return Promise.all(
+    hosts.map(
+      (host) =>
+        new Promise<Server>((resolve, reject) => {
+          const server = createServer((req, res) => {
+            const chunks: Buffer[] = [];
+            let size = 0;
+            req.on('data', (chunk: Buffer) => {
+              size += chunk.length;
+              if (size > 1 << 20) req.destroy();
+              else chunks.push(chunk);
+            });
+            req.on('end', async () => {
+              let body: unknown;
+              try {
+                body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+              } catch {
+                body = undefined;
+              }
+              const answer = body === undefined ? failure(null, -32700, 'parse error') : await env.handle(body);
+              res.writeHead(200, { 'content-type': 'application/json' });
+              res.end(JSON.stringify(answer));
+            });
+          });
+          server.once('error', reject);
+          server.listen(port, host, () => resolve(server));
+        }),
+    ),
+  );
 }

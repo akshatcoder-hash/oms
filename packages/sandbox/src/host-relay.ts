@@ -18,7 +18,8 @@ export interface HostRelay {
 
 export async function openHostRelay(ports: readonly number[]): Promise<HostRelay> {
   for (const port of ports) {
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new SandboxError('E_BAD_ARGUMENT', `invalid relay port: ${port}`);
+    if (!Number.isInteger(port) || port <= 0 || port > 65535)
+      throw new SandboxError('E_BAD_ARGUMENT', `invalid relay port: ${port}`);
   }
   // The 0700 parent keeps other host users out; the forwarder's fixed uid reaches the sockets only through its bind mount.
   const parent = await mkdtemp(path.join(tmpdir(), 'oms-relay-'));
@@ -27,7 +28,7 @@ export async function openHostRelay(ports: readonly number[]): Promise<HostRelay
   const connections = new Set<net.Socket>();
   const close = async () => {
     for (const socket of connections) socket.destroy();
-    await Promise.all(servers.map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+    await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
     await rm(parent, { recursive: true, force: true });
   };
   try {
@@ -35,7 +36,7 @@ export async function openHostRelay(ports: readonly number[]): Promise<HostRelay
     await chmod(directory, 0o755);
     for (const port of new Set(ports)) {
       // Half-open on both legs keeps a client's early FIN from discarding the reply.
-      const server = net.createServer({ allowHalfOpen: true }, client => {
+      const server = net.createServer({ allowHalfOpen: true }, (client) => {
         const upstream = net.connect({ port, host: '127.0.0.1', allowHalfOpen: true });
         for (const socket of [client, upstream]) {
           connections.add(socket);
@@ -49,7 +50,10 @@ export async function openHostRelay(ports: readonly number[]): Promise<HostRelay
       const socketPath = path.join(directory, `${port}.sock`);
       await new Promise<void>((resolve, reject) => {
         server.once('error', reject);
-        server.listen(socketPath, () => { server.off('error', reject); resolve(); });
+        server.listen(socketPath, () => {
+          server.off('error', reject);
+          resolve();
+        });
       });
       await chmod(socketPath, 0o666);
     }

@@ -7,7 +7,9 @@ const root = resolve(import.meta.dirname, '..');
 const output = join(root, '.tmp', 'release');
 const stage = join(output, 'package');
 const names = ['cli', 'engine', 'core', 'contract', 'surfnet', 'sandbox', 'review'];
-const manifests = new Map(names.map(name => [name, JSON.parse(readFileSync(join(root, 'packages', name, 'package.json'), 'utf8'))]));
+const manifests = new Map(
+  names.map((name) => [name, JSON.parse(readFileSync(join(root, 'packages', name, 'package.json'), 'utf8'))]),
+);
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 const dependencies = {};
@@ -24,19 +26,30 @@ function copySource(path) {
   const source = join(root, path);
   const target = join(stage, path);
   mkdirSync(dirname(target), { recursive: true });
-  if (!path.endsWith('.ts')) { cpSync(source, target); return; }
-  const input = readFileSync(source, 'utf8').replace(/(new URL\(['"]\.{1,2}\/[^'"]+)\.ts(['"],\s*import\.meta\.url\))/g, '$1.js$2').replace(/(['"])@oms\/([^/'"]+)([^'"]*)\1/g, (_match, quote, name, subpath) => {
-    const exported = manifests.get(name)?.exports[subpath ? `.${subpath}` : '.'];
-    if (typeof exported !== 'string') throw new Error(`Unknown workspace export: ${name}${subpath}`);
-    let specifier = relative(dirname(path), join('packages', name, exported)).replaceAll('\\', '/');
-    if (!specifier.startsWith('.')) specifier = `./${specifier}`;
-    return `${quote}${specifier}${quote}`;
+  if (!path.endsWith('.ts')) {
+    cpSync(source, target);
+    return;
+  }
+  const input = readFileSync(source, 'utf8')
+    .replace(/(new URL\(['"]\.{1,2}\/[^'"]+)\.ts(['"],\s*import\.meta\.url\))/g, '$1.js$2')
+    .replace(/(['"])@oms\/([^/'"]+)([^'"]*)\1/g, (_match, quote, name, subpath) => {
+      const exported = manifests.get(name)?.exports[subpath ? `.${subpath}` : '.'];
+      if (typeof exported !== 'string') throw new Error(`Unknown workspace export: ${name}${subpath}`);
+      let specifier = relative(dirname(path), join('packages', name, exported)).replaceAll('\\', '/');
+      if (!specifier.startsWith('.')) specifier = `./${specifier}`;
+      return `${quote}${specifier}${quote}`;
+    });
+  const result = ts.transpileModule(input, {
+    fileName: path,
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2023,
+      module: ts.ModuleKind.ESNext,
+      rewriteRelativeImportExtensions: true,
+      verbatimModuleSyntax: true,
+    },
+    reportDiagnostics: true,
   });
-  const result = ts.transpileModule(input, { fileName: path, compilerOptions: {
-    target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext,
-    rewriteRelativeImportExtensions: true, verbatimModuleSyntax: true,
-  }, reportDiagnostics: true });
-  if (result.diagnostics?.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error)) {
+  if (result.diagnostics?.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)) {
     throw new Error(`Cannot compile ${path}`);
   }
   const compiled = target.replace(/\.ts$/, '.js');
@@ -59,21 +72,40 @@ for (const file of ['README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG
 copyTree('licenses');
 copyTree('docs');
 for (const file of compiledFiles) {
-  for (const match of readFileSync(file, 'utf8').matchAll(/new URL\(['"](\.{1,2}\/[^'"]+\.js)['"],\s*import\.meta\.url\)/g)) {
-    if (!existsSync(resolve(dirname(file), match[1]))) throw new Error(`Missing compiled URL in ${relative(stage, file)}: ${match[1]}`);
+  for (const match of readFileSync(file, 'utf8').matchAll(
+    /new URL\(['"](\.{1,2}\/[^'"]+\.js)['"],\s*import\.meta\.url\)/g,
+  )) {
+    if (!existsSync(resolve(dirname(file), match[1])))
+      throw new Error(`Missing compiled URL in ${relative(stage, file)}: ${match[1]}`);
   }
 }
 // The release version lives here, not in the root package.json, so the private workspaces stay at 0.0.1.
 const version = '0.1.0';
 const { overrides } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
-writeFileSync(join(stage, 'package.json'), JSON.stringify({
-  name: '@barestate/oms', version, description: 'Local Solana coding harness with independent offline verification',
-  keywords: ['solana', 'anchor', 'coding-agent', 'ai', 'cli', 'surfpool', 'web3'],
-  homepage: 'https://barestate.xyz/oms', author: 'barestate',
-  type: 'module', license: 'MIT', engines: { node: '>=22.19.0' }, publishConfig: { access: 'public' },
-  bin: { oms: './packages/cli/src/bin.js' }, dependencies, overrides, bundleDependencies: Object.keys(dependencies),
-}, null, 2) + '\n');
+writeFileSync(
+  join(stage, 'package.json'),
+  JSON.stringify(
+    {
+      name: '@barestate/oms',
+      version,
+      description: 'Local Solana coding harness with independent offline verification',
+      keywords: ['solana', 'anchor', 'coding-agent', 'ai', 'cli', 'surfpool', 'web3'],
+      homepage: 'https://barestate.xyz/oms',
+      author: 'barestate',
+      type: 'module',
+      license: 'MIT',
+      engines: { node: '>=22.19.0' },
+      publishConfig: { access: 'public' },
+      bin: { oms: './packages/cli/src/bin.js' },
+      dependencies,
+      overrides,
+      bundleDependencies: Object.keys(dependencies),
+    },
+    null,
+    2,
+  ) + '\n',
+);
 // Bundle the resolved tree: consumer installs ignore this package's overrides.
 execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: stage, stdio: 'pipe' });
 // npm omits package-lock.json from archives; the verifier reads the lock from the install root.
@@ -85,7 +117,10 @@ function stripBundledScripts(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const path = join(directory, entry.name);
-    if (entry.name.startsWith('@')) { stripBundledScripts(path); continue; }
+    if (entry.name.startsWith('@')) {
+      stripBundledScripts(path);
+      continue;
+    }
     const manifestPath = join(path, 'package.json');
     if (existsSync(manifestPath)) {
       const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -94,7 +129,8 @@ function stripBundledScripts(directory) {
       delete manifest.scripts;
       if (existsSync(join(path, 'binding.gyp'))) manifest.gypfile = false;
       else delete manifest.gypfile;
-      if (changed || existsSync(join(path, 'binding.gyp'))) writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+      if (changed || existsSync(join(path, 'binding.gyp')))
+        writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     }
     const nested = join(path, 'node_modules');
     if (existsSync(nested)) stripBundledScripts(nested);
@@ -110,6 +146,12 @@ function pruneSourceMaps(directory) {
 }
 // npm only keeps the executable bit on the bin file when the staged copy already has it.
 chmodSync(join(stage, 'packages/cli/src/bin.js'), 0o755);
-const [packed] = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', output], { cwd: stage, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
+const [packed] = JSON.parse(
+  execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', output], {
+    cwd: stage,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  }),
+);
 if (packed.size > 25_000_000) throw new Error(`Archive exceeds 25 MB: ${packed.size} bytes`);
 console.log(`${join(output, packed.filename)}\n${packed.size} bytes compressed; ${packed.unpackedSize} bytes unpacked`);
