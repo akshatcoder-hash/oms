@@ -65,6 +65,9 @@ export function prepareWorkspace(repo: string, facts: WalletFacts): void {
   git('init', '-q');
   git('config', 'user.name', 'OMS solbench-harness');
   git('config', 'user.email', 'solbench@invalid.test');
+  // Newer git starts detached background maintenance after a commit, which writes into the workspace.
+  git('config', 'maintenance.auto', 'false');
+  git('config', 'gc.auto', '0');
   git('add', '.');
   git('commit', '-qm', 'solbench-harness workspace');
 }
