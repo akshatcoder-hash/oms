@@ -3,12 +3,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { buildRunArgs, removeOwnedResource, requirePinnedImage, sandboxDocker, type DockerClient } from '@oms/sandbox';
-import { privateDirectory } from '../../../review/src/report/storage.ts';
-import type { StaticExecutionPort, StaticRequest } from '../../../review/src/static/run.ts';
+import { privateDirectory, type StaticExecutionPort, type StaticRequest } from '@oms/review';
 
 /** Host-owned build receipt or OMS_REVIEW_TOOLS_IMAGE, never project configuration. */
 export function configuredReviewToolsImage(): string | undefined {
-  const receipt = new URL('../../../../.tmp/review-tools/image.json', import.meta.url);
+  const receipt = new URL('../../../.tmp/review-tools/image.json', import.meta.url);
   const image: unknown = process.env.OMS_REVIEW_TOOLS_IMAGE || (existsSync(receipt)
     ? JSON.parse(readFileSync(receipt, 'utf8'))[process.arch] : undefined);
   if (image == null) return undefined;

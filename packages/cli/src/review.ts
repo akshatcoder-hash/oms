@@ -4,10 +4,9 @@ import { readFileSync } from 'node:fs';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
-import { createStaticExecutionPort, reviewToolsImage } from '../../engine/src/runtime/review-ports.ts';
-import { ProgramSelectionError, REVIEW_DISCLAIMER, declaresCargoWorkspace, expireReviews, exportReview, isNested, privateDirectory, purgeReviews, runPhaseA, saveReview } from '../../review/src/index.ts';
-import { captureSnapshot } from '../../review/src/snapshot.ts';
-import type { ProgramSelector } from '../../review/src/pipeline.ts';
+import { createStaticExecutionPort, reviewToolsImage } from './review-ports.ts';
+import { ProgramSelectionError, REVIEW_DISCLAIMER, declaresCargoWorkspace, expireReviews, exportReview, isNested, privateDirectory, purgeReviews, runPhaseA, saveReview, type ProgramSelector } from '@oms/review';
+import { captureSnapshot } from '@oms/review/snapshot';
 
 const HELP = `oms review [path] --phase A [--program <name>] [--json] [--out <new-directory>] [--state-root <directory>] [--retention-days <n>]
 oms review [path] --purge <reviewId|all> [--state-root <directory>]

@@ -8,7 +8,7 @@ import { parseSastResult } from '../src/static/sast.ts';
 import { parseAuditResult } from '../src/static/audit.ts';
 import { runStaticPass } from '../src/static/run.ts';
 import { captureSnapshot } from '../src/snapshot.ts';
-import { configuredReviewToolsImage } from '../../engine/src/runtime/review-ports.ts';
+import { configuredReviewToolsImage } from '@oms/cli/review-ports';
 import { reviewToolsSkip } from '../../sandbox/test-support/infrastructure.ts';
 
 const image = configuredReviewToolsImage();

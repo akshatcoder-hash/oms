@@ -4,10 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { runReviewCommand } from '../src/review.ts';
-import { parseReviewReport } from '../../review/src/types.ts';
-import { REVIEW_DISCLAIMER } from '../../review/src/disclaimer.ts';
-import { emptyReport, saveReview } from '../../review/src/index.ts';
-import { configuredReviewToolsImage } from '../../engine/src/runtime/review-ports.ts';
+import { emptyReport, parseReviewReport, REVIEW_DISCLAIMER, saveReview } from '@oms/review';
+import { configuredReviewToolsImage } from '../src/review-ports.ts';
 import { reviewToolsSkip } from '../../sandbox/test-support/infrastructure.ts';
 
 async function fixture() {

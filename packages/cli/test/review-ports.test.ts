@@ -5,11 +5,10 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { DockerClient, CaptureOptions } from '@oms/sandbox';
-import { configuredReviewToolsImage, createStaticExecutionPort, reviewToolsImage } from '../src/runtime/review-ports.ts';
+import { configuredReviewToolsImage, createStaticExecutionPort, reviewToolsImage } from '../src/review-ports.ts';
 import { reviewToolsSkip } from '../../sandbox/test-support/infrastructure.ts';
-import type { StaticRequest } from '../../review/src/static/run.ts';
-import { runStaticPass } from '../../review/src/static/run.ts';
-import { captureSnapshot } from '../../review/src/snapshot.ts';
+import { runStaticPass, type StaticRequest } from '@oms/review';
+import { captureSnapshot } from '@oms/review/snapshot';
 
 async function scratch() {
   const parent = resolve('.tmp/review-port-tests');
@@ -105,7 +104,7 @@ test('static adapter withholds success and retains inputs when cleanup fails', a
 });
 
 test('review-tools image comes from the host receipt or OMS_REVIEW_TOOLS_IMAGE, never the committed manifest', () => {
-  const manifest = JSON.parse(readFileSync(new URL('../runtime-manifest.json', import.meta.url), 'utf8'));
+  const manifest = JSON.parse(readFileSync(new URL('../../engine/runtime-manifest.json', import.meta.url), 'utf8'));
   assert.equal('reviewToolsImages' in manifest, false);
   const previous = process.env.OMS_REVIEW_TOOLS_IMAGE;
   try {
@@ -232,7 +231,7 @@ test('validated output limits remain fixed if the caller mutates its request dur
 });
 
 test('production discovery matches Anchor, Pinocchio and native syntax fixture goldens offline', { skip }, async () => {
-  const { discoverPrograms } = await import('../../review/src/discover.ts');
+  const { discoverPrograms } = await import('@oms/review');
   const root = await scratch();
   try {
     const port = createStaticExecutionPort({ scratchRoot: root });
@@ -246,7 +245,7 @@ test('production discovery matches Anchor, Pinocchio and native syntax fixture g
 });
 
 test('Phase A coordinator renders real offline scanner findings without a model or workspace writes', { skip }, async () => {
-  const { runPhaseA, parseReviewReport, renderJson, renderMarkdown } = await import('../../review/src/index.ts');
+  const { runPhaseA, parseReviewReport, renderJson, renderMarkdown } = await import('@oms/review');
   const root = await scratch();
   const base = new URL('../../review/test/fixtures/discovery/anchor-vault', import.meta.url);
   const before = await captureSnapshot(base.pathname);
@@ -272,7 +271,7 @@ test('Phase A coordinator renders real offline scanner findings without a model 
 });
 
 test('production discovery inventories target dependencies without executing cfg or build dependencies', { skip }, async () => {
-  const { discoverPrograms } = await import('../../review/src/discover.ts');
+  const { discoverPrograms } = await import('@oms/review');
   const root = await scratch();
   const source = await scratch();
   try {
