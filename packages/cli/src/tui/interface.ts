@@ -1,5 +1,4 @@
-import { runReviewCommand, type ReviewPresentation } from '../review.ts';
-import { REVIEW_DISCLAIMER } from '../../../review/src/disclaimer.ts';
+import { runReviewCommand } from '../review.ts';
 import { basename } from 'node:path';
 import {
   HStack, VStack, ScrollView, ProcessTerminal, TuiAltScreen, Input, matchesKey, isKeyRelease,
@@ -9,18 +8,20 @@ import {
 import { LAYOUT_NODE } from '@earendil-works/pi-tui/dist/layout-node.js';
 import type { HarnessSession } from '@oms/engine';
 import { createFileEditorPane } from './file-editor.ts';
-import { commandHelp, commandMatches, type OmsCommand } from './commands.ts';
+import {
+  acceptsArgument, canRunWhileBusy, commandMatches, findCommand, parseCommand,
+  type CommandContext, type CommandSpec, type FocusTarget, type OmsCommand, type Requirement,
+} from './commands.ts';
 import { SetupPane } from './setup.ts';
 import { HarnessSettingsPane } from './harness-settings.ts';
 import { AccountPane } from './account.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
-import { Conversation, describeValue, displayText } from './transcript.ts';
-import { READ_ONLY_COMMANDS, prepareSlash } from './slash-commands.ts';
-import { claudeChatStatus, nativeChatDisplayHistory } from './claude-chat.ts';
-import type { CommandOutput, Prepared } from './solana-commands.ts';
-import { goalSummary, newGoal, parseGoalArguments, runGoalCheck, runGoalLoop, taskVerifierItem, type Goal } from './goal.ts';
+import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
+import { nativeChatDisplayHistory } from './claude-chat.ts';
+import type { CommandOutput, Prepared } from './prepared.ts';
+import { newGoal, runGoalCheck, runGoalLoop, taskVerifierItem, type Goal } from './goal.ts';
 import { StartupArt, artShow, settleKittyGraphics, type StartupArtMode } from './startup-art.ts';
 import { colorText, DEFAULT_THEME_ID, getTheme, paintThemeRow, THEME_IDS, type OmsTheme, type OmsThemeId } from './theme.ts';
 
@@ -37,14 +38,8 @@ interface Action {
   error?: string;
   errorDisplayed?: boolean;
 }
-interface Requirement { id: string; title: string; status: string }
 
 const MODEL_CONFIGURATION = 'Use /model to choose a model or /connect to add an API key; draft retained.';
-
-/** Chrome components return physical rows; multiline content belongs only in the editor/transcript. */
-function singleLine(value: string, limit: number): string {
-  return displayText(value, limit).replace(/\s+/g, ' ').trim();
-}
 
 function hasModelConfiguration(model: { provider: string; id: string } | undefined): boolean {
   const provider = model?.provider.trim();
@@ -118,7 +113,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   let shutdown: Promise<void> | undefined;
   let shutdownComplete = false;
   let titleSaved = false;
-  type Focus = 'input' | 'requirements' | 'conversation' | 'editor' | 'terminal' | 'actions';
+  type Focus = FocusTarget;
   let focus: Focus = view === 'workbench' ? 'editor' : 'input';
   let harnessFocus: Focus = 'input';
   let workbenchFocus: Focus = 'editor';
@@ -286,18 +281,18 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   }
   function completeCommand(command: OmsCommand, execute: boolean): void {
     if (paletteInput) {
-      const value = `/${command.name}${!execute || 'needsArgument' in command ? ' ' : ''}`;
+      const value = `/${command.name}${!execute || command.needsArgument ? ' ' : ''}`;
       paletteInput.setValue(value);
       paletteInput.handleInput('\x05');
-      if (execute && !('needsArgument' in command)) {
+      if (execute && !(command.needsArgument)) {
         paletteInput = undefined; setFocus(focus); submit(value, true);
       }
       requestRender(); return;
     }
     input.document.select(0, input.document.text.length);
-    input.document.insert(`/${command.name}${!execute || 'needsArgument' in command ? ' ' : ''}`);
+    input.document.insert(`/${command.name}${!execute || command.needsArgument ? ' ' : ''}`);
     input.focus.invalidate();
-    if (execute && !('needsArgument' in command)) submit();
+    if (execute && !(command.needsArgument)) submit();
     requestRender();
   }
   function setFocus(next: Focus): void {
@@ -349,31 +344,6 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   function selectedModelChoice() {
     const model = harness.session.model;
     return model && harness.listModels().find(choice => choice.provider === model.provider && choice.id === model.id);
-  }
-  function budgetSummary(): string {
-    const budget = harness.budget.snapshot();
-    const microUsd = budget.remaining.spendMicroUsd;
-    const dollars = `${Math.trunc(microUsd / 1_000_000)}.${String(microUsd % 1_000_000).padStart(6, '0')}`;
-    const scope = budget.executionMode === 'interactive' ? 'this turn' : 'run';
-    return `${scope}: ${budget.remaining.tokens}t · ${Math.ceil(budget.remaining.wallClockMs / 1000)}s · API $${dollars} left · ${singleLine(budget.accounting, 80)}${budget.exhausted ? ' EXHAUSTED' : ''}`;
-  }
-  function roleSummary(): string {
-    const reservations = harness.budget.reservations();
-    const receipts = new Map(harness.budget.receipts().map(receipt => [receipt.dispatchId, receipt]));
-    return (['worker'] as const).map(role => {
-      const admitted = reservations.filter(item => (item.provenance?.role ?? 'worker') === role);
-      if (admitted.length === 0) return '';
-      let tokens = 0, cost = 0, cacheRead = 0, cacheWrite = 0, missing = false, unknown = 0;
-      for (const item of admitted) {
-        const receipt = receipts.get(item.dispatchId);
-        if (!receipt || receipt.outcome === 'uncertain') { unknown++; continue; }
-        if (receipt.outcome !== 'known') continue;
-        tokens += receipt.tokens ?? 0; cost += receipt.spendMicroUsd ?? 0;
-        if (receipt.usage) { cacheRead += receipt.usage.cacheReadTokens; cacheWrite += receipt.usage.cacheWriteTokens; }
-        else missing = true;
-      }
-      return `${role}: ${admitted.length} calls · ${tokens} known tokens · $${(cost / 1e6).toFixed(6)} known spend · ${unknown} pending/unknown · ${missing ? 'historical cache counts unavailable' : `cache read ${cacheRead} / write ${cacheWrite}`}`;
-    }).filter(Boolean).join('\n');
   }
   function clearDraft(snapshot: string | undefined): void {
     if (snapshot === undefined || input.document.text !== snapshot) return;
@@ -491,18 +461,25 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     if (output.report) {
       workbench.openReport(output.report.id, output.report.text, command);
       switchView('workbench'); setFocus('editor');
-    } else { switchView('harness'); setFocus('input'); transcript.scrollToEnd(); }
+    } else if (!output.inPlace) { switchView('harness'); setFocus('input'); transcript.scrollToEnd(); }
+    if (output.clearNotice) setNotice('');
     requestRender();
   }
-  function runPrepared(command: string, prepared: Extract<Prepared, { ok: true }>, draft: string | undefined): void {
-    if (!READ_ONLY_COMMANDS.has(command)) {
-      begin('command', draft, async signal => { showOutput(command, await prepared.run(signal)); });
+  /** The one pipeline for a command that produced work. Reads run beside the agent; the rest take the action slot. */
+  function runPrepared(command: CommandSpec, argument: string, prepared: Extract<Prepared, { ok: true }>, draft: string | undefined): void {
+    const show = (output: CommandOutput | undefined) => { if (output) showOutput(command.name, output); };
+    if (!canRunWhileBusy(command, argument)) {
+      begin(command.activity ?? 'command', draft, async signal => {
+        const output = await prepared.run(signal);
+        show(output);
+        if (output?.failure) throw new Error(output.failure);
+      }, command.cancellable !== false);
       return;
     }
-    // Reads run beside the agent: they take no action slot and cannot be cancelled, but they are short and bounded.
+    // Reads take no action slot and cannot be cancelled, but they are short and bounded.
     clearDraft(draft);
-    void prepared.run(new AbortController().signal).then(output => showOutput(command, output), error => {
-      if (!closing) conversation.note(`${command} failed`, singleLine(error instanceof Error ? error.message : describeValue(error), 800));
+    void prepared.run(new AbortController().signal).then(show, error => {
+      if (!closing) conversation.note(`${command.name} failed`, singleLine(error instanceof Error ? error.message : describeValue(error), 800));
     }).finally(requestRender);
   }
   /** /goal <text>: the agent works until the check passes; settle-gate rules (retry cap, budget, repeated failure) end the loop. */
@@ -526,6 +503,34 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     });
   }
 
+  const commandContext: CommandContext = {
+    harness, workbench, shell, conversation, review: options.review ?? runReviewCommand,
+    columns: () => terminal.columns,
+    setNotice, clearDraft,
+    show(title, text, draft) {
+      conversation.note(title, text);
+      clearDraft(draft); switchView('harness'); setFocus('input'); transcript.scrollToEnd(); setNotice('');
+    },
+    switchView, setFocus, scrollToEnd() { transcript.scrollToEnd(); requestRender(); },
+    editorAction, terminalAction,
+    setAgentPanel(visible) { agentPanelVisible = visible ?? !agentPanelVisible; switchView('workbench'); repairHiddenFocus(); requestRender(); },
+    toggleRequirements,
+    checkRequirements() { refreshRequirements(); return { proofAvailable, checkedAt, items: checkedItems }; },
+    selectedRequirement: () => selectedId,
+    modelDetail: () => selectedModelChoice()?.detail,
+    openSetup, openAccount, changeTheme,
+    art: {
+      setMode(mode) { artMode = mode; artShown = artShow(artMode, process.env); options.onStartupArtChange?.(artMode); },
+      next: () => art.next(), title: () => art.title,
+      reload() { void loadArtImage().then(requestRender); requestRender(); },
+    },
+    goal: { get: () => goal, set(next) { goal = next; } },
+    startGoal,
+    submit: text => submit(text, true),
+    cancel, quit: () => quit(),
+  };
+
+  /** Slash commands go through the table: busy rule, argument check, then the handler and the shared pipeline. */
   function submit(draft = input.document.text, fromPalette = false): void {
     const composerDraft = fromPalette ? undefined : draft;
     if (!draft.trim()) return;
@@ -533,179 +538,19 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     if (trimmed === '/quit') { quit(); return; }
     if (closing) { setNotice('Closing; draft retained.'); return; }
     if (trimmed === '/quit discard') { quit(true); return; }
-    const match = trimmed.startsWith('/') ? /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(trimmed) : undefined;
-    const command = match?.[1]?.toLowerCase();
-    const argument = match?.[2] ?? '';
-    if (command === 'newfile') { clearDraft(composerDraft); editorAction(() => workbench.newFile(argument || undefined)); return; }
-    if (command === 'theme') {
-      if (!argument) { openSetup('theme', '', composerDraft); return; }
-      if (!changeTheme(argument)) return;
-      clearDraft(composerDraft); requestRender(); return;
-    }
-    const artModes: Record<string, StartupArtMode> = { on: 'auto', auto: 'auto', image: 'image', truecolor: 'truecolor', 256: '256', off: 'off' };
-    if (command === 'art' && (!argument || argument === 'next' || Object.hasOwn(artModes, argument))) {
-      clearDraft(composerDraft);
-      if (argument && argument !== 'next') {
-        artMode = artModes[argument]!;
-        artShown = artShow(artMode, process.env);
-        options.onStartupArtChange?.(artMode);
-        setNotice(`Startup art ${argument}`);
-      } else {
-        if (argument === 'next') art.next();
-        setNotice(`${art.title} · /art next · /art off`);
-      }
-      void loadArtImage().then(requestRender);
-      requestRender(); return;
-    }
-    if (command === 'web' && ['', 'on', 'off'].includes(argument)) {
-      clearDraft(composerDraft);
-      if (!harness.web) setNotice('Web access is not available in this session.');
-      else {
-        if (argument) harness.web.set(argument === 'on');
-        const used = harness.web.usage();
-        setNotice(`Web ${harness.web.enabled() ? 'on' : 'off'} · ${used.webSearch} searches, ${used.webFetch} fetches, ${used.solanaMcp} Solana MCP calls · /web ${harness.web.enabled() ? 'off' : 'on'}`);
-      }
-      requestRender(); return;
-    }
-    if (command === 'model' || command === 'connect' || command === 'settings') { openSetup(command, argument, composerDraft); return; }
-    if ((command === 'login' || command === 'logout' || command === 'account') && !argument) { openAccount(command, composerDraft); return; }
-    if (command === 'workbench' && !argument) { clearDraft(composerDraft); switchView('workbench'); setFocus('editor'); return; }
-    if (command === 'harness' && !argument) { clearDraft(composerDraft); switchView('harness'); setFocus('input'); return; }
-    if (command === 'files' && !argument) { clearDraft(composerDraft); editorAction(() => workbench.open()); return; }
-    if (command === 'open' && argument) { clearDraft(composerDraft); editorAction(() => workbench.open(argument)); return; }
-    if (!argument && command && ['save', 'close', 'find', 'replace', 'next', 'split'].includes(command)) {
-      clearDraft(composerDraft);
-      editorAction(() => {
-        if (command === 'save') return workbench.save();
-        if (command === 'close') workbench.closeBuffer();
-        if (command === 'find') workbench.find();
-        if (command === 'replace') workbench.replace();
-        if (command === 'next') workbench.nextBuffer();
-        if (command === 'split') workbench.split();
-      });
-      return;
-    }
-    if (command === 'terminal') { clearDraft(composerDraft); terminalAction(argument); return; }
-    if (command === 'layout' && ['editor', 'balanced', ''].includes(argument)) {
-      agentPanelVisible = argument ? argument === 'balanced' : !agentPanelVisible;
-      clearDraft(composerDraft); switchView('workbench'); repairHiddenFocus(); requestRender(); return;
-    }
-    if (command === 'cancel' && !argument) { clearDraft(composerDraft); cancel(); return; }
-    if (command === 'help' && !argument) {
-      conversation.note('commands', commandHelp() + '\nKeyboard\n' +
-        'Commands: type / in the agent composer, empty editor, file browser or stopped terminal. Ctrl+K opens commands anywhere (Alt+/ also works). Plain / in a document, text field or running shell stays text.\n' +
-        'Back: Escape closes a menu to its previous pane. From conversation, Escape returns to the agent composer. From the workbench composer, Escape returns to the editor.\n' +
-        'Panes: /harness returns to the agent; /workbench focuses the editor; /files opens the browser; /terminal opens the shell. Ctrl+L focuses the composer, Ctrl+P opens files. F6 optionally cycles panes.\n' +
-        'Tab/Shift+Tab navigate conversation panes. Editor Tab inserts a tab; terminal Tab goes to the shell.\n' +
-        'Toolbar: F10 focuses the toolbar; arrows choose, Enter activates, Esc returns to the pane.\n' +
-        'Editor: Ctrl+S save, Ctrl+F find, Ctrl+H replace, Ctrl+W close tab, Ctrl+Tab next tab. Ctrl+\\ changes split side.\n' +
-        'Terminal: Ctrl+C interrupts its process; /terminal stop releases it for independent verification.\n' +
-        'Agent: Enter sends, Shift/Alt+Enter adds a newline. /cancel requests cancellation. Ctrl+Q quits after cleanup; dirty files need confirmation.\n' +
-        'Setup: ↑↓ chooses an authentication method; PgUp/PgDn scrolls disclosures without moving that choice. Ctrl+U clears masked entry. Ctrl+X copies the setup link. Keys and sign-in codes belong only in /connect.');
-      clearDraft(composerDraft); switchView('harness'); setFocus('conversation'); transcript.scrollToEnd(); requestRender(); return;
-    }
-    if (command === 'requirements' && !argument) {
-      clearDraft(composerDraft);
-      if (terminal.columns < 78) { submit('/status', true); return; }
-      switchView('harness'); toggleRequirements(); return;
-    }
-    const readOnly = !!command && (READ_ONLY_COMMANDS.has(command) || (command === 'goal' && !argument.trim()));
-    if (busy() && !readOnly) {
+    const slash = trimmed.startsWith('/');
+    const parsed = slash ? parseCommand(trimmed) : undefined;
+    const command = findCommand(parsed?.name);
+    const argument = parsed?.argument ?? '';
+    if (busy() && !(command && canRunWhileBusy(command, argument))) {
       setNotice('Work is running. Use /cancel to stop it, or keep editing your next request.'); return;
     }
-    if (trimmed.startsWith('/')) {
-      if (command === 'status' && !argument) {
-        refreshRequirements();
-        conversation.note('task status', `Task: ${singleLine(harness.task.id, 120)}\nProof: ${proofAvailable ? 'last checked ' + checkedAt : 'unavailable; prior context retained'}\n` +
-          checkedItems.slice(0, 12).map(item => `${singleLine(item.id, 80)}  ${singleLine(item.status, 80)}  ${singleLine(item.title, 160)}`).join('\n') +
-          `\nModel: ${selectedModelChoice()?.detail ?? 'Use /model to review connected providers and selection.'}\nToken allowance / spend / time: ${budgetSummary()}\n${roleSummary()}`);
-      } else if (command === 'session' && !argument) {
-        conversation.note('session', `OMS session: ${harness.session.sessionManager.getSessionId()}\nRepository: ${harness.workspace.root}\nTask: ${harness.task.id}\nWorktree: ${harness.task.codeRoot}\nBranch: ${harness.task.branch}\nChanging focus does not dispatch work.` +
-          (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''));
-      } else if (command === 'review' && !argument) {
-        if (workbench.dirty || shell.running) {
-          setNotice('Save or close unsaved files and stop the terminal before reviewing.'); return;
-        }
-        begin('review', composerDraft, async () => {
-          conversation.note('security review', REVIEW_DISCLAIMER + '\nRunning offline Phase A static tools.');
-          let report: ReviewPresentation | undefined;
-          const code = await (options.review ?? runReviewCommand)([harness.task.codeRoot, '--phase', 'A'], {
-            stdout() {}, stderr: text => { setNotice(singleLine(text, 500)); }, report: value => { report = value; },
-          });
-          if (report) {
-            const summary = `Confirmed ${report.confirmed} · Suspected ${report.suspected}`;
-            conversation.note('security review', summary + '\n' + REVIEW_DISCLAIMER);
-            // The editor has a 64 KiB document limit. Keep the full saved report;
-            // explicitly mark a bounded preview without splitting Unicode.
-            let preview = ''; let bytes = 0;
-            for (const character of report.markdown) {
-              bytes += Buffer.byteLength(character);
-              if (bytes > 60 * 1024) break;
-              preview += character;
-            }
-            if (preview !== report.markdown) preview += '\n[Preview truncated; full report is saved in private review state.]';
-            workbench.openReport(report.reviewId, summary + '\n' + preview);
-            switchView('workbench'); setFocus('editor');
-          }
-          if (code !== 0) throw new Error(report ? 'Partial review saved; one or more stages failed.' : 'Review did not produce a report. See the review status.');
-        }, false);
-        return;
-      } else if (command === 'verify' && !/\s/.test(argument)) {
-        const id = argument || selectedId;
-        begin('verification', composerDraft, async () => {
-          const verification = await harness.verify(id);
-          const result = verification.result;
-          conversation.note('verification', `${verification.itemId}: ${result.closed ? 'closed by independent verification' : result.reason}`);
-        }, false);
-        return;
-      } else if (command === 'run' && argument.trim()) {
-        begin('command', composerDraft, async signal => {
-          const result = await harness.runCommand(argument, signal);
-          conversation.note('sandbox command', `$ ${argument}\nExit: ${result.exitCode}${result.timedOut ? ' · timed out' : ''}${result.cancelled ? ' · cancelled' : ''}\n${result.stdout}\n${result.stderr}${result.truncated ? '\n[backend output truncated]' : ''}`);
-          if (result.exitCode !== 0 || result.timedOut || result.cancelled) throw new Error(`Sandbox command did not succeed (exit ${result.exitCode}); draft retained.`);
-        });
-        return;
-      } else if (command === 'goal') {
-        const request = parseGoalArguments(argument);
-        if (request.kind === 'error') { setNotice(`${request.message} Draft retained.`); return; }
-        if (request.kind === 'set') { startGoal(request.text, request.check, composerDraft); return; }
-        if (request.kind === 'clear') { goal = undefined; conversation.note('goal', 'Goal cleared.'); }
-        else conversation.note('goal', goalSummary(goal, budgetSummary()));
-      } else if (command === 'clear') {
-        if (argument) { setNotice('Usage: /clear; draft retained.'); return; }
-        if (harness.session.model?.provider === 'claude-code') {
-          const chat = harness.nativeChat;
-          if (!chat) { setNotice('Native Claude chat controls are unavailable; the conversation was not cleared.'); return; }
-          begin('command', composerDraft, async () => {
-            await chat.reset();
-            harness.session.agent.reset();
-            harness.session.sessionManager.resetLeaf();
-            goal = undefined;
-            conversation.clear();
-            conversation.note('new native Claude conversation', 'Fresh native chat boundary. Previous chat history is not replayed. Files, worktree and verification are retained.');
-          });
-          return;
-        }
-        try {
-          harness.session.agent.reset();
-          // The session file keeps its history; the next entry starts a new branch, so a resume sees only what follows.
-          harness.session.sessionManager.resetLeaf();
-        } catch (error) { setNotice(`Could not clear the conversation: ${singleLine(error instanceof Error ? error.message : 'unknown error', 200)}`); return; }
-        goal = undefined;
-        conversation.clear();
-        conversation.note('new conversation', 'Fresh conversation in the same task. Files, worktree and task state are unchanged.');
-      } else {
-        const prepared = command ? prepareSlash(command, argument, harness, budgetSummary()) : undefined;
-        if (!prepared) { setNotice('Unknown or invalid OMS command. Use /help; draft retained.'); return; }
-        if (!prepared.ok) { setNotice(`${prepared.message} Draft retained.`); return; }
-        runPrepared(command!, prepared, composerDraft);
-        return;
-      }
-      clearDraft(composerDraft);
-      switchView('harness');
-      setFocus('input');
-      transcript.scrollToEnd();
-      setNotice('');
+    if (slash) {
+      if (!command || !acceptsArgument(command, argument)) { setNotice('Unknown or invalid OMS command. Use /help; draft retained.'); return; }
+      const prepared = command.run(commandContext, argument, composerDraft);
+      if (!prepared) return;
+      if (!prepared.ok) { setNotice(prepared.complete ? prepared.message : `${prepared.message} Draft retained.`); return; }
+      runPrepared(command, argument, prepared, composerDraft);
       return;
     }
     if (!hasModelConfiguration(harness.session.model)) { setNotice(`Model unavailable. ${MODEL_CONFIGURATION}`); return; }

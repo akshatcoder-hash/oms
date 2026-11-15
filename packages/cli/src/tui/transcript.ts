@@ -16,6 +16,11 @@ export function displayText(value: string, limit = ENTRY_CHARS): string {
   return text + (clipped ? '\n[display truncated]' : '');
 }
 
+/** Chrome components return physical rows; multiline content belongs only in the editor/transcript. */
+export function singleLine(value: string, limit: number): string {
+  return displayText(value, limit).replace(/\s+/g, ' ').trim();
+}
+
 /** Bounded diagnostic projection; does not invoke toJSON or retain provider objects. */
 export function describeValue(value: unknown, depth = 0): string {
   if (typeof value === 'string') return displayText(value, 3000);
