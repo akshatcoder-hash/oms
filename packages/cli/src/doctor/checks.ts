@@ -1,3 +1,4 @@
+import { executionBackend, type BackendName } from "@oms/engine";
 /** `optional`: never blocks; listed apart from the install path (Docker in host mode). */
 export type Severity = "blocking" | "warning" | "info" | "optional";
 export type Status = "ok" | "fail";
@@ -21,7 +22,7 @@ export interface Env {
 }
 
 export interface DoctorOptions {
-  backend?: 'host' | 'docker';
+  backend?: BackendName;
   surfnetRpcUrl?: string;
   minNodeVersion: string;
   surfpoolBinary?: string;
@@ -47,7 +48,7 @@ const macFix = (brewLine: string, other: string, platform: NodeJS.Platform) =>
 
 export async function runChecks(env: Env, opts: DoctorOptions): Promise<CheckResult[]> {
   const out: CheckResult[] = [];
-  const backend = opts.backend ?? (opts.sandboxImage ? "docker" : "host");
+  const backend = executionBackend(opts.backend ?? (opts.sandboxImage ? "docker" : "host"));
 
   const actual = env.nodeVersion.split(".").map(Number);
   const minimum = opts.minNodeVersion.split(".").map(Number);
@@ -93,11 +94,11 @@ export async function runChecks(env: Env, opts: DoctorOptions): Promise<CheckRes
 
   // Seatbelt counts only if it actually confines a process here. An inline profile, as OMS uses: macOS 27 kills processes
   // under the built-in named profiles.
-  const seatbelt = backend === 'host' && env.platform === 'darwin' && (await env.exec('sandbox-exec', ['-p', '(version 1)(allow default)(deny network*)', '/usr/bin/true'])).ok;
+  const seatbelt = backend.probesSeatbelt && env.platform === 'darwin' && (await env.exec('sandbox-exec', ['-p', '(version 1)(allow default)(deny network*)', '/usr/bin/true'])).ok;
   out.push({ id: 'backend', title: 'Execution backend', status: 'ok', severity: 'info',
-    detail: backend === 'docker' ? 'docker (strict sandbox)' : seatbelt ? 'host (macOS Seatbelt: worktree writes, Surfnet-only network)' : 'host (no sandbox; unrestricted network)' });
+    detail: backend.doctorDetail(seatbelt) });
   const docker = await env.exec("docker", ["info", "--format", "{{.ServerVersion}}"]);
-  if (backend === 'host') {
+  if (!backend.requiresDocker) {
     out.push({ id: 'docker', title: 'Docker', status: docker.ok ? 'ok' : 'fail', severity: 'optional',
       detail: docker.ok ? `server ${docker.out}` : 'not running; needed only for the benchmark grader and --sandbox docker' });
   } else {

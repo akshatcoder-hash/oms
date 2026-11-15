@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { pinContract, readPin, verifyPin } from '@oms/contract';
 import { buildMounts, SURFPOOL_LIBS, type RunInSandboxOptions } from '@oms/sandbox';
 import type { Surfnet } from '@oms/surfnet';
+import { dockerBackend, hostBackend } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 import { createVerifierBackend, trustedSurfpoolMounts } from '../src/runtime/verifier-backend.ts';
 import { createHarnessSession, type HarnessSession } from '../src/runtime/session.ts';
@@ -31,7 +32,7 @@ test('verifier sandbox env carries SOLANA_RPC_URL and SURFNET_RPC_URL with the s
   const image = `node@sha256:${'1'.repeat(64)}`;
   const runs: RunInSandboxOptions[] = [];
   const backend = await createVerifierBackend({
-    taskName: 'rpc-env', binary, image, forwarderImage: image,
+    backend: dockerBackend({ image, forwarderImage: image }), taskName: 'rpc-env', binary,
     workDir: path.join(root, 'work'), leaseDir: path.join(root, 'leases'), sourceControlDir: path.join(root, 'source-control'),
   }, {
     createSurfnet: () => {
@@ -72,7 +73,7 @@ test('a host verifier command names the trusted Surfpool in SURFPOOL_BINARY, as 
   for (const name of ['work', 'leases', 'code']) mkdirSync(path.join(root, name), { mode: 0o700 });
   const runs: RunInSandboxOptions[] = [];
   const backend = await createVerifierBackend({
-    backend: 'host', taskName: 'surfpool-env', binary, image: '', forwarderImage: '',
+    backend: hostBackend(), taskName: 'surfpool-env', binary,
     workDir: path.join(root, 'work'), leaseDir: path.join(root, 'leases'),
   }, {
     createSurfnet: () => ({
@@ -104,7 +105,7 @@ test('a real Docker command through createSandboxTools sees both RPC names with 
   const taskName = `rpc-env-${process.pid}`;
   const controller = new AbortController();
   const tools = createSandboxTools({
-    taskName, image: IMAGE, forwarderImage: FORWARDER,
+    taskName, backend: dockerBackend({ image: IMAGE, forwarderImage: FORWARDER }),
     mounts: buildMounts({ projectRoot: project, taskName, forbidden: { signerDir: signer, stateDir: state } }),
     leaseDir: path.join(base, 'leases'), sourceControlDir: path.join(base, 'source-control'),
     surfnetPort: PORT, signal: controller.signal,

@@ -16,13 +16,14 @@ mock.module('@oms/sandbox', { namedExports: {
   }),
 } });
 const { createSandboxTools } = await import('../src/runtime/sandbox-tools.ts');
+const { dockerBackend } = await import('../src/runtime/execution-backend.ts');
 
 function fixture(remaining: () => number) {
   return createSandboxTools({
     taskName: 'timeout-cases',
     mounts: { projectMount: { hostPath: '/unused', containerPath: '/work', mode: 'rw' },
       extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: 'unused', forwarderImage: 'unused',
+    backend: dockerBackend({ image: 'unused', forwarderImage: 'unused' }),
     leaseDir: '/unused', sourceControlDir: '/unused', surfnetPort: 8899,
     signal: new AbortController().signal, remainingWallClockMs: remaining,
   });

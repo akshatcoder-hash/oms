@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { AgentSessionRuntime } from "@earendil-works/pi-coding-agent";
 import type { SandboxResult } from "@oms/sandbox";
 import { createChainControls } from "./chain.ts";
+import { backendFor } from "./execution-backend.ts";
 import { remoteDecodeError } from "./knowledge-service.ts";
 import type { OmsAccountControls } from "./oms-account.ts";
 import { createProviderControls } from "./provider-controls.ts";
@@ -75,7 +76,7 @@ export function createSessionApi(parts: SessionApiParts): HarnessSession {
     session.setActiveToolsByName(on ? [...others, ...web.toolNames] : others);
   } };
   if (webControls && !web.enabled()) webControls.set(false);
-  const settings = createHarnessSettingsControls({ session, backend: options.environment.backend ?? "docker", withUserOperation: life.withUserOperation });
+  const settings = createHarnessSettingsControls({ session, backend: backendFor(options.environment).name, withUserOperation: life.withUserOperation });
   const providerControls = createProviderControls({
     modelRuntime: model.modelRuntime, session, maxOutputTokens: options.maxOutputTokens,
     signal: life.controller.signal, withUserOperation: life.withUserOperation,

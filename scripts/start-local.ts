@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { createBudgetLedger, type BudgetLedgerEvent } from '@oms/core';
-import { acquireMutationLease, acquireTaskLease, configuredBackend, createTask, defaultHarnessEnvironment, inspectMutationLease, openBudgetJournal, openWorkspace, prepareHarnessTask, readTask,
+import { acquireMutationLease, backendFor, acquireTaskLease, configuredBackend, createTask, defaultHarnessEnvironment, inspectMutationLease, openBudgetJournal, openWorkspace, prepareHarnessTask, readTask,
   type HarnessEnvironment, type HarnessSessionOptions } from '@oms/engine';
 import { runInteractiveHarness } from '../packages/cli/src/interactive.ts';
 import { DEFAULT_OPTIONS } from '../packages/cli/src/doctor/checks.ts';
@@ -249,7 +249,7 @@ export async function selectStarterSession(home: string, options: HarnessSession
 function checkLocalPrerequisites(environment: HarnessEnvironment): void {
   try { accessSync(environment.binary, constants.X_OK); }
   catch { throw new Error(`Surfpool ${DEFAULT_OPTIONS.pinnedSurfpool} is not installed at ${environment.binary}. Run \`oms doctor --install\`, then run oms again. Startup does not install or download tools.`); }
-  if (environment.backend === 'host') return;
+  if (!backendFor(environment).requiresDocker) return;
   const docker = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { encoding: 'utf8', timeout: 10_000 });
   if (docker.error || docker.status !== 0) throw new Error('Docker is unavailable. Start your local Docker daemon, wait until it is ready, then run oms again. Use oms doctor for details.');
   const image = spawnSync('docker', ['image', 'inspect', environment.image], { stdio: 'ignore', timeout: 10_000 });

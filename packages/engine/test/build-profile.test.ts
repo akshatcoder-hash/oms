@@ -14,8 +14,9 @@ test('trusted build profile clamps timeout and supplies resources and offline Ca
       createSandboxSession: o => { session = o; return { exec: async (argv, o) => { runs.push({ ...o, argv }); return result; }, close: async () => {} }; },
       runInSandbox: async o => { runs.push(o); return result; } } });
     const { createSandboxTools } = await import('./packages/engine/src/runtime/sandbox-tools.ts');
+    const { dockerBackend } = await import('./packages/engine/src/runtime/execution-backend.ts');
     let remaining = 2_000_000;
-    const tools = createSandboxTools({taskName:'build-profile', image:'unused',forwarderImage:'unused',
+    const tools = createSandboxTools({taskName:'build-profile', backend:dockerBackend({image:'unused',forwarderImage:'unused'}),
       mounts:{projectMount:{hostPath:'/unused',containerPath:'/work',mode:'rw'},extraMounts:[],readOnlyMounts:[],volumes:[],shadowMounts:[]},
       leaseDir:'/unused',sourceControlDir:'/unused',surfnetPort:8899,signal:new AbortController().signal,
       buildProfile:true,remainingWallClockMs:()=>remaining});

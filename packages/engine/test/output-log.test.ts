@@ -6,6 +6,7 @@ import { join, relative } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
 import { buildMounts } from '@oms/sandbox';
+import { dockerBackend } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 import { createHarnessSession } from '../src/runtime/session.ts';
 import { createHarnessFixture } from '../test-support/runtime-fixture.ts';
@@ -31,7 +32,7 @@ async function fixture(t: TestContext, outputMode?: 'head-tail') {
   const f = await createHarnessFixture({ binary, image, forwarderImage });
   const tools = createSandboxTools({
     taskName: 'output-log', mounts: buildMounts({ projectRoot: f.task.codeRoot, taskName: 'output-log', heavyDirs: [] }),
-    image, forwarderImage, leaseDir: join(f.base, 'leases'), sourceControlDir: join(f.base, 'control'),
+    backend: dockerBackend({ image, forwarderImage }), leaseDir: join(f.base, 'leases'), sourceControlDir: join(f.base, 'control'),
     surfnetPort: 8899, signal: new AbortController().signal, outputMode,
   });
   t.after(async () => { await tools.dispose(); rmSync(f.base, { recursive: true, force: true }); });

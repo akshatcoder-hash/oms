@@ -8,7 +8,7 @@ import {
 } from "@oms/contract";
 import { createTraceWriter, type BudgetLedger, type ExecutionMode } from "@oms/core";
 import { createDispatchAllocator } from "@oms/core/dispatch";
-import { buildMounts, hostSandbox, type MountPlan } from "@oms/sandbox";
+import { buildMounts, type MountPlan } from "@oms/sandbox";
 import { createSurfnet } from "@oms/surfnet";
 import { createVerifierRunner } from "../verifier.ts";
 import { inspectMutationLease } from "../workspace/index.ts";
@@ -16,10 +16,11 @@ import { privateDirectory, writePrivateJson } from "../workspace/storage.ts";
 import { trackRuntimeProcesses } from "./recovery.ts";
 import type { SessionLifecycle } from "./session-lifecycle.ts";
 import type { HarnessSessionOptions } from "./session-types.ts";
+import { backendFor } from "./execution-backend.ts";
 import { verifierBackendOptions } from "./task-definition.ts";
 import { taskContext, type TaskContext } from "./task-context.ts";
 import { openBudgetJournal } from "./usage.ts";
-import { createVerifierBackend, trustedSurfpoolMounts } from "./verifier-backend.ts";
+import { createVerifierBackend } from "./verifier-backend.ts";
 
 /** What the rest of startup needs from the task: its trusted state, budget, verifier, local chain and sandbox mounts. */
 export interface TaskEnvironment {
@@ -47,18 +48,14 @@ export interface TaskEnvironment {
 
 const MAX_TIMER_MS = 2_147_483_647;
 
-const HOST_WARNING = {
-  seatbelt: "OMS host mode runs commands under macOS Seatbelt: writes stay in the worktree and temp, ~/.ssh, ~/.config/solana, keypairs and other repos are unreadable, and network is limited to the Surfnet port. Seatbelt is not a VM; use --sandbox docker for untrusted repositories.\n",
-  none: "OMS host mode has NO sandbox here (Linux in v0.1, or macOS without sandbox-exec). Commands can access your host files and unrestricted network. Environment scrubbing, approvals and file-tool protections reduce accidents; they do not isolate code. Use --sandbox docker for untrusted repositories.\n",
-};
-
-/** Tells the user once per workspace what host mode does and does not isolate. */
-function warnAboutHostMode(options: HarnessSessionOptions): void {
+/** Tells the user once per workspace what a backend does and does not isolate, when it has anything to say. */
+function warnAboutBackend(options: HarnessSessionOptions): void {
   const { workspace, environment } = options;
-  if (environment.backend !== "host") return;
-  const warningFile = join(workspace.stateDir, `host-warning-${hostSandbox()}.json`);
+  const notice = backendFor(environment).notice();
+  if (!notice) return;
+  const warningFile = join(workspace.stateDir, `host-warning-${notice.key}.json`);
   if (existsSync(warningFile)) return;
-  process.stderr.write(hostSandbox() === "seatbelt" ? HOST_WARNING.seatbelt : HOST_WARNING.none);
+  process.stderr.write(notice.text);
   writePrivateJson(warningFile, { acknowledgedAt: new Date().toISOString() });
 }
 
@@ -84,14 +81,14 @@ export async function startTaskEnvironment(options: HarnessSessionOptions, life:
   const { controller, lease } = life;
   const clock = options.clock ?? Date.now;
   const executionMode = options.executionMode ?? "bounded";
-  warnAboutHostMode(options);
+  warnAboutBackend(options);
   const context = taskContext(workspace, task);
   const ownership = inspectMutationLease(task.leaseFile);
   if (ownership.status !== "live" || ownership.owner.token !== lease.token) throw new Error("Task ownership changed before runtime startup");
-  const host = environment.backend === "host";
+  const execution = backendFor(environment);
   const processes = life.processes = trackRuntimeProcesses(task.leaseFile, ownership.owner, context.workDir,
-    [...(host ? [task.codeRoot] : []), join(workspace.stateDir, "sessions", task.id)], host);
-  writePrivateJson(join(context.stateDir, "runtime-backend.json"), { backend: environment.backend ?? "docker" });
+    [...execution.runtimeRoots(task.codeRoot), join(workspace.stateDir, "sessions", task.id)], execution.capturesProofRoots);
+  writePrivateJson(join(context.stateDir, "runtime-backend.json"), { backend: execution.name });
   const pinned = verifyPin(task.pinFile, context.roots);
   if (!pinned.ok) throw new Error("Task requirements or verifier inputs do not match their pin");
   const parsedConfig = parseEvaluatorConfig(pinned.pin.evaluatorConfig);
@@ -181,7 +178,7 @@ export async function startTaskEnvironment(options: HarnessSessionOptions, life:
     // The task's own tests start Surfpool, so the agent sees the same trusted binary the verifier does.
     // source_fetch's folder: outside the task root, so the proof's code digest and the verifier's staged copy never see it.
     // Host commands read it through the temp directory; a container needs it mounted at the same path.
-    ...(!host ? { extra: [...(environment.dependencies ? trustedSurfpoolMounts(environment.binary) : []), { hostPath: sourcesDir, containerPath: sourcesDir, mode: "ro" as const }] } : {}),
+    ...execution.taskMounts({ binary: environment.binary, dependencies: environment.dependencies, sourcesDir }),
     forbidden: { signerDir: join(workspace.omsDir, ".keys"), stateDir: workspace.stateDir,
       extra: [join(workspace.omsDir, ".env.agent")] },
     readOnlyPaths: [...verifierFiles.map(file => join(task.codeRoot, file)), join(task.codeRoot, ".git")],

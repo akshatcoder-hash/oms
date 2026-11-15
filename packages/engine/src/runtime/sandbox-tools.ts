@@ -12,23 +12,22 @@ import {
   type ExtensionFactory,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { createSandboxSession, hostSandbox, runInSandbox, type MountPlan, type SandboxResult, type RunInSandboxOptions } from "@oms/sandbox";
+import { runInSandbox, type MountPlan, type SandboxResult } from "@oms/sandbox";
 import { Type, type TSchema } from "typebox";
-import { dependencyFetchArgv, DEPENDENCY_ALLOWLIST } from "./deps-fetch.ts";
+import { dependencyFetchArgv } from "./deps-fetch.ts";
+import type { ExecutionBackend, ToolRunSpec } from "./execution-backend.ts";
 import { CommandLogs, type LogPage } from "./command-logs.ts";
 import { createTaskFileAccess, MAX_TASK_FILE_BYTES, type TaskFileAccess } from "./task-files.ts";
 import { createTaskTerminal, type OwnedTaskTerminal, type TaskTerminal } from "./task-terminal.ts";
-import { BUILD_LIMITS, BUILD_TIMEOUT_MS } from './build-profile.ts';
+import { BUILD_TIMEOUT_MS } from './build-profile.ts';
 
 export interface SandboxToolsOptions {
-  backend?: 'host' | 'docker';
+  backend: ExecutionBackend;
   approvalPolicy?: HostApprovalPolicy;
   protectedPaths?: string[];
   onSpawn?: (pid: number, cwd: string) => void;
   taskName: string;
   mounts: MountPlan;
-  image: string;
-  forwarderImage: string;
   leaseDir: string;
   sourceControlDir: string;
   surfnetPort: number;
@@ -75,7 +74,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     }
   }
   let hostApproval: HostApproval | undefined;
-  const root = options.backend === "host" ? realpathSync(options.mounts.projectMount.hostPath) : "/work";
+  const { backend } = options;
+  const root = backend.commandRoot(options.mounts.projectMount.hostPath);
   const logs = new CommandLogs();
   const defaultTimeout = options.timeoutMs ?? (options.buildProfile ? BUILD_TIMEOUT_MS : 60_000);
   const toolSignal = new AsyncLocalStorage<AbortSignal | undefined>();
@@ -102,26 +102,24 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     }).finally(() => { queued--; });
     return operation;
   };
-  const rpcUrl = `http://${options.backend === "host" ? "127.0.0.1" : "host.docker.internal"}:${options.surfnetPort}`;
-  const sharedRun = {
+  const rpcUrl = backend.rpcUrl(options.surfnetPort);
+  const runSpec: ToolRunSpec = {
     onSpawn: options.onSpawn,
     taskName: options.taskName,
-    phase: "run" as const,
     mounts: options.mounts,
     sourceControlDir: options.sourceControlDir,
-    surfnet: { port: options.surfnetPort },
+    leaseDir: options.leaseDir,
+    surfnetPort: options.surfnetPort,
     cwd: root,
-    env: { ...(options.backend === "host" ? {} : { HOME: "/tmp", TMPDIR: "/tmp" }), ...(options.buildProfile ? { CARGO_HOME: "/work/.oms-cargo", CARGO_NET_OFFLINE: "true" } : {}), SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, ...(options.surfpool ? { SURFPOOL_BINARY: options.surfpool } : {}) },
+    protectedPaths: options.protectedPaths,
+    buildProfile: options.buildProfile,
+    env: backend.commandEnv({ rpcUrl, buildProfile: options.buildProfile, surfpool: options.surfpool }),
     stdoutLimitBytes: MAX_TASK_FILE_BYTES * 2,
     stderrLimitBytes: MAX_TASK_FILE_BYTES,
   };
-  const hostRun = { ...sharedRun, backend: "host" as const, protectedPaths: options.protectedPaths };
-  const dockerRun = { ...sharedRun, backend: "docker" as const, image: options.image, forwarderImage: options.forwarderImage, leaseDir: options.leaseDir,
-    ...(options.buildProfile ? { limits: BUILD_LIMITS } : {}) };
-  const baseRun = options.backend === "host" ? hostRun : dockerRun;
-  const runOptions = (argv: string[], signal: AbortSignal, timeoutMs: number): RunInSandboxOptions => ({ ...baseRun, argv, signal, timeoutMs });
+  const runOptions = (argv: string[], signal: AbortSignal, timeoutMs: number) => backend.runOptions(runSpec, { argv, signal, timeoutMs });
   // One container serves every command and file operation of the task. Host mode runs processes directly.
-  const session = options.backend === "host" ? undefined : createSandboxSession({ ...dockerRun, signal: lifetimeSignal });
+  const session = backend.openSession(runSpec, lifetimeSignal);
   const run = (argv: string[], signal: AbortSignal | undefined, timeoutMs: number, capture: boolean) => enqueue(async () => {
     const operationSignal = signal ? AbortSignal.any([signal, lifetimeSignal]) : lifetimeSignal;
     operationSignal.throwIfAborted();
@@ -140,12 +138,12 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   });
   const execute = (argv: string[], signal?: AbortSignal, timeoutMs = defaultTimeout) =>
     (async () => {
-      if (options.backend === 'host') await approveHostCommand(argv[1] === '-c' ? argv[2]! : argv.join(' '), root, { policy: options.approvalPolicy, approve: hostApproval, signal });
+      if (backend.approvesCommands) await approveHostCommand(argv[1] === '-c' ? argv[2]! : argv.join(' '), root, { policy: options.approvalPolicy, approve: hostApproval, signal });
       return run(argv, signal, timeoutMs, options.outputMode === "head-tail");
     })();
   const startTerminal = (columns: number, rows: number): Promise<TaskTerminal> => enqueue(async () => {
     if (terminal) return terminal;
-    if (options.backend === 'host') await approveHostCommand('interactive host terminal (unrestricted shell)', root, { policy: options.approvalPolicy, approve: hostApproval, signal: lifetimeSignal });
+    if (backend.approvesCommands) await approveHostCommand('interactive host terminal (unrestricted shell)', root, { policy: options.approvalPolicy, approve: hostApproval, signal: lifetimeSignal });
     const remaining = Math.floor(options.remainingWallClockMs?.() ?? defaultTimeout);
     if (remaining <= 0) throw new Error("Task wall-clock budget exhausted");
     terminalStarting = true;
@@ -169,7 +167,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   const withVerification = <T>(action: () => Promise<T>): Promise<T> => enqueue(async () => {
     assertVerificationAllowed();
     // Verification runs model-written test code on the host.
-    if (options.backend === 'host') await approveHostCommand('host verification (runs the task tests and verifier commands unsandboxed)', root, { policy: options.approvalPolicy, approve: hostApproval, signal: lifetimeSignal });
+    if (backend.approvesCommands) await approveHostCommand('host verification (runs the task tests and verifier commands unsandboxed)', root, { policy: options.approvalPolicy, approve: hostApproval, signal: lifetimeSignal });
     return action();
   });
   function withCancellation<P extends TSchema, D, S>(tool: ToolDefinition<P, D, S>): ToolDefinition<P, D, S> {
@@ -222,15 +220,14 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   write.description = "Create or replace a regular UTF-8 task file inside /work, at most 64 KiB, using an atomic save. Host paths, pinned verifier and private/control files are not writable.";
   const bash = createBashToolDefinition(root, { operations: shell, exposeSessionEnvironment: false });
   bash.description = "Execute a POSIX /bin/sh command inside the isolated task sandbox. No host shell, credentials or general network access. Bash-specific syntax is unavailable.";
-  if (options.backend === 'host') {
-    read.description = `Read a task file under ${root}; private/control files are unavailable.`;
-    edit.description = `Edit a task file under ${root}; pinned verifier and private/control files are protected.`;
-    write.description = `Write a task file under ${root}; pinned verifier and private/control files are protected.`;
-    bash.description = hostSandbox() === 'seatbelt'
-      ? `Run a command on the host in ${root} under Seatbelt: writes stay in the task and temp, network only to Surfnet, scrubbed environment. User approval is required.`
-      : `Run a command on the host in ${root}, with unrestricted network and scrubbed environment. User approval is required.`;
+  const text = backend.toolText(root);
+  if (text.descriptions) {
+    read.description = text.descriptions.read;
+    edit.description = text.descriptions.edit;
+    write.description = text.descriptions.write;
+    bash.description = text.descriptions.bash;
   }
-  bash.promptGuidelines = [`Commands run in ${root} using /bin/sh. ${options.backend !== "host" ? "Host paths and credentials are unavailable." : hostSandbox() === 'seatbelt' ? "Commands run under Seatbelt and require approval." : "Host mode has no sandbox; commands require approval."}`];
+  bash.promptGuidelines = [`Commands run in ${root} using /bin/sh. ${text.guideline}`];
   if (options.outputMode === "head-tail") {
     // Pi's ordinary bash wrapper applies a second 50 KiB tail-only truncation.
     // Return our already-bounded preview directly, without a host temp-path leak.
@@ -256,12 +253,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
         assertVerificationAllowed();
         const remaining = Math.floor(options.remainingWallClockMs?.() ?? BUILD_TIMEOUT_MS);
         if (remaining <= 0) throw new Error("Task wall-clock budget exhausted");
-        const fetchRun = runOptions(dependencyFetchArgv(input.manager),
-          AbortSignal.any([lifetimeSignal, ...(signal ? [signal] : [])]), Math.min(BUILD_TIMEOUT_MS, remaining));
-        const result = await runInSandbox({ ...fetchRun, phase: "install",
-          ...(fetchRun.backend === "docker" ? { installAllowlist: DEPENDENCY_ALLOWLIST } : {}),
-          env: { HOME: "/tmp", TMPDIR: "/tmp", CARGO_HOME: "/work/.oms-cargo" },
-        });
+        const result = await runInSandbox(backend.installOptions(runSpec, { argv: dependencyFetchArgv(input.manager),
+          signal: AbortSignal.any([lifetimeSignal, ...(signal ? [signal] : [])]), timeoutMs: Math.min(BUILD_TIMEOUT_MS, remaining) }));
         return { content: [{ type: "text" as const, text: result.stdout + result.stderr || "(no output)" }],
           details: {}, isError: result.exitCode !== 0 };
       });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { hostBackend } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 
 test('real host tools use task paths, protect verifier/.git and gate shell commands', async () => {
@@ -13,9 +14,9 @@ test('real host tools use task paths, protect verifier/.git and gate shell comma
   mkdirSync(join(root, 'checks'));
   writeFileSync(join(root, 'checks/verify.js'), 'pinned');
   symlinkSync('checks', join(root, 'alias'));
-  const options = { backend: 'host' as const, taskName: 'host-fixture',
+  const options = { backend: hostBackend(), taskName: 'host-fixture',
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: root, surfnetPort: 8899,
+    leaseDir: root, sourceControlDir: root, surfnetPort: 8899,
     signal: new AbortController().signal, protectedPaths: [join(root, 'verify.js'), join(root, 'checks/verify.js')] };
   const control = mkdtempSync(join(tmpdir(), 'oms-host-control-'));
   options.sourceControlDir = control;
@@ -39,9 +40,9 @@ test('real host tools use task paths, protect verifier/.git and gate shell comma
 test('a host command finds the trusted Surfpool through SURFPOOL_BINARY only when one is configured', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'oms-host-surfpool-')));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-surfpool-control-'));
-  const options = { backend: 'host' as const, approvalPolicy: 'allow' as const, taskName: 'host-surfpool',
+  const options = { backend: hostBackend(), approvalPolicy: 'allow' as const, taskName: 'host-surfpool',
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal };
+    leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal };
   const print = ['/bin/sh', '-c', 'printf "%s" "${SURFPOOL_BINARY-unset}"'];
   const configured = createSandboxTools({ ...options, surfpool: '/opt/oms/surfpool' });
   const bare = createSandboxTools(options);
@@ -54,9 +55,9 @@ test('a host command finds the trusted Surfpool through SURFPOOL_BINARY only whe
 test('host terminal runs a real interactive shell and closes before verification', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-host-terminal-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-terminal-control-'));
-  const tools = createSandboxTools({ backend: 'host', approvalPolicy: 'allow', taskName: 'terminal-fixture',
+  const tools = createSandboxTools({ backend: hostBackend(), approvalPolicy: 'allow', taskName: 'terminal-fixture',
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899,
+    leaseDir: root, sourceControlDir: control, surfnetPort: 8899,
     signal: new AbortController().signal, timeoutMs: 5000 });
   try {
     const terminal = await tools.startTerminal(80, 24);
@@ -85,10 +86,10 @@ test('host terminal cleanup uncertainty reaches close and tool disposal', async 
   const root = mkdtempSync(join(tmpdir(), 'oms-terminal-tamper-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-terminal-control-'));
   const dependencies = mkdtempSync(join(tmpdir(), 'oms-terminal-deps-'));
-  const tools = createSandboxTools({ backend: 'host', approvalPolicy: 'allow', taskName: 'terminal-tamper',
+  const tools = createSandboxTools({ backend: hostBackend(), approvalPolicy: 'allow', taskName: 'terminal-tamper',
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [],
       readOnlyMounts: [{ hostPath: dependencies, containerPath: '/work/node_modules', mode: 'ro' }], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899,
+    leaseDir: root, sourceControlDir: control, surfnetPort: 8899,
     signal: new AbortController().signal, timeoutMs: 5000 });
   try {
     const terminal = await tools.startTerminal(80, 24);
@@ -107,9 +108,9 @@ test('host terminal cleanup uncertainty reaches close and tool disposal', async 
 test('host verification asks approval once and honors deny', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-host-verify-approval-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-verify-control-'));
-  const options = { backend: 'host' as const, taskName: 'verify-approval',
+  const options = { backend: hostBackend(), taskName: 'verify-approval',
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal };
+    leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal };
   const denied = createSandboxTools(options);
   let ran = false;
   try {
@@ -128,9 +129,9 @@ test('host verification asks approval once and honors deny', async () => {
 test('host approval prompt shows the shell string, not JSON argv', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-host-prompt-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-prompt-control-'));
-  const tools = createSandboxTools({ backend: 'host', taskName: 'prompt',
+  const tools = createSandboxTools({ backend: hostBackend(), taskName: 'prompt',
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal });
+    leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal });
   const shown: string[] = [];
   tools.setHostApproval(async request => { shown.push(request.command); return true; });
   try {

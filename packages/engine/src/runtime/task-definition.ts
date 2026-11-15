@@ -5,6 +5,7 @@ import {
   type EvaluatorConfig,
 } from "@oms/contract";
 import { acquireTaskLease, type Task, type Workspace } from "../workspace/index.ts";
+import { backendFor } from "./execution-backend.ts";
 import { taskContext, type TaskContext } from "./task-context.ts";
 import { createVerifierBackend, type VerifierBackend, type VerifierBackendOptions } from "./verifier-backend.ts";
 import type { HarnessEnvironment, HarnessTaskDefinition } from "./session-types.ts";
@@ -44,7 +45,10 @@ export function parseHarnessTaskDefinition(input: unknown): HarnessTaskDefinitio
 
 /** The verifier backend options a task and its environment imply; a live session adds its signal and spawn hooks on top. */
 export function verifierBackendOptions(environment: HarnessEnvironment, task: Task, context: TaskContext): VerifierBackendOptions {
-  return { ...environment, ...(environment.backend === "host" ? { gitControlPath: join(task.codeRoot, ".git") } : {}),
+  const backend = backendFor(environment);
+  const gitControlPath = backend.gitControlPath(task.codeRoot);
+  return { backend, binary: environment.binary, buildProfile: environment.buildProfile, dependencies: environment.dependencies,
+    ...(gitControlPath === undefined ? {} : { gitControlPath }),
     taskName: context.taskName, workDir: context.workDir, leaseDir: context.leaseDir, sourceControlDir: context.sourceControlDir };
 }
 

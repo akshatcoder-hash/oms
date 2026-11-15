@@ -11,7 +11,7 @@ import { address, getAddressEncoder, getBase58Decoder, getProgramDerivedAddress 
 import { buildMounts, buildRunArgs } from '@oms/sandbox';
 import { skipUnavailable, skipUnavailableToolchain } from '../../sandbox/test-support/infrastructure.ts';
 import { configuredToolchainImage } from '../../engine/src/runtime/environment.ts';
-import { createVerifierBackend } from '@oms/engine';
+import { createVerifierBackend, dockerBackend } from '@oms/engine';
 import { createSurfnet } from '../src/manager.ts';
 import { exportSnapshot } from '../test-support/snapshot.ts';
 
@@ -91,7 +91,7 @@ for (const arch of ['default', 'v3'] as const) {
       await invoke(rpc, program, 1);
       const snapshotPath = join(root, `${arch}-${method}.json`);
       await writeFile(snapshotPath, await exportSnapshot(surf.rpcUrl()!));
-      const verifier = await createVerifierBackend({ taskName: `spike-${arch}`, binary, image, forwarderImage,
+      const verifier = await createVerifierBackend({ taskName: `spike-${arch}`, backend: dockerBackend({ image, forwarderImage }), binary,
         workDir: join(root, 'work'), leaseDir: join(root, 'leases') });
       try {
         const chain = await verifier.surfnets.start(snapshotPath);

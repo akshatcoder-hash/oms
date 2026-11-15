@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
+import { hostBackend } from '../src/runtime/execution-backend.ts';
 import { createVerifierBackend } from '../src/runtime/verifier-backend.ts';
 
 test('host verifier runs real command against owned offline Surfpool with loopback RPC', async () => {
@@ -22,8 +23,8 @@ test('host verifier runs real command against owned offline Surfpool with loopba
     fetch(process.env.SOLANA_RPC_URL, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({jsonrpc:'2.0',id:1,method:'getHealth'}) })
       .then(r=>r.json()).then(r=>{if(r.result!=='ok')throw Error('unhealthy');console.log('VERIFIED')}).catch(e=>{console.error(e);process.exitCode=1});
   `);
-  const backend = await createVerifierBackend({ backend: 'host', taskName: 'host-verifier',
-    binary: process.env.SURFPOOL_BINARY ?? process.env.OMS_SURFPOOL_BINARY ?? join(homedir(), '.local/bin/surfpool'), image: '', forwarderImage: '',
+  const backend = await createVerifierBackend({ backend: hostBackend(), taskName: 'host-verifier',
+    binary: process.env.SURFPOOL_BINARY ?? process.env.OMS_SURFPOOL_BINARY ?? join(homedir(), '.local/bin/surfpool'),
     dependencies, workDir: join(root, 'work'), leaseDir: join(root, 'leases') });
   try {
     const surf = await backend.surfnets.start(undefined);

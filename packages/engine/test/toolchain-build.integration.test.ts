@@ -11,6 +11,7 @@ import { createSurfnet } from '@oms/surfnet';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { skipUnavailable } from '../../sandbox/test-support/infrastructure.ts';
 import { toolchainEnvironment } from '../test-support/toolchain-environment.ts';
+import { backendFor } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 import { readProject } from '../src/toolchain/project.ts';
 import { checkToolchain } from '../src/toolchain/check.ts';
@@ -31,7 +32,7 @@ test('mechanical toolchain repairs build Anchor and run the on-chain counter tes
  const surf=createSurfnet({binary:environment.binary,workDir:join(root,'surfnet')});
  await surf.start();
  const mounts=buildMounts({projectRoot:project,taskName,heavyDirs:['target','.oms-cargo'],forbidden:{signerDir:privateDir}});
- const tools=createSandboxTools({taskName,mounts,...environment,buildProfile:true,leaseDir:privateDir,sourceControlDir:join(privateDir,'source'),surfnetPort:surf.ports()!.rpc,
+ const tools=createSandboxTools({taskName,mounts,backend:backendFor(environment),buildProfile:true,leaseDir:privateDir,sourceControlDir:join(privateDir,'source'),surfnetPort:surf.ports()!.rpc,
    signal:new AbortController().signal,remainingWallClockMs:()=>1_100_000});
  t.after(async()=>{await tools.dispose();await surf.stop();await removeTaskResources(taskName);await rm(root,{recursive:true,force:true});});
  let fetchDeps: {execute(id:string,input:{manager:'cargo'|'npm'}):Promise<{isError?:boolean;content:unknown}>}|undefined;

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { requirePinnedImage } from "@oms/sandbox";
+import { isBackendName, type BackendName } from "./execution-backend.ts";
 import type { HarnessEnvironment } from "./session.ts";
 
 interface RuntimeManifest {
@@ -29,7 +30,7 @@ export function benchAgentImage(): string | undefined {
   return image?.startsWith('sha256:') ? image : undefined;
 }
 
-export function defaultHarnessEnvironment(binary?: string, backend: 'host' | 'docker' = configuredBackend(), programs = false): HarnessEnvironment {
+export function defaultHarnessEnvironment(binary?: string, backend: BackendName = configuredBackend(), programs = false): HarnessEnvironment {
   // Program builds use the pinned toolchain image, so they always run in Docker.
   if (programs) backend = 'docker';
   const manifest = JSON.parse(readFileSync(new URL("../../runtime-manifest.json", import.meta.url), "utf8")) as RuntimeManifest;
@@ -58,7 +59,7 @@ export function defaultSurfpoolBinary(version: string): string {
 }
 
 /** Trusted process setting, never read from repository configuration. */
-export function configuredBackend(value = process.env.OMS_SANDBOX ?? 'host'): 'host' | 'docker' {
-  if (value !== 'host' && value !== 'docker') throw new Error('OMS_SANDBOX / --sandbox must be host or docker');
+export function configuredBackend(value = process.env.OMS_SANDBOX ?? 'host'): BackendName {
+  if (!isBackendName(value)) throw new Error('OMS_SANDBOX / --sandbox must be host or docker');
   return value;
 }

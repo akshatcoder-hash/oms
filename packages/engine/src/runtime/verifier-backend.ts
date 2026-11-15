@@ -3,20 +3,20 @@ import { constants } from 'node:fs';
 import { access, chmod, cp, mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { EMPTY_SNAPSHOT_DIGEST } from '@oms/contract';
-import { buildMounts, removeTaskResources, requirePinnedImage, runInSandbox, SURFPOOL_LIBS } from '@oms/sandbox';
+import { removeTaskResources, runInSandbox, SURFPOOL_LIBS } from '@oms/sandbox';
 import { createSurfnet, type Surfnet } from '@oms/surfnet';
 import { dependencyFetchArgv, DEPENDENCY_ALLOWLIST } from './deps-fetch.ts';
 import type { SurfnetSession, VerifierRunnerOptions } from '../verifier.ts';
 import { BUILD_LIMITS, BUILD_TIMEOUT_MS } from './build-profile.ts';
+import type { ExecutionBackend } from './execution-backend.ts';
 
 export interface VerifierBackendOptions {
-  backend?: 'host' | 'docker';
+  backend: ExecutionBackend;
+  /** Host backend only: the git control file whose digest is pinned. */
   gitControlPath?: string;
   taskName: string;
   /** Approved executable; its actual bytes are included in executionIdentity. */
   binary: string;
-  image: string;
-  forwarderImage: string;
   buildProfile?: boolean;
   /** Developer toolchain verification only: install root npm locks into an isolated volume. */
   npmDependencies?: boolean;
@@ -45,10 +45,7 @@ export interface VerifierBackend extends VerifierRunnerOptions {
   assertIntegrity(): Promise<void>;
 }
 
-// Bump when execution policy changes: this identity participates in the pin
-// and evidence cache, not merely diagnostics. No untrusted cache is mounted.
 export const TRUSTED_SURFPOOL = '/trusted/surfpool';
-const ADAPTER_POLICY = 'oms.verifier-backend/4:offline:no-airdrop:ro-work:fresh-output:no-volumes:run-egress:nonroot:source-exclusion:checked-binds:rpc-env-both:host-loopback-relay:locked-deps:trusted-surfpool';
 
 function overlaps(a: string, b: string): boolean {
   const rel = relative(a, b);
@@ -79,10 +76,7 @@ export async function createVerifierBackend(
   options = Object.freeze({ ...options });
   options.signal?.throwIfAborted();
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(options.taskName)) throw new Error('invalid verifier taskName');
-  if (options.backend !== 'host') {
-    requirePinnedImage(options.image, 'verifier image');
-    requirePinnedImage(options.forwarderImage, 'verifier forwarderImage');
-  }
+  options.backend.requireImages();
   if (options.startTimeoutMs !== undefined && (!Number.isInteger(options.startTimeoutMs) || options.startTimeoutMs <= 0 || options.startTimeoutMs > 2_147_483_647)) {
     throw new Error('invalid verifier startTimeoutMs');
   }
@@ -99,10 +93,10 @@ export async function createVerifierBackend(
   // npm never packs package-lock.json, so an installed OMS ships the same lock as npm-shrinkwrap.json.
   const dependencyLock = dependencyRoot && await existingPath(join(dependencyRoot, 'package-lock.json'), 'file')
     .catch(() => existingPath(join(dependencyRoot, 'npm-shrinkwrap.json'), 'file'));
-  if (dependencyRoot && options.backend !== 'host') await Promise.all(SURFPOOL_LIBS.map(path => existingPath(path, 'file')));
+  if (dependencyRoot && options.backend.mountsHostLibraries) await Promise.all(SURFPOOL_LIBS.map(path => existingPath(path, 'file')));
   const digest = async (path: string) => createHash('sha256').update(await readFile(path)).digest('hex');
   const gitDigest = async (): Promise<string | null> => {
-    if (options.backend !== 'host' || !options.gitControlPath) return null;
+    if (!options.backend.pinsGitControl || !options.gitControlPath) return null;
     const file = await open(options.gitControlPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const info = await file.stat();
@@ -118,12 +112,11 @@ export async function createVerifierBackend(
   };
   const binaryDigest = await digest(binary);
   const executionIdentity = createHash('sha256').update(JSON.stringify({
-    policy: options.backend === 'host' ? 'oms.verifier-host/2:unsandboxed:scrubbed:loopback:git-control-pin' : options.buildProfile ? `${ADAPTER_POLICY}:program-build/2:fresh-volumes:locked-install-fetch${options.npmDependencies ? ':npm-locked/1' : ''}` : ADAPTER_POLICY,
+    policy: options.backend.verifierPolicy(options),
     binaryDigest,
     ...(gitControlDigest === null ? {} : { gitControlDigest }),
     dependenciesSha256: dependencyLock ? await digest(dependencyLock) : null,
-    image: options.backend === 'host' ? null : options.image,
-    forwarderImage: options.backend === 'host' ? null : options.forwarderImage,
+    ...options.backend.pinnedImages(),
   })).digest('hex');
   const controller = new AbortController();
   const sessions = new Map<number, SurfnetSession>();
@@ -263,7 +256,7 @@ export async function createVerifierBackend(
             throw new Error('verifier input root overlaps trusted runtime paths');
           }
           signal.throwIfAborted();
-          const rpcUrl = `http://${options.backend === "host" ? "127.0.0.1" : "host.docker.internal"}:${runOptions.surfnetPort}`;
+          const rpcUrl = options.backend.rpcUrl(runOptions.surfnetPort);
           const output = await mkdtemp(join(workDir, 'output-'));
           const trustedMounts = dependencyModules ? [
             { hostPath: dependencyModules, containerPath: '/work/node_modules', mode: 'ro' as const },
@@ -285,21 +278,15 @@ export async function createVerifierBackend(
               }
             }
             signal.throwIfAborted();
-            const mounts = options.backend === 'host' ? {
-              projectMount: { hostPath: codeRoot, containerPath: codeRoot, mode: 'ro' as const },
-              extraMounts: [], readOnlyMounts: dependencyModules ? [{ hostPath: dependencyModules, containerPath: join(codeRoot, 'node_modules'), mode: 'ro' as const }] : [], volumes: [], shadowMounts: [],
-            } : buildMounts({
-              projectRoot: buildRoot, projectMode: 'ro', taskName: buildTask,
-              extra: [{ hostPath: output, containerPath: '/output' }, ...trustedMounts],
-              heavyDirs: options.buildProfile ? ['target', '.oms-cargo', ...(options.npmDependencies ? ['node_modules'] : [])] : [], forbidden: { signerDir: leaseDir },
-            });
+            const mounts = options.backend.verifierMounts({ codeRoot, buildRoot, buildTask, output, leaseDir, dependencyModules, trustedMounts,
+              buildProfile: options.buildProfile, npmDependencies: options.npmDependencies });
             const buildTimeout = options.buildProfile ? Math.min(runOptions.timeoutMs, BUILD_TIMEOUT_MS) : runOptions.timeoutMs;
             const fetchDependencies = async (kind: 'cargo' | 'npm', exhausted: string, failed: string): Promise<void> => {
               const fetchRemaining = buildTimeout - (Date.now() - buildStarted);
               if (fetchRemaining <= 0) throw new Error(exhausted);
               const fetched = await dependencies.runInSandbox({
                 backend: 'docker', taskName: buildTask, phase: 'install', argv: dependencyFetchArgv(kind), mounts,
-                image: options.image, forwarderImage: options.forwarderImage, leaseDir,
+                image: options.backend.images.image, forwarderImage: options.backend.images.forwarderImage, leaseDir,
                 sourceControlDir: options.sourceControlDir, signal, timeoutMs: fetchRemaining,
                 cwd: '/work', env: { HOME: '/tmp', TMPDIR: '/tmp', CARGO_HOME: '/work/.oms-cargo' },
                 limits: BUILD_LIMITS, installAllowlist: DEPENDENCY_ALLOWLIST,
@@ -314,33 +301,22 @@ export async function createVerifierBackend(
             }
             const remaining = buildTimeout - (Date.now() - buildStarted);
             if (options.buildProfile && remaining <= 0) throw new Error('verifier build timeout exhausted during dependency fetch');
-            const shared = {
+            const result = await dependencies.runInSandbox(options.backend.verifierRun({
               onSpawn: options.onSpawn,
-              taskName: buildTask,
-              phase: 'run' as const,
+              buildTask,
               sourceControlDir: options.sourceControlDir,
+              leaseDir,
               signal,
               timeoutMs: options.buildProfile ? remaining : runOptions.timeoutMs,
-              surfnet: { port: runOptions.surfnetPort },
-              mounts,
-            };
-            const result = await dependencies.runInSandbox(options.backend === 'host' ? {
-              ...shared,
-              backend: 'host',
-              argv: argv.map(arg => arg.replaceAll('/work/', codeRoot + '/').replaceAll(TRUSTED_SURFPOOL, binary)),
-              cwd: codeRoot,
-              env: { ...(options.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: output, SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, SURFPOOL_BINARY: binary },
-            } : {
-              ...shared,
-              backend: 'docker',
+              surfnetPort: runOptions.surfnetPort,
               argv,
-              image: options.image,
-              forwarderImage: options.forwarderImage,
-              leaseDir,
-              ...(options.buildProfile ? { limits: BUILD_LIMITS } : {}),
-              cwd: '/work',
-              env: { ...(options.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: '/output', SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl },
-            });
+              mounts,
+              codeRoot,
+              output,
+              binary,
+              buildProfile: options.buildProfile,
+              rpcUrl,
+            }));
             signal.throwIfAborted();
             await assertIntegrity();
             if (result.cancelled) throw new Error('verifier sandbox cancelled');

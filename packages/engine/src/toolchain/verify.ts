@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultHarnessEnvironment } from '../runtime/environment.ts';
+import { backendFor } from '../runtime/execution-backend.ts';
 import { createVerifierBackend } from '../runtime/verifier-backend.ts';
 import { readProject } from './project.ts';
 import { toolchainBuildCommand } from './build.ts';
@@ -27,7 +28,7 @@ export async function verifyToolchainProject(project: string, surfpoolBinary?: s
   try {
     const workDir=join(root,'work'),leaseDir=join(root,'lease');
     await mkdir(workDir,{mode:0o700}); await mkdir(leaseDir,{mode:0o700});
-    backend=await createVerifierBackend({...environment,taskName:`toolchain-${randomUUID()}`,workDir,leaseDir,buildProfile:true,npmDependencies,dependencies:undefined});
+    backend=await createVerifierBackend({backend:backendFor(environment),binary:environment.binary,taskName:`toolchain-${randomUUID()}`,workDir,leaseDir,buildProfile:true,npmDependencies,dependencies:undefined});
     const surf=await backend.surfnets.start(undefined);
     // One fresh isolated build sandbox keeps the .so available for the test command.
     const build=toolchainBuildCommand(snapshot,anchor?'anchor':'cargo');

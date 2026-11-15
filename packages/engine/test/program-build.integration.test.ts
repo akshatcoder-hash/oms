@@ -11,6 +11,7 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { buildMounts, buildRunArgs, removeTaskResources, runInSandbox, type RunInSandboxOptions } from '@oms/sandbox';
 import { createSurfnet } from '@oms/surfnet';
 import { skipUnavailable } from '../../sandbox/test-support/infrastructure.ts';
+import { backendFor } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 import { createVerifierBackend } from '../src/runtime/verifier-backend.ts';
 import { toolchainEnvironment } from '../test-support/toolchain-environment.ts';
@@ -59,7 +60,7 @@ test('cold Anchor build exceeds 60 seconds, cached rebuild compiles no dependenc
   const surf = createSurfnet({binary:environment.binary,workDir:join(root,'surfnet')});
   await surf.start();
   const mounts = buildMounts({projectRoot:join(root,'project'),taskName,heavyDirs:['target','.oms-cargo'],forbidden:{signerDir:join(root,'private')}});
-  const tools = createSandboxTools({taskName,mounts,...environment,buildProfile:true,leaseDir:join(root,'private'),surfnetPort:surf.ports()!.rpc,
+  const tools = createSandboxTools({taskName,mounts,backend:backendFor(environment),buildProfile:true,leaseDir:join(root,'private'),surfnetPort:surf.ports()!.rpc,
     sourceControlDir:join(root,'private/source'),signal:new AbortController().signal,remainingWallClockMs:()=>1_100_000});
   t.after(async()=>{await tools.dispose();await surf.stop();await removeTaskResources(taskName);await rm(root,{recursive:true,force:true});});
   let deps: {execute(id:string,input:{manager:'cargo'|'npm'}):Promise<{isError?:boolean;content:unknown}>} | undefined;
@@ -99,7 +100,7 @@ test('verifier fetches locked dependencies into fresh isolated volumes and remov
   await rm(join(root,'project/.cargo'),{recursive:true});
   for (const name of ['work','private']) await mkdir(join(root,name),{mode:0o700});
   const runs: RunInSandboxOptions[] = [];
-  const backend = await createVerifierBackend({...environment,taskName:'isolated-verifier',buildProfile:true,
+  const backend = await createVerifierBackend({backend:backendFor(environment),binary:environment.binary,taskName:'isolated-verifier',buildProfile:true,
     workDir:join(root,'work'),leaseDir:join(root,'private')}, {createSurfnet,runInSandbox: async options=>{runs.push(options);const result=await runInSandbox(options);if(result.exitCode!==0)t.diagnostic(result.stdout+result.stderr);return result;}});
   try {
     const chain=await backend.surfnets.start(undefined);

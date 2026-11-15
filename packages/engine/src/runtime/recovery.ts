@@ -4,10 +4,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { recoverTaskExecutionResources, SandboxError } from '@oms/sandbox';
+import { SandboxError } from '@oms/sandbox';
 import { identifyLeaseProcess, leaseProcessAlive, recoverStaleLeaseWithCleanup, type LeaseOwner } from '../workspace/lease.ts';
 import { assertPrivate, contains, isMissing, privateDirectory, readPrivateJson, syncDirectory, WorkspaceError, writePrivateJson } from '../workspace/storage.ts';
 import type { Task, Workspace } from '../workspace/index.ts';
+import { executionBackend, isBackendName } from './execution-backend.ts';
 import { taskContext, type TaskContext } from './task-context.ts';
 
 /** Proof snapshots are created under the real temp directory; on macOS tmpdir() is a symlinked path (/var -> /private/var). */
@@ -184,12 +185,12 @@ export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, 
   await recoverStaleLeaseWithCleanup(task.leaseFile, expected, async assertOwner => {
     const backendFile = join(context.stateDir, 'runtime-backend.json');
     const savedBackend = existsSync(backendFile) ? readPrivateJson(backendFile) as { backend?: unknown } : { backend: 'docker' };
-    if (savedBackend.backend !== 'host' && savedBackend.backend !== 'docker') throw new WorkspaceError('RECOVERY_PROCESS_UNVERIFIABLE', 'Recorded execution backend is invalid');
-    const backend = savedBackend.backend;
-    const extraRoots = [...(backend === 'host' ? [task.codeRoot] : []), join(workspace.stateDir, 'sessions', task.id)];
+    if (!isBackendName(savedBackend.backend)) throw new WorkspaceError('RECOVERY_PROCESS_UNVERIFIABLE', 'Recorded execution backend is invalid');
+    const backend = executionBackend(savedBackend.backend);
+    const extraRoots = [...backend.runtimeRoots(task.codeRoot), join(workspace.stateDir, 'sessions', task.id)];
     const withinRuntime = (cwd: string) => [context.workDir, ...extraRoots].some(root => contains(root, cwd));
     const directory = join(context.stateDir, 'runtime-processes');
-    const records = runtimeRecords(directory, expected, context.workDir, extraRoots, backend === 'host');
+    const records = runtimeRecords(directory, expected, context.workDir, extraRoots, backend.capturesProofRoots);
     const exclusion = executionLeases(context, task, expected);
     const captured = records.map(entry => entry.record.cwd).filter(capturedRoot);
     const before = processDirectories(expected);
@@ -206,7 +207,7 @@ export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, 
         throw new WorkspaceError('RECOVERY_PROCESS_UNVERIFIABLE', 'A registered runtime process changed its working directory; no process was signalled');
       }
     }
-    try { if (backend === 'docker') await recoverTaskExecutionResources(context.taskName, assertOwner); }
+    try { await backend.recoverResources(context.taskName, assertOwner); }
     catch (error) {
       if (error instanceof WorkspaceError) throw error;
       throw new WorkspaceError(error instanceof SandboxError && error.code === 'E_RESOURCE_OWNERSHIP' ? 'RECOVERY_DOCKER_OWNERSHIP' : 'RECOVERY_DOCKER_UNAVAILABLE',
@@ -232,7 +233,7 @@ export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, 
     }
     // Re-read every exclusion and child record after asynchronous cleanup, before removing any.
     const after = executionLeases(context, task, expected);
-    if (JSON.stringify(after) !== JSON.stringify(exclusion) || JSON.stringify(runtimeRecords(directory, expected, context.workDir, extraRoots, backend === 'host')) !== JSON.stringify(records)) {
+    if (JSON.stringify(after) !== JSON.stringify(exclusion) || JSON.stringify(runtimeRecords(directory, expected, context.workDir, extraRoots, backend.capturesProofRoots)) !== JSON.stringify(records)) {
       throw new WorkspaceError('LEASE_OWNERSHIP_LOST', 'Runtime ownership records changed during recovery');
     }
     for (const file of [...exclusion.files.map(entry => entry.file), ...records.map(entry => entry.file)]) {

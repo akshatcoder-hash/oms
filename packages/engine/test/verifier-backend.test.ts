@@ -8,6 +8,7 @@ import { createEvaluator, createProposer, EMPTY_SNAPSHOT_DIGEST, type RunnerCont
 import type { RunInSandboxOptions } from '@oms/sandbox';
 import { createSurfnet, type Surfnet, type SurfnetOptions } from '@oms/surfnet';
 import { createVerifierRunner } from '../src/verifier.ts';
+import { dockerBackend } from '../src/runtime/execution-backend.ts';
 import { createVerifierBackend, type VerifierBackend, type VerifierBackendDependencies } from '../src/runtime/verifier-backend.ts';
 import { makeProject } from '../../contract/test-support/fixture.ts';
 import { skipUnavailable } from '../../sandbox/test-support/infrastructure.ts';
@@ -23,7 +24,7 @@ function fixture(t: TestContext) {
   writeFileSync(binary, '#!/bin/sh\nexit 1\n');
   chmodSync(binary, 0o700);
   for (const name of ['work', 'leases', 'code']) mkdirSync(join(root, name), { mode: 0o700 });
-  const options = { taskName: 'proof-test', binary, image: IMAGE, forwarderImage: IMAGE, workDir: join(root, 'work'), leaseDir: join(root, 'leases'), sourceControlDir: join(root, 'source-control') };
+  const options = { taskName: 'proof-test', backend: dockerBackend({ image: IMAGE, forwarderImage: IMAGE }), binary, workDir: join(root, 'work'), leaseDir: join(root, 'leases'), sourceControlDir: join(root, 'source-control') };
   const starts: SurfnetOptions[] = [];
   const runs: RunInSandboxOptions[] = [];
   let stops = 0;
@@ -63,7 +64,7 @@ test('execution identity derives from binary bytes and immutable images, not cal
   writeFileSync(f.options.binary, '#!/bin/sh\nexit 2\n');
   const changed = await createVerifierBackend(f.options, f.dependencies);
   assert.notEqual(first.executionIdentity, changed.executionIdentity);
-  const imageChanged = await createVerifierBackend({ ...f.options, image: `node@sha256:${'2'.repeat(64)}` }, f.dependencies);
+  const imageChanged = await createVerifierBackend({ ...f.options, backend: dockerBackend({ image: `node@sha256:${'2'.repeat(64)}`, forwarderImage: IMAGE }) }, f.dependencies);
   assert.notEqual(changed.executionIdentity, imageChanged.executionIdentity);
   await assert.rejects(first.surfnets.start(undefined), /binary.*changed/i);
   assert.equal(f.starts.length, 0);
@@ -194,7 +195,7 @@ test('startup failure and modified consumed snapshot clean up the child and temp
 test('invalid paths/images and pre-aborted requests fail before spawning', async (t) => {
   const f = fixture(t);
   await assert.rejects(createVerifierBackend({ ...f.options, binary: join(f.root, 'missing') }, f.dependencies), /ENOENT/);
-  await assert.rejects(createVerifierBackend({ ...f.options, image: 'node:latest' }, f.dependencies), /immutable|sha256/);
+  await assert.rejects(createVerifierBackend({ ...f.options, backend: dockerBackend({ image: 'node:latest', forwarderImage: IMAGE }) }, f.dependencies), /immutable|sha256/);
   const controller = new AbortController();
   controller.abort(new Error('user cancelled'));
   await assert.rejects(createVerifierBackend({ ...f.options, signal: controller.signal }, f.dependencies), /user cancelled/);
@@ -305,7 +306,7 @@ const response = await fetch(process.env.SOLANA_RPC_URL, {
 const account = await response.json();
 assert.equal(account.result.value.lamports, 777);
 `);
-    backend = await createVerifierBackend({ taskName: 'real-verifier', binary, image, forwarderImage, workDir, leaseDir, sourceControlDir: project.roots.sourceControlDir });
+    backend = await createVerifierBackend({ taskName: 'real-verifier', backend: dockerBackend({ image, forwarderImage }), binary, workDir, leaseDir, sourceControlDir: project.roots.sourceControlDir });
     project.config.executionIdentity = backend.executionIdentity;
     project.config.snapshotDigest = hash(snapshot);
     const pin = project.pin({ verifierPaths: ['tests/verifier.mjs'] });
