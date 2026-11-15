@@ -490,6 +490,35 @@ test('multiline paste and modified Enter submit losslessly; busy submit preserve
   } finally { f.abortGate.resolve(); f.promptGate.resolve(); await quit(terminal, run); terminal.vt.dispose(); }
 });
 
+test('with nothing connected the status line asks to connect instead of naming the default model', async () => {
+  const f = fixture();
+  f.identity({ provider: 'other', id: 'default-model' });
+  f.harness.listModels = () => [{ provider: 'other', id: 'default-model', name: 'Default model', configured: false, selectable: false }];
+  const terminal = new InterfaceTerminal(120, 36);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until(s => s.includes('No model selected'));
+    assert.match(screen, /No model selected · \/connect then \/model/);
+    assert.doesNotMatch(screen, /default-model/);
+    assert.doesNotMatch(screen, /unavailable · \/model/);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
+test('a chosen model whose provider needs setup still shows as unavailable once another provider is connected', async () => {
+  const f = fixture();
+  f.identity({ provider: 'other', id: 'chosen-model' });
+  f.harness.listModels = () => [
+    { provider: 'local', id: 'test-model', name: 'Local model', configured: true, selectable: true },
+    { provider: 'other', id: 'chosen-model', name: 'Chosen model', configured: false, selectable: false },
+  ];
+  const terminal = new InterfaceTerminal(120, 36);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until(s => s.includes('other/chosen-model'));
+    assert.match(screen, /other\/chosen-model · unavailable · \/model/);
+  } finally { await quit(terminal, run); terminal.vt.dispose(); }
+});
+
 test('missing model and failed dispatch preserve the editable prompt', async () => {
   const f = fixture(); f.model(false); const terminal = new InterfaceTerminal();
   const run = runOmsInterface(f.harness, { terminal });

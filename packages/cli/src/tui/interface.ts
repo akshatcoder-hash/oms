@@ -608,8 +608,11 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   const status = component(width => {
     const model = harness.session.model;
     const choice = selectedModelChoice();
-    const modelLabel = model && hasModelConfiguration(model)
-      ? `${model.provider === 'claude-code' ? 'Native chat · ' : ''}${singleLine(model.provider, 80)}/${singleLine(model.id, 120)}${choice?.selectable === false ? ' · unavailable · /model' : ''}` : 'No model · /connect or /model';
+    // Before anything is connected the session still holds a default model; do not present it as a pick the user made.
+    const nothingConnected = !harness.listModels().some(candidate => candidate.configured);
+    const modelLabel = model && hasModelConfiguration(model) && !(nothingConnected && choice?.selectable === false)
+      ? `${model.provider === 'claude-code' ? 'Native chat · ' : ''}${singleLine(model.provider, 80)}/${singleLine(model.id, 120)}${choice?.selectable === false ? ' · unavailable · /model' : ''}`
+      : model && hasModelConfiguration(model) ? 'No model selected · /connect then /model' : 'No model · /connect or /model';
     const budget = harness.budget.snapshot();
     const scope = budget.executionMode === 'interactive'
       ? (['tokens', 'wallClockMs'] as const) : (['tokens', 'spendMicroUsd', 'wallClockMs'] as const);
