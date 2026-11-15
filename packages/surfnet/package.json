@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Surfpool lifecycle: spawn, checkpoint, rewind, error normalization",
+  "description": "Surfpool lifecycle: spawn, rewind to start, error normalization",
   "license": "MIT",
   "engines": {
     "node": ">=22.6"

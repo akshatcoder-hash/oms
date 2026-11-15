@@ -20,7 +20,5 @@ export {
   type Surfnet,
   type SurfnetOptions,
   type SurfnetMode,
-  type AccountImage,
-  type CheckpointInfo,
   type HealthReport,
 } from './manager.ts';

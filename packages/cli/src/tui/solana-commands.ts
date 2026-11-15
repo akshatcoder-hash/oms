@@ -82,8 +82,7 @@ export function prepareChain(argument: string, harness: HarnessSession): Prepare
       `RPC: ${url}`,
       `Health: ${health.ok ? 'ok' : `down${health.detail ? ' · ' + clip(health.detail, 200) : ''}`}`,
       `Slot: ${slot ?? 'unavailable'}`,
-      chain.mode === 'forked' ? 'Network: fork of a live cluster (the source slot is not reported by this Surfpool)'
-        : 'Network: offline Surfpool, not a mainnet fork',
+      'Network: offline Surfpool, not a mainnet fork',
       `Uptime: ${formatDuration(chain.uptimeMs())}${version?.['solana-core'] ? ` · solana-core ${clip(String(version['solana-core']), 40)}` : ''}`,
     ].join('\n') };
   } };

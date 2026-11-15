@@ -9,7 +9,7 @@ export const CHAIN_METHODS: ReadonlySet<string> = new Set([
 export interface ChainControls {
   /** The task's loopback RPC URL, or undefined while the chain is down. */
   rpcUrl(): string | undefined;
-  /** Always offline in a task session; `forked` would mean a live-cluster fork. */
+  /** Always offline in a task session. */
   readonly mode: SurfnetMode;
   /** Milliseconds since the chain last started or was rewound. */
   uptimeMs(): number;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import { skipUnavailable, skipUnavailableToolchain } from '../../sandbox/test-su
 import { configuredToolchainImage } from '../../engine/src/runtime/environment.ts';
 import { createVerifierBackend } from '../../engine/src/runtime/verifier-backend.ts';
 import { createSurfnet } from '../src/manager.ts';
+import { exportSnapshot } from '../test-support/snapshot.ts';
 
 const execute = promisify(execFile);
 const binary = process.env.SURFPOOL_BINARY ?? join(process.env.HOME ?? '', '.local/bin/surfpool');
@@ -53,7 +54,7 @@ async function invoke(rpc: Rpc, program: string, nonce: number) {
 }
 
 for (const arch of ['default', 'v3'] as const) {
-  test(`surfnet_writeProgram wins over loader-v3 setAccount for a single-write load: ${arch} program survives checkpoint/rewind and independent verifier`, { timeout: 300_000 }, async t => {
+  test(`surfnet_writeProgram wins over loader-v3 setAccount for a single-write load: ${arch} program survives a snapshot export and an independent verifier`, { timeout: 300_000 }, async t => {
     if (skipUnavailableToolchain(t, image)) return;
     if (await skipUnavailable(t, { docker: [image, forwarderImage], surfpool: binary }) || !image || !forwarderImage) return;
     const root = await mkdtemp(join(tmpdir(), 'oms-program-load-'));
@@ -71,7 +72,7 @@ for (const arch of ['default', 'v3'] as const) {
     const elf = await readFile(join(root, 'output/oms_pinocchio_noop.so'));
     assert.ok(elf.length >= 400 * 1024, `real ELF has ${elf.length} bytes`);
     assert.equal(elf.subarray(0, 4).toString('hex'), '7f454c46');
-    const surf = createSurfnet({ binary, offline: true, workDir: join(root, 'exploration') });
+    const surf = createSurfnet({ binary, workDir: join(root, 'exploration') });
     await surf.start();
     t.after(() => surf.stop());
     const rpc: Rpc = (method, params) => surf.rpc.call(method, params);
@@ -88,23 +89,18 @@ for (const arch of ['default', 'v3'] as const) {
       assert.equal((await account(rpc, program)).executable, true);
       assert.deepEqual((await account(rpc, programData)).bytes.subarray(45), elf);
       await invoke(rpc, program, 1);
-      const checkpoint = await surf.checkpoint(`${arch}-${method}`);
-      await rpc('surfnet_setAccount', [program, { executable: false }]);
-      assert.equal((await account(rpc, program)).executable, false);
-      await surf.rewind(`${arch}-${method}`);
-      assert.equal((await account(rpc, program)).executable, true);
-      assert.deepEqual((await account(rpc, programData)).bytes.subarray(45), elf);
-      await invoke(rpc, program, 2);
+      const snapshotPath = join(root, `${arch}-${method}.json`);
+      await writeFile(snapshotPath, await exportSnapshot(surf.rpcUrl()!));
       const verifier = await createVerifierBackend({ taskName: `spike-${arch}`, binary, image, forwarderImage,
         workDir: join(root, 'work'), leaseDir: join(root, 'leases') });
       try {
-        const chain = await verifier.surfnets.start(checkpoint.path);
+        const chain = await verifier.surfnets.start(snapshotPath);
         const verifyRpc: Rpc = (method, params) => chain.call(method, params);
         assert.equal((await account(verifyRpc, program)).executable, true);
         assert.deepEqual((await account(verifyRpc, programData)).bytes.subarray(45), elf);
-        await invoke(verifyRpc, program, 3);
+        await invoke(verifyRpc, program, 2);
       } finally { await verifier.dispose(); }
-      t.diagnostic(`${method}: ${elf.length} bytes verified and invoked in exploration, rewind and independent verifier`);
+      t.diagnostic(`${method}: ${elf.length} bytes verified and invoked in exploration and the independent verifier`);
     }
   });
 }

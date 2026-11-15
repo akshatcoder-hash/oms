@@ -11,6 +11,7 @@ import { createVerifierRunner } from '../src/verifier.ts';
 import { createVerifierBackend, type VerifierBackend, type VerifierBackendDependencies } from '../src/runtime/verifier-backend.ts';
 import { makeProject } from '../../contract/test-support/fixture.ts';
 import { skipUnavailable } from '../../sandbox/test-support/infrastructure.ts';
+import { exportSnapshot } from '../../surfnet/test-support/snapshot.ts';
 
 const IMAGE = `node@sha256:${'1'.repeat(64)}`;
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -34,21 +35,15 @@ function fixture(t: TestContext) {
       starts.push(options);
       let running = false;
       return {
-        mode: options.offline === true ? 'offline-snapshot' : 'forked',
+        mode: 'offline-snapshot',
         start: async () => { await onStart(options); running = true; },
         stop: async () => { stops++; running = false; },
         ports: () => running ? { rpc: 18899, ws: 18900 } : undefined,
         rpcUrl: () => running ? 'http://127.0.0.1:18899' : undefined,
         pid: () => running ? 123 : undefined,
         rpc: { url: 'http://127.0.0.1:18899', call: () => onRpc() },
-        checkpoint: async () => { throw new Error('not used'); },
-        rewind: async () => { throw new Error('not used'); },
         rewindToStart: async () => { throw new Error('not used'); },
-        restoreAccounts: async () => { throw new Error('not used'); },
         health: async () => ({ ok: running }),
-        ensureAlive: async () => ({ restarted: false, fromCheckpoint: undefined }),
-        latestCheckpoint: () => undefined,
-        logs: () => [],
       };
     },
     async runInSandbox(options) {
@@ -288,14 +283,13 @@ test('real offline verifier closes only after Docker tests and snapshot account 
   mkdirSync(workDir, { mode: 0o700 });
   mkdirSync(leaseDir, { mode: 0o700 });
   const address = '9jpoP5z8H8u21sSS5etPxS63LL4WXsxVkKsqBBU3c8rL';
-  const seed = createSurfnet({ binary, offline: true, workDir: join(project.outside, 'seed') });
+  const seed = createSurfnet({ binary, workDir: join(project.outside, 'seed') });
   let backend: VerifierBackend | undefined;
   try {
     await seed.start();
-    await seed.restoreAccounts([{ address, lamports: 777 }]);
-    const checkpoint = await seed.checkpoint('initial');
+    await seed.rpc.call('surfnet_setAccount', [address, { lamports: 777 }]);
+    const snapshot = Buffer.from(await exportSnapshot(seed.rpcUrl()!));
     await seed.stop();
-    const snapshot = readFileSync(checkpoint.path);
     writeFileSync(join(project.root, '.oms', 'snapshots', 'offline.json'), snapshot);
     writeFileSync(join(project.root, 'tests', 'verifier.mjs'), `
 import assert from 'node:assert/strict';

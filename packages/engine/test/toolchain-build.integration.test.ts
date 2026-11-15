@@ -28,7 +28,7 @@ test('mechanical toolchain repairs build Anchor and run the on-chain counter tes
  await mkdir(privateDir,{mode:0o700});
  execFileSync('git',['init','-q',source]); execFileSync('git',['-C',source,'add','.']); execFileSync('git',['-C',source,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','baseline']);
  execFileSync('git',['-C',source,'worktree','add','-qb','task',project]);
- const surf=createSurfnet({binary:environment.binary,offline:true,workDir:join(root,'surfnet')});
+ const surf=createSurfnet({binary:environment.binary,workDir:join(root,'surfnet')});
  await surf.start();
  const mounts=buildMounts({projectRoot:project,taskName,heavyDirs:['target','.oms-cargo'],forbidden:{signerDir:privateDir}});
  const tools=createSandboxTools({taskName,mounts,...environment,buildProfile:true,leaseDir:privateDir,sourceControlDir:join(privateDir,'source'),surfnetPort:surf.ports()!.rpc,

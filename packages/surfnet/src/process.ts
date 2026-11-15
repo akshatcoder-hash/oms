@@ -9,8 +9,6 @@ export interface SpawnOptions {
   wsPort: number;
   /** Snapshot file passed as `--snapshot`. */
   snapshot?: string;
-  /** false: fork a remote datasource (omit --offline). Default true. */
-  offline?: boolean;
   /** Log file the child's stdout/stderr stream into. */
   logFile: string;
   /** Extra args appended to the command line (e.g. airdrop overrides). */
@@ -85,7 +83,7 @@ export function spawnSurfpool(options: SpawnOptions): SurfnetProcess {
     'start',
     '--ci',
     '--no-tui',
-    ...(options.offline === false ? [] : ['--offline']),
+    '--offline',
     '--port',
     String(options.rpcPort),
     '--ws-port',

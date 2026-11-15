@@ -56,7 +56,7 @@ test('cold Anchor build exceeds 60 seconds, cached rebuild compiles no dependenc
   const taskName = `anchor-${randomUUID()}`;
   await cp(fileURLToPath(new URL('../test-support/fixtures/anchor-counter', import.meta.url)),join(root,'project'),{recursive:true});
   await mkdir(join(root,'private'),{mode:0o700});
-  const surf = createSurfnet({binary:environment.binary,offline:true,workDir:join(root,'surfnet')});
+  const surf = createSurfnet({binary:environment.binary,workDir:join(root,'surfnet')});
   await surf.start();
   const mounts = buildMounts({projectRoot:join(root,'project'),taskName,heavyDirs:['target','.oms-cargo'],forbidden:{signerDir:join(root,'private')}});
   const tools = createSandboxTools({taskName,mounts,...environment,buildProfile:true,leaseDir:join(root,'private'),surfnetPort:surf.ports()!.rpc,

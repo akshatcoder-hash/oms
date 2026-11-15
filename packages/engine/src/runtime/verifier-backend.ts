@@ -192,7 +192,7 @@ export async function createVerifierBackend(
             }
             signal.throwIfAborted();
             surf = dependencies.createSurfnet({
-              binary, offline: true, snapshot, workDir: runDir,
+              binary, snapshot, workDir: runDir,
               startTimeoutMs: options.startTimeoutMs, signal, onSpawn: options.onSpawn,
             });
             await surf.start();

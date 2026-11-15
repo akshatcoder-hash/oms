@@ -377,7 +377,7 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
         return baseProposer.propose(itemId);
       },
     };
-    surf = createSurfnet({ binary: environment.binary, offline: true,
+    surf = createSurfnet({ binary: environment.binary,
       ...(config.snapshotPath === undefined ? {} : { snapshot: join(task.codeRoot, config.snapshotPath) }),
       workDir: join(context.workDir, "exploration"), signal: controller.signal, onSpawn: processes.onSpawn });
     await surf.start();

@@ -14,8 +14,6 @@ export class SurfnetRpcError extends Error {
 export interface RpcCallOptions {
   /** Per-call timeout in ms. Default 30_000. */
   timeoutMs?: number;
-  /** Preserve large snapshot integers for JSON serialization (Node 22+). */
-  preserveIntegers?: boolean;
 }
 
 export interface RpcClient {
@@ -69,16 +67,7 @@ export function createRpcClient(url: string): RpcClient {
       }
       let body: JsonRpcResponse;
       try {
-        body = options.preserveIntegers
-          ? JSON.parse(await response.text(), (_key, value, context?: { source?: string }) => {
-            if (typeof value === 'number' && Number.isInteger(value) && !Number.isSafeInteger(value)) {
-              if (!context?.source) throw new Error('JSON integer source unavailable');
-              const raw = JSON as unknown as { rawJSON(source: string): unknown };
-              return raw.rawJSON(context.source);
-            }
-            return value;
-          }) as JsonRpcResponse
-          : (await response.json()) as JsonRpcResponse;
+        body = (await response.json()) as JsonRpcResponse;
       } catch {
         throw new SurfnetRpcError(
           normalizeTransportError(

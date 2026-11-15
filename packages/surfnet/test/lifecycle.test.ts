@@ -60,37 +60,27 @@ test('manager rejects missing binary/snapshot before allocating ports and clears
   assert.equal(surf.rpcUrl(), undefined);
 });
 
-test('recovery before the first checkpoint reloads the verified original snapshot', async (t) => {
+test('rewindToStart reloads the verified original snapshot', async (t) => {
   const f = fixture(t);
   const snapshot = join(f.root, 'original.json');
   writeFileSync(snapshot, JSON.stringify({ seeded: { lamports: 7 } }));
-  let exited!: () => void;
-  const exit = new Promise<void>(resolve => { exited = resolve; });
-  const surf = createSurfnet({ binary: f.binary, workDir: f.workDir, snapshot, onExit: () => exited() });
+  const surf = createSurfnet({ binary: f.binary, workDir: f.workDir, snapshot });
   t.after(() => surf.stop());
   await surf.start();
-  await surf.restoreAccounts([{ address: 'seeded', lamports: 99 }]);
-  process.kill(surf.pid()!, 'SIGKILL');
-  await exit;
-  const recovery = await surf.ensureAlive();
-  assert.equal(recovery.restarted, true);
-  assert.equal(recovery.fromCheckpoint, undefined);
+  await surf.rpc.call('surfnet_setAccount', ['seeded', { lamports: 99 }]);
+  await surf.rewindToStart();
   assert.deepEqual(await surf.rpc.call('getAccountInfo', ['seeded']), { value: { lamports: 7 } });
 });
 
-test('changed original snapshot fails recovery rather than silently seeding different state', async (t) => {
+test('changed original snapshot fails rewind rather than silently seeding different state', async (t) => {
   const f = fixture(t);
   const snapshot = join(f.root, 'original.json');
   writeFileSync(snapshot, '{"seeded":{"lamports":7}}');
-  let exited!: () => void;
-  const exit = new Promise<void>(resolve => { exited = resolve; });
-  const surf = createSurfnet({ binary: f.binary, workDir: f.workDir, snapshot, onExit: () => exited() });
+  const surf = createSurfnet({ binary: f.binary, workDir: f.workDir, snapshot });
   t.after(() => surf.stop());
   await surf.start();
-  process.kill(surf.pid()!, 'SIGKILL');
-  await exit;
   writeFileSync(snapshot, '{}');
-  await assert.rejects(surf.ensureAlive(), /snapshot.*changed/i);
+  await assert.rejects(surf.rewindToStart(), /snapshot.*changed/i);
   assert.equal(surf.ports(), undefined);
   assert.equal(surf.pid(), undefined);
 });
