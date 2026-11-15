@@ -47,4 +47,4 @@ First public release, `npx @barestate/oms`.
 
 ### Solana workflow
 
-- Bounded knowledge-service tools, Anchor and Kit toolchain repair, report-only security review and verified memory.
+- Bounded knowledge-service tools, Anchor and Kit toolchain repair and report-only security review.

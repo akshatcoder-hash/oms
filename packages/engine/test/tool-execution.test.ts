@@ -56,5 +56,5 @@ test('a read-only call beside a write, bash or an unlisted tool keeps the whole 
 
 test('only tools that read without shared state are parallel', () => {
   for (const name of ['read', 'task_status', 'toolchain_check', 'search_docs', 'api_lookup']) assert.ok(READ_ONLY_TOOLS.has(name), name);
-  for (const name of ['write', 'edit', 'bash', 'propose_done', 'deps_fetch', 'web_fetch', 'source_fetch', 'web_search', 'lessons_get']) assert.equal(READ_ONLY_TOOLS.has(name), false, name);
+  for (const name of ['write', 'edit', 'bash', 'propose_done', 'deps_fetch', 'web_fetch', 'source_fetch', 'web_search']) assert.equal(READ_ONLY_TOOLS.has(name), false, name);
 });

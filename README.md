@@ -60,8 +60,6 @@ Anchor and Kit toolchain repair helps resolve version and build mismatches. It d
 
 Security review is report-only: **can make mistakes; get a professional audit**. Findings do not authorize automatic fixes or constitute an audit. 
 
-Verified memory records lessons supported by verification receipts. Ordinary chat history is not proof that a lesson is correct. 
-
 Startup art shows one of four pictures when OMS opens. `/art off` turns it off. Appearance settings do not send model requests.
 
 ## Web access

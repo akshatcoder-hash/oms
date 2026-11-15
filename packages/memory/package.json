@@ -1,1 +1,0 @@
-{"name":"@oms/memory","version":"0.0.1","private":true,"type":"module","exports":"./src/index.ts","scripts":{"test":"node --test test/*.test.ts","typecheck":"tsc --noEmit"}}

@@ -1,7 +1,5 @@
 import { readProject } from "../toolchain/project.ts";
 import { checkToolchain } from "../toolchain/check.ts";
-import { createMemoryHistory } from '../memory-history.ts';
-import { createMemoryCapture, type LocalMemoryCaptureOptions } from '../memory-extension.ts';
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +13,7 @@ import { Type } from "typebox";
 import {
   createEvaluator, createProposer, createVerifierCache,
   EMPTY_SNAPSHOT_DIGEST, parseEvaluatorConfig, parseTaskContract, pinContract, snapshotDigest,
-  digestJson, toPosixRelative, verifyPin, writeContractFileAtomic, type Evaluator, type EvaluatorConfig,
+  toPosixRelative, verifyPin, writeContractFileAtomic, type Evaluator, type EvaluatorConfig,
   type EvaluateResult, type TaskContract,
 } from "@oms/contract";
 import { createTraceWriter, type BudgetCaps, type BudgetLedger, type ExecutionMode, type TraceWriter } from "@oms/core";
@@ -48,7 +46,6 @@ import type { StreamFn } from "@earendil-works/pi-agent-core";
 import { createOmsAccountControls, type OmsAccountControls } from "./oms-account.ts";
 import { taskContext } from "./task-context.ts";
 import { trackRuntimeProcesses, type RuntimeProcessTracker } from "./recovery.ts";
-import { observeMemory } from "../memory-observer.ts";
 
 
 export interface HarnessEnvironment {
@@ -91,8 +88,6 @@ export interface HarnessSessionOptions {
   /** Trusted host configuration for the Solana knowledge service, for the benchmark harness. Absent: the session uses
    * OMS_KNOWLEDGE_URL plus OMS_KNOWLEDGE_TOKEN when both are set, else the signed-in OMS account, else the tools are hidden. */
   knowledge?: KnowledgeConfig;
-  /** Opt-in template-only local persistence from trusted snapshots; no model or upload. */
-  localMemory?: Omit<LocalMemoryCaptureOptions, "workspace" | "candidateRoot">;
   /** The look-it-up nudge in the system prompt. Defaults on whenever a knowledge credential exists; false turns it off. */
   knowledgeHint?: boolean;
   /** The search_docs rule and the top task-matched doc snippets in the first user turn (headless). Defaults on whenever a knowledge credential exists. */
@@ -366,22 +361,8 @@ export async function createHarnessSession(options: HarnessSessionOptions): Prom
     const probe = trace.append({ type: "budget", accounting: budget.snapshot().accounting, sessionId: id });
     if (!probe.ok) throw new Error("Session trace cannot be opened safely; operator recovery required");
     const runner = createVerifierRunner(backend);
-    const rawEvaluator = createEvaluator({ ...context.roots, pinFile: task.pinFile, runner,
+    const baseEvaluator = createEvaluator({ ...context.roots, pinFile: task.pinFile, runner,
       cache: createVerifierCache({ path: join(context.stateDir, "verifier-cache.json"), projectRoot: workspace.root }) });
-    const localCapture = options.localMemory ? createMemoryCapture({ ...options.localMemory,
-      workspace: workspace.root, candidateRoot: task.codeRoot,
-    }) : undefined;
-    const memoryView = options.localMemory ? rawEvaluator.read() : undefined;
-    const baseEvaluator = localCapture ? observeMemory(rawEvaluator, {
-      executionIdentity: parsedConfig.value.executionIdentity,
-      observe: localCapture,
-      history: options.localMemory && memoryView?.ok ? createMemoryHistory({
-        path: join(context.stateDir, "memory-failures.json"),
-        scope: digestJson({ execution: config, verifier: pinned.pin.pin.verifierDigest,
-          requirements: memoryView.value.items.map(({ id, done }) => ({ id, done })) }),
-        vocabulary: options.localMemory.vocabulary, secretForms: options.localMemory.secretForms,
-      }) : undefined,
-    }) : rawEvaluator;
     const evaluator: Evaluator = { ...baseEvaluator,
       evaluate: itemId => {
         if (!taskTools) return Promise.reject(new Error("Task sandbox is not ready"));

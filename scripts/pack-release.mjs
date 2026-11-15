@@ -6,7 +6,7 @@ import ts from 'typescript';
 const root = resolve(import.meta.dirname, '..');
 const output = join(root, '.tmp', 'release');
 const stage = join(output, 'package');
-const names = ['cli', 'engine', 'core', 'contract', 'surfnet', 'sandbox', 'review', 'memory'];
+const names = ['cli', 'engine', 'core', 'contract', 'surfnet', 'sandbox', 'review'];
 const manifests = new Map(names.map(name => [name, JSON.parse(readFileSync(join(root, 'packages', name, 'package.json'), 'utf8'))]));
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
