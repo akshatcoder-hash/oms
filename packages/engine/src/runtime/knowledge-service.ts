@@ -339,7 +339,7 @@ export function createKnowledgeExtension(source: KnowledgeSource | undefined): E
 export function createKnowledgeVisibility(source: KnowledgeSource, promptFor: (config: KnowledgeConfig | undefined) => string, shown: () => boolean): ExtensionFactory {
   let promptShows: boolean | undefined;
   return pi => {
-    pi.on("before_agent_start", event => {
+    pi.on("before_agent_start", () => {
       const config = resolveKnowledge(source);
       // The live loadout is edited, not systemPromptOptions: pi ignores an edit that leaves the list the same length as the base one.
       const active = pi.getActiveTools();

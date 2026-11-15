@@ -15,7 +15,7 @@ export const ARBITRARY_DATA_PROGRAMS: ReadonlyArray<{ id: string; reason: string
 // Also apart from the headline: programs deployed by the run itself, which can be written to accept any data (scoreRun's `deployed`).
 
 /** Precompiles check signatures and treat data[0] as a count, so many first bytes succeed. Reported as a second number next to the headline. */
-export const PRECOMPILE_PROGRAMS = ['KeccakSecp256k11111111111111111111111111111', 'Ed25519SigVerify111111111111111111111111111', 'Secp256r1SigVerify1111111111111111111111111'] as const;
+const PRECOMPILE_PROGRAMS = ['KeccakSecp256k11111111111111111111111111111', 'Ed25519SigVerify111111111111111111111111111', 'Secp256r1SigVerify1111111111111111111111111'] as const;
 
 /** Headline pairs (`program:byte`) not from a precompile. */
 export const withoutPrecompiles = (pairs: readonly string[]) => pairs.filter(pair => !(PRECOMPILE_PROGRAMS as readonly string[]).includes(pair.slice(0, pair.lastIndexOf(':'))));

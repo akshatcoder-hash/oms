@@ -155,7 +155,7 @@ const flags = (account: { signer?: boolean | "either"; writable?: boolean; optio
 const GITHUB_RAW = /^https:\/\/raw\.githubusercontent\.com\/([^/]+\/[^/]+)\/([0-9a-f]{40})\/(.+)$/;
 const NPM_CDN = /^https:\/\/cdn\.jsdelivr\.net\/npm\/((?:@[^/]+\/)?[^/@]+)@([^/]+)\/(.+)$/;
 /** The call that fetches the program's interface source, read off the pinned url the data was generated from. */
-export function sourceFetchCall(program: ReferenceProgram): string | undefined {
+function sourceFetchCall(program: ReferenceProgram): string | undefined {
   const github = GITHUB_RAW.exec(program.source.url);
   if (github) return `source_fetch({repo: "${github[1]}", ref: "${github[2]}", paths: ["${github[3]}"]})`;
   const npm = NPM_CDN.exec(program.source.url);
@@ -193,7 +193,7 @@ const cap = (text: string): string => (Buffer.byteLength(text) <= PROGRAM_REFERE
   : `${Buffer.from(text).subarray(0, PROGRAM_REFERENCE_RESULT_LIMIT).toString("utf8").replace(/\n[^\n]*$/, "")}\n[truncated: ask for one instruction]`);
 
 /** `instruction: "*"` asks for every instruction of the program in one response. */
-export const ALL_INSTRUCTIONS = "*";
+const ALL_INSTRUCTIONS = "*";
 
 const nameOf = (ix: ReferenceInstruction): string => `${ix.name}${ix.alias ? ` (${ix.alias})` : ""}`;
 const summaryRow = (ix: ReferenceInstruction): string => `  ${nameOf(ix)} ${ix.discriminator || "no tag"}, ${ix.accounts.length} accounts`;

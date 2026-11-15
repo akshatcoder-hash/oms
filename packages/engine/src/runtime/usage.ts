@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import type { StreamFn } from '@earendil-works/pi-agent-core';
 import {
   createAssistantMessageEventStream, isRetryableAssistantError,
-  type Api, type AssistantMessage, type Model, type TranscriptContext,
+  type Api, type AssistantMessage, type Model,
 } from '@earendil-works/pi-ai';
 import {
   clampMaxTokensToContext, clampThinkingBudgetToAnswerRoom, thinkingBudgetForLevel,

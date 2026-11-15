@@ -6,7 +6,7 @@ import { singleLine } from './transcript.ts';
 import type { CommandContext } from './commands.ts';
 
 /** Diff text shown in the conversation; a longer one opens in the workbench. */
-export const DIFF_SHOWN_CHARS = 8_000;
+const DIFF_SHOWN_CHARS = 8_000;
 
 /** What is left of the token, spend and time allowance, on one line. */
 export function budgetLine(harness: HarnessSession): string {

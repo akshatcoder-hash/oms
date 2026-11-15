@@ -11,8 +11,8 @@ import { fetchMcpText, readWorktreeText, resolveKnowledge, wrapUntrusted, type K
  */
 export const DIAGNOSIS_LIMIT = 2_048;
 export const RAW_OUTPUT_TOOL = "raw_output";
-export const RAW_TAIL_LINES = 60;
-export const RAW_TAIL_BYTES = 6_000;
+const RAW_TAIL_LINES = 60;
+const RAW_TAIL_BYTES = 6_000;
 const FAILURE_LINE = /InstructionError|Program \S+ failed:|AnchorError|custom program error/;
 const FAILURE_LINES_KEPT = 6;
 const MAX_IDL_FILES = 16;
@@ -161,7 +161,7 @@ async function rpc(url: string, method: string, params: unknown[], signal: Abort
 }
 
 /** Facts of a landed transaction from Surfpool: logs, compute, lamport deltas (meta) and owner changes (transaction profile). */
-export async function surfpoolTransaction(url: string, signature: string): Promise<TransactionFacts | undefined> {
+async function surfpoolTransaction(url: string, signature: string): Promise<TransactionFacts | undefined> {
   const signal = AbortSignal.timeout(3_000);
   const tx = await rpc(url, "getTransaction", [signature, { encoding: "json", maxSupportedTransactionVersion: 0 }], signal);
   if (!tx?.meta) return undefined;

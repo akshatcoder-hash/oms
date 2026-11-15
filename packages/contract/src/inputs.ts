@@ -11,7 +11,7 @@ import { withSourceAccess, type SourceAccessOptions } from './source-access.ts';
 /** An explicitly empty offline ledger has a fixed identity, not an invented digest. */
 export const EMPTY_SNAPSHOT_DIGEST = sha256Hex('oms:empty-snapshot:v1');
 export const MAX_INPUT_BYTES = 256 * 1024 * 1024;
-export const MAX_INPUT_ENTRIES = 100_000;
+const MAX_INPUT_ENTRIES = 100_000;
 export const MAX_SNAPSHOT_BYTES = 64 * 1024 * 1024;
 
 export function specificationDigest(item: Pick<ContractItem, 'id' | 'done'>, config: EvaluatorConfig): string {

@@ -195,7 +195,7 @@ function assertWorkspace(workspace: Workspace): void {
   }
 }
 
-export function acquireWorkspaceLease(workspace: Workspace): MutationLease {
+function acquireWorkspaceLease(workspace: Workspace): MutationLease {
   assertWorkspace(workspace);
   return acquireMutationLease(join(workspace.stateDir, "mutation.lease"));
 }

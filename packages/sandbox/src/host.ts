@@ -31,10 +31,10 @@ export const hostArgv = (o: HostRunOptions, root: string, home: string, env: Nod
   hostSandbox() === 'seatbelt' ? seatbeltArgv(o, root, home, env, argv) : argv;
 
 /** Empty per-execution HOME; the caller removes it when the command exits. */
-export const createPrivateHome = (): string => mkdtempSync(path.join(tmpdir(), 'oms-home-'));
+const createPrivateHome = (): string => mkdtempSync(path.join(tmpdir(), 'oms-home-'));
 
 /** Temporary dependency link lives only under the execution source lease. This is not a read-only mount. */
-export function hostDependencyLink(o: HostRunOptions): () => void {
+function hostDependencyLink(o: HostRunOptions): () => void {
   const root = realpathSync(o.mounts.projectMount.hostPath);
   const dependency = o.mounts.readOnlyMounts.find(mount => ['/work/node_modules', path.join(root, 'node_modules')].includes(mount.containerPath));
   if (!dependency) return () => {};

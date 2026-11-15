@@ -27,9 +27,9 @@ import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { isInside, realpathAllowingMissing } from '@oms/contract';
 
-export const DEFAULT_MAX_EDIT_BYTES = 64 * 1024;
-export const DEFAULT_REPETITION_THRESHOLD = 3;
-export const DEFAULT_REPETITION_WINDOW = 12;
+const DEFAULT_MAX_EDIT_BYTES = 64 * 1024;
+const DEFAULT_REPETITION_THRESHOLD = 3;
+const DEFAULT_REPETITION_WINDOW = 12;
 
 export type GuardBlockRule = 'protected_write' | 'denied_root' | 'repetition' | 'diff_size' | 'guard_error';
 
@@ -62,8 +62,6 @@ export interface GuardsConfig {
   /** Base for relative paths. Defaults to `process.cwd()`. */
   readonly cwd?: string;
 }
-
-export type GuardsExtensionOptions = GuardsConfig;
 
 /** One already-decided call, kept so a repeat can be recognised. */
 export interface ToolCallSample {
@@ -380,7 +378,7 @@ export function canonicalizeToolCall(call: GuardedToolCall): string {
 }
 
 /** Sliding-window size the repetition guard reads, so the caller can bound its history. */
-export function repetitionWindow(config: GuardsConfig): number {
+function repetitionWindow(config: GuardsConfig): number {
   const window = config.repetition?.window ?? DEFAULT_REPETITION_WINDOW;
   return Number.isFinite(window) && window >= 0 ? Math.floor(window) : DEFAULT_REPETITION_WINDOW;
 }
@@ -430,7 +428,7 @@ const GUARD_FAILED_CLOSED: GuardDecision = Object.freeze({
  * Pi extension: one `tool_call` handler applying all three rules. A throw anywhere in
  * the decision path blocks the call.
  */
-export function createGuardsExtension(options: GuardsExtensionOptions = {}): ExtensionFactory {
+export function createGuardsExtension(options: GuardsConfig = {}): ExtensionFactory {
   const window = Math.max(repetitionWindow(options), 1);
   return (pi) => {
     const history: ToolCallSample[] = [];

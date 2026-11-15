@@ -119,7 +119,7 @@ function oklab(r: number, g: number, b: number, out: Float64Array, o: number): v
 }
 
 /** xterm colours 16..255 as RGB 0..255: the 6x6x6 cube, then 24 greys. 0..15 are left out: themes repaint them. */
-export const PALETTE_256: readonly (readonly [number, number, number])[] = [
+const PALETTE_256: readonly (readonly [number, number, number])[] = [
   ...Array.from({ length: 216 }, (_, i) => [Math.floor(i / 36), Math.floor(i / 6) % 6, i % 6].map(v => v ? 55 + 40 * v : 0) as [number, number, number]),
   ...Array.from({ length: 24 }, (_, i) => [8 + 10 * i, 8 + 10 * i, 8 + 10 * i] as [number, number, number]),
 ];

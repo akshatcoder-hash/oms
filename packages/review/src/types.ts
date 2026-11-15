@@ -16,10 +16,10 @@ const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 // Bounds are checked against the snapshot inventory, so invalid locations can be counted.
 const line = Type.Integer({ minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER });
 const enumeration = <T extends string>(values: readonly T[]) => Type.Enum([...values]);
-export const VulnClassSchema = enumeration(VULN_CLASSES);
+const VulnClassSchema = enumeration(VULN_CLASSES);
 export const SeveritySchema = enumeration(['critical', 'high', 'medium', 'low', 'info'] as const);
 export type Severity = Static<typeof SeveritySchema>;
-export const LocationSchema = Type.Object({
+const LocationSchema = Type.Object({
   file: nonempty, line, endLine: Type.Optional(line), handler: Type.Optional(text),
 }, strict);
 export type Location = Static<typeof LocationSchema>;
@@ -29,26 +29,26 @@ export const StaticHitSchema = Type.Object({
   location: LocationSchema, message: text,
 }, strict);
 export type StaticHit = Static<typeof StaticHitSchema>;
-export const ModelFindingSchema = Type.Object({
+const ModelFindingSchema = Type.Object({
   class: VulnClassSchema, handler: text, location: LocationSchema, title: nonempty,
   explanation: text, fix: text,
   confidence: enumeration(['low', 'medium', 'high'] as const),
 }, strict);
 export type ModelFinding = Static<typeof ModelFindingSchema>;
-export const CoverageSchema = Type.Object({
+const CoverageSchema = Type.Object({
   class: VulnClassSchema, verdict: enumeration(['found', 'clear', 'n/a', 'unreviewed'] as const), evidence: text,
 }, strict);
 
 // Phase A cannot accept or manufacture confirmed findings. Phase B must extend
 // this union with oracle-issued evidence, not relax the label to an arbitrary string.
-export const FindingSchema = Type.Object({
+const FindingSchema = Type.Object({
   id: nonempty, label: Type.Literal('suspected'), class: VulnClassSchema, severity: SeveritySchema,
   title: nonempty, location: LocationSchema,
   sources: Type.Array(enumeration(['static', 'model', 'mutator'] as const), { minItems: 1, uniqueItems: true }),
   explanation: text, fix: text, staticHits: Type.Array(StaticHitSchema),
 }, strict);
 export type Finding = Static<typeof FindingSchema>;
-export const ReviewReportSchema = Type.Object({
+const ReviewReportSchema = Type.Object({
   schema: Type.Literal('oms.review/1'), disclaimer: Type.Literal(REVIEW_DISCLAIMER),
   emptyNote: Type.Optional(Type.Literal(EMPTY_NOTE)),
   reviewId: nonempty, createdAt: nonempty,

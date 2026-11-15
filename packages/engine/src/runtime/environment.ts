@@ -53,7 +53,7 @@ export function defaultHarnessEnvironment(binary?: string, backend: BackendName 
 }
 
 /** A source checkout keeps its own copy; an installed package uses one per-user copy that survives upgrades and npx cache moves. */
-export function defaultSurfpoolBinary(version: string): string {
+function defaultSurfpoolBinary(version: string): string {
   const checkout = fileURLToPath(new URL("../../../../.tmp/tools/surfpool", import.meta.url));
   return existsSync(checkout) ? checkout : join(homedir(), ".oms", "tools", `surfpool-${version}`, "surfpool");
 }

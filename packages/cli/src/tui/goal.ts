@@ -3,10 +3,10 @@ import { decideSettle, type BudgetSnapshot } from '@oms/core';
 import { DEFAULT_MAX_ATTEMPTS, type HarnessSession } from '@oms/engine';
 
 /** `/goal`: the agent keeps working until an independent check passes, within the settle gate's retry and budget caps. */
-export const GOAL_TEXT_LIMIT = 4_000;
-export const CHECK_COMMAND_LIMIT = 2_000;
+const GOAL_TEXT_LIMIT = 4_000;
+const CHECK_COMMAND_LIMIT = 2_000;
 /** What one failed check feeds back to the model: the tail, where test runners put the failure. */
-export const FEEDBACK_LIMIT = 4_000;
+const FEEDBACK_LIMIT = 4_000;
 /** Result text shown to the user. */
 const SHOWN_LIMIT = 2_000;
 
@@ -104,7 +104,7 @@ export async function runGoalCheck(harness: HarnessSession, goal: Pick<Goal, 'ch
   }
 }
 
-export function goalPrompt(goal: Goal): string {
+function goalPrompt(goal: Goal): string {
   const decider = goal.check === undefined
     ? "the task's pinned verifier (call propose_done for the active requirement; only the independent evaluator can close it)"
     : `this command, which OMS runs in the sandbox after each of your turns: ${goal.check}`;

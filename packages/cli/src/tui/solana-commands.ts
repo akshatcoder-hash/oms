@@ -96,7 +96,7 @@ export function prepareRewind(argument: string, harness: HarnessSession): Prepar
   } };
 }
 
-export const AIRDROP_CAP_SOL = 100;
+const AIRDROP_CAP_SOL = 100;
 
 export function prepareAirdrop(argument: string, harness: HarnessSession): Prepared {
   const [address, amount = '1', ...extra] = argument.split(/\s+/).filter(Boolean);

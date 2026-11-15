@@ -617,8 +617,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     const exhausted = budget.exhausted;
     const risk = exhausted ? `Budget EXHAUSTED${budget.accounting === 'unknown' ? ' · unknown' : ''}`
       : budget.accounting === 'unknown' ? 'Budget unknown' : low ? 'Budget low' : '';
-    const tail = modelLabel;
-    const summary = risk ? `${risk} · /status${width >= 65 ? '  |  ' + tail : ''}` : tail;
+    const summary = risk ? `${risk} · /status${width >= 65 ? '  |  ' + modelLabel : ''}` : modelLabel;
     return [truncateToWidth(colorText(theme!, risk ? 'warning' : 'muted', summary), width)];
   });
   const inputLabel = component(width => {

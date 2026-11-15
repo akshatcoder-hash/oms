@@ -28,7 +28,7 @@ export interface SourceLimits {
   repositories: number;
 }
 export const SOURCE_LIMITS: SourceLimits = { compressed: 50 * 2 ** 20, extracted: 200 * 2 ** 20, entries: 50_000, repositories: 5 };
-export const SOURCE_HOSTS = ["api.github.com", "codeload.github.com", "registry.npmjs.org"] as const;
+const SOURCE_HOSTS = ["api.github.com", "codeload.github.com", "registry.npmjs.org"] as const;
 const JSON_LIMIT = 5 * 2 ** 20;
 const TREE_LINES = 60;
 

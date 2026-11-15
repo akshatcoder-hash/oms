@@ -15,7 +15,7 @@ import {
 } from '@earendil-works/pi-ai';
 
 export const CLAUDE_CODE_PROVIDER = 'claude-code';
-export const CLAUDE_CODE_BASE_URL = 'claude-code://local';
+const CLAUDE_CODE_BASE_URL = 'claude-code://local';
 export interface ClaudeCodeStatus { installed: boolean; configured: boolean; detail: string }
 let status: ClaudeCodeStatus = { installed: false, configured: false, detail: 'Run claude auth login, then check the local Claude Code connection in /connect.' };
 export function getClaudeCodeStatus(): ClaudeCodeStatus { return { ...status }; }
@@ -49,7 +49,7 @@ function executable(): string {
 }
 /** Own the process group, including the descriptor MCP child. No stderr or native
  * diagnostics are projected into model history or the UI. */
-export function runClaudeCode(args: readonly string[], options: {
+function runClaudeCode(args: readonly string[], options: {
   cwd: string; signal?: AbortSignal; input?: string; maxBytes?: number; timeoutMs?: number;
   outputTokenLimit?: number;
   onLine?(value: unknown): void;

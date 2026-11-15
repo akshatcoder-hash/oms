@@ -68,7 +68,7 @@ export function createSessionExtensions(
   options: HarnessSessionOptions, life: SessionLifecycle, env: TaskEnvironment, tools: SessionTools, hooks: SessionHooks,
   initiallyKnown: boolean,
 ): ReturnType<typeof createOmsExtensions> {
-  const { task, environment } = options;
+  const { task } = options;
   const { taskRoot, knowledgeSource } = tools;
   const extra: ExtensionFactory[] = [
     tools.sandboxTools.extension, hooks.policy, programReferenceExtension,

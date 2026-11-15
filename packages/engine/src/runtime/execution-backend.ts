@@ -9,7 +9,7 @@
  */
 import {
   buildMounts, createSandboxSession, hostSandbox, recoverTaskExecutionResources, requirePinnedImage,
-  type DockerRunOptions, type HostRunOptions, type MountPlan, type RunInSandboxOptions, type SandboxSession,
+  type MountPlan, type RunInSandboxOptions, type SandboxSession,
 } from '@oms/sandbox';
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';

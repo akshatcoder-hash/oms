@@ -47,7 +47,7 @@ function microDollars(value: string | undefined): number {
 }
 
 /** Large enough for a medium file write; each model request is lowered to that model's own maximum, so a smaller model stays usable. */
-export const DEFAULT_OUTPUT_TOKENS = 32_768;
+const DEFAULT_OUTPUT_TOKENS = 32_768;
 
 export type LaunchOptions = Pick<HarnessSessionOptions, "caps" | "maxOutputTokens"> & {
   executionMode: NonNullable<HarnessSessionOptions["executionMode"]>;

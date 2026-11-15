@@ -12,7 +12,7 @@
 
 import { closeSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
 
-export const TRACE_EVENT_TYPES = Object.freeze(['turn', 'tool_call', 'tool_result', 'settle', 'budget'] as const);
+const TRACE_EVENT_TYPES = Object.freeze(['turn', 'tool_call', 'tool_result', 'settle', 'budget'] as const);
 
 export type TraceEventType = (typeof TRACE_EVENT_TYPES)[number];
 

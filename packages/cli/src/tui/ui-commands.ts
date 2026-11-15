@@ -11,7 +11,7 @@ export const acceptsLayout = (argument: string): boolean => ['editor', 'balanced
 type Draft = string | undefined;
 
 /** Show the agent or the workbench and focus its main pane. */
-export const goToView = (view: 'harness' | 'workbench') => (ctx: CommandContext, _argument: string, draft: Draft): void => {
+const goToView = (view: 'harness' | 'workbench') => (ctx: CommandContext, _argument: string, draft: Draft): void => {
   ctx.clearDraft(draft); ctx.switchView(view); ctx.setFocus(view === 'harness' ? 'input' : 'editor');
 };
 

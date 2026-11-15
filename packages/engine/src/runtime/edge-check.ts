@@ -7,7 +7,7 @@ import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
  * turns and three minutes. After the bound only propose_done and task_status run. The verdict is still the offline verifier's.
  */
 export const EDGE_CHECK_LIMITS = { turns: 2, ms: 180_000 } as const;
-export const EDGE_CHECK_BRIEF = "Not yet: this change touches a Solana program, so first run a short edge-case pass " +
+const EDGE_CHECK_BRIEF = "Not yet: this change touches a Solana program, so first run a short edge-case pass " +
   `(at most ${EDGE_CHECK_LIMITS.turns} turns and ${EDGE_CHECK_LIMITS.ms / 60_000} minutes). Write and run tests on Surfpool ($SURFNET_RPC_URL) ` +
   "or with the project's own test setup, for each case that applies to the changed instructions: missing signer, wrong account owner, " +
   "bad PDA seeds or bump, arithmetic overflow, and close then re-init of an account. Fix what fails, then call propose_done again. " +

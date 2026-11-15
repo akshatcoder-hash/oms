@@ -3,7 +3,7 @@ import { posix } from 'node:path';
 import type { SandboxResult } from '@oms/sandbox';
 
 export const MAX_TASK_FILE_BYTES = 64 * 1024;
-export const MAX_TASK_DIRECTORY_ENTRIES = 512;
+const MAX_TASK_DIRECTORY_ENTRIES = 512;
 export interface TaskFileEntry { path: string; kind: 'file' | 'directory' }
 export interface TaskFileSnapshot { bytes: Buffer; revision: string }
 export type TaskFileExecutor = (argv: string[], signal?: AbortSignal) => Promise<SandboxResult>;

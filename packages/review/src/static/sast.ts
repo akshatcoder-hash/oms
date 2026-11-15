@@ -3,7 +3,6 @@ import { Value } from 'typebox/value';
 import { StaticHitSchema, VULN_CLASSES, validLocation, type StaticHit } from '../types.ts';
 import { redactReviewText } from '../snapshot.ts';
 
-const text = Type.String({ minLength: 1, maxLength: 4096 });
 const EnvelopeSchema = Type.Object({
   hits: Type.Array(Type.Unknown(), { maxItems: 10_000 }),
   // Emitted by the scanner; handler inventory comes from discovery instead.

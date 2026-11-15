@@ -1,6 +1,6 @@
 export const MAX_DOCUMENT_BYTES = 64 * 1024;
 export const MAX_HISTORY_ENTRIES = 128;
-export const MAX_HISTORY_BYTES = 1024 * 1024;
+const MAX_HISTORY_BYTES = 1024 * 1024;
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 

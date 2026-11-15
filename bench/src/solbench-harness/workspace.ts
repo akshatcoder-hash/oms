@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const WORKSPACE_FILES = ['GOAL.md', 'submit-tx', 'visible.test.ts'] as const;
+const WORKSPACE_FILES = ['GOAL.md', 'submit-tx', 'visible.test.ts'] as const;
 export const WORKSPACE_SOURCE = fileURLToPath(new URL('../../solbench-harness/workspace/', import.meta.url));
 
 export type Variant = 'basic' | 'swap';
@@ -17,7 +17,7 @@ export const SWAP_TOKENS = [{ symbol: 'USDC', mint: USDC, amount: 10_000_000_000
 
 export interface WalletFacts { publicKey: string; variant: Variant }
 
-export function walletJson(facts: WalletFacts) {
+function walletJson(facts: WalletFacts) {
   return { publicKey: facts.publicKey, variant: facts.variant, sol: SOL_LAMPORTS / 1e9,
     tokens: facts.variant === 'swap' ? SWAP_TOKENS.map(t => ({ symbol: t.symbol, mint: t.mint, amount: t.amount, decimals: 6 })) : [] };
 }

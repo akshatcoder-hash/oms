@@ -49,7 +49,7 @@ export interface StaticPassBudget {
   /** Cumulative returned stdout, including invalid outputs. */
   outputBytes: number;
 }
-export const DEFAULT_STATIC_PASS_BUDGET: Readonly<StaticPassBudget> = Object.freeze({
+const DEFAULT_STATIC_PASS_BUDGET: Readonly<StaticPassBudget> = Object.freeze({
   timeoutMs: 15 * 60 * 1000, outputBytes: 32 * 1024 * 1024,
 });
 

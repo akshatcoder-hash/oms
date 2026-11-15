@@ -30,7 +30,7 @@ import {
 import { failResult, okResult, validationIssue, type Result, type ValidationIssue } from './result.ts';
 import { parseEvaluatorConfig } from './schema.ts';
 
-export const PIN_SCHEMA = 'oms.pin/1';
+const PIN_SCHEMA = 'oms.pin/1';
 
 export interface PinFile {
   schema: typeof PIN_SCHEMA;

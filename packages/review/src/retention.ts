@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, open, readdir, realpath, rm } from 'node:fs/promises';
+import { open, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { privateDirectory, reviewScope } from './report/storage.ts';
 

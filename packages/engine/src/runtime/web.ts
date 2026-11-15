@@ -43,14 +43,14 @@ export interface WebControls {
 }
 
 export const WEB_RESULT_LIMIT = 16_000;
-export const WEB_FETCH_BYTE_LIMIT = 2_000_000;
-export const WEB_TIMEOUT_MS = 20_000;
+const WEB_FETCH_BYTE_LIMIT = 2_000_000;
+const WEB_TIMEOUT_MS = 20_000;
 const SOURCE_TIMEOUT_MS = 120_000;
-export const DEFAULT_RETRY_AFTER_MS = 60_000;
+const DEFAULT_RETRY_AFTER_MS = 60_000;
 /** web_fetch pages resent to the model in full; at 16,000 bytes each, 3 keep a session inside the bench's 131,072-byte input cap. */
-export const WEB_FETCH_KEPT = 3;
+const WEB_FETCH_KEPT = 3;
 /** Pages web_fetch returns per user message (refused or failed fetches do not count); headless sends one message per progress step, so there it is per step. Passing bench runs read at most 7; a runaway search read 49 and hit the input cap. */
-export const WEB_FETCH_BUDGET = 12;
+const WEB_FETCH_BUDGET = 12;
 
 type ContextMessage = { role?: string; toolName?: string; toolCallId?: string; content?: unknown };
 /**

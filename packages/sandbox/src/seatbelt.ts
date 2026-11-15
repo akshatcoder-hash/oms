@@ -7,7 +7,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import type { HostRunOptions } from './exec.ts';
 
-export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
+const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
 /** Host mode isolates commands only where Seatbelt exists; Linux v0.1 runs them unsandboxed. */
 export const hostSandbox = (platform = process.platform, exists = existsSync): 'seatbelt' | 'none' =>
@@ -31,7 +31,7 @@ export interface SeatbeltPolicy {
 }
 
 /** solana-test-validator and Surfpool defaults: JSON-RPC, its websocket, and the faucet. */
-export const SOLANA_LOCAL_PORTS = [8899, 8900, 9900] as const;
+const SOLANA_LOCAL_PORTS = [8899, 8900, 9900] as const;
 
 const quote = (value: string): string => {
   if (/[\0\n\r]/.test(value)) throw new Error('seatbelt path contains a control character');
