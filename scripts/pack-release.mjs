@@ -70,6 +70,8 @@ const { overrides } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'
 
 writeFileSync(join(stage, 'package.json'), JSON.stringify({
   name: '@barestate/oms', version, description: 'Local Solana coding harness with independent offline verification',
+  keywords: ['solana', 'anchor', 'coding-agent', 'ai', 'cli', 'surfpool', 'web3'],
+  homepage: 'https://barestate.xyz/oms', author: 'barestate',
   type: 'module', license: 'MIT', engines: { node: '>=22.19.0' }, publishConfig: { access: 'public' },
   bin: { oms: './packages/cli/src/bin.js' }, dependencies, overrides, bundleDependencies: Object.keys(dependencies),
 }, null, 2) + '\n');
