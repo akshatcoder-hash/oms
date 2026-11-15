@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Cache segment hashing, trace, Sealevel routing, settle gate, budget and model catalog/usage accounting",
+  "description": "Trace, settle gate, budget and model catalog/usage accounting",
   "license": "MIT",
   "engines": {
     "node": ">=22.6"
