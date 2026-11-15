@@ -1,8 +1,20 @@
 # OMS (oh my sol)
 
-OMS is a Solana coding harness that runs on your machine with the model access you already have.
+Oh My Sol (OMS) is an MIT-licensed AI coding tool for Solana from Barestate. It runs in your terminal with the model you already use, such as Claude or GPT, keeps current Solana references and a local Surfpool chain next to the model, and closes a task only when an independent check passes.
+
 The model edits a task worktree and proposes completion; an independent offline verifier decides whether the pinned checks pass.
 Use the terminal chat or Workbench editor, with Solana references, toolchain repair, and saved task history.
+
+## Benchmarks
+
+| Benchmark | OMS | Best rival |
+| --- | --- | --- |
+| Fresh Solana tasks, offline, GPT-6.1 Sol | 92 of 96 passed (95.8%) | Codex CLI, 73 of 96 (76.0%) |
+| Solana Bench basic, same-batch runs | Mean 377.1 over 8 runs | Codex CLI, mean 273.2 over 6 runs (p = 0.0107) |
+
+Both compare harnesses running the same model. On everyday tasks the harnesses tie, OMS is slower, and with web search on the gap against Codex CLI was not significant; read the [limits](https://barestate.xyz/docs/benchmarks/overview) before quoting a number. The harness behind the Solana Bench numbers is in this repository; see [docs/solana-bench.md](docs/solana-bench.md) to rerun a cell.
+
+Compared with Claude Code, Codex CLI, Cursor and the Solana Developer MCP: [barestate.xyz/compare](https://barestate.xyz/compare).
 
 ## Install and first run
 
@@ -31,7 +43,7 @@ OMS uses the model access you already have. Provider credentials stay in private
 | OpenCode Go | `/connect` → OpenCode Go; `/model` → available model |
 | OpenAI or Anthropic API key | `/connect` → the provider; arbitrary custom endpoints are not loaded by this cut |
 
-OMS makes no claim of a higher pass rate than any single model.
+OMS does not claim to make one model better than another; the benchmarks above compare harnesses running the same model.
 
 Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. The starter and standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining task files and verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription).
 
@@ -98,10 +110,6 @@ Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeou
 - Provider plans have their own limits. OMS retains uncertain usage and does not treat unknown charges as free.
 - Custom `models.json` loading is disabled. Claude subscriptions use the installed Claude Code CLI and its own login; direct Anthropic access uses an API key.
 - Verification covers pinned checks, not mainnet readiness, production capacity, or a professional security audit.
-
-## Benchmark
-
-The harness behind our published Solana Bench numbers is in this repository; see [docs/solana-bench.md](docs/solana-bench.md) to rerun a cell.
 
 ## License
 

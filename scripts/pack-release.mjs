@@ -68,9 +68,10 @@ const version = '0.1.0';
 const { overrides } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
 writeFileSync(join(stage, 'package.json'), JSON.stringify({
-  name: '@barestate/oms', version, description: 'Local Solana coding harness with independent offline verification',
-  keywords: ['solana', 'anchor', 'coding-agent', 'ai', 'cli', 'surfpool', 'web3'],
-  homepage: 'https://barestate.xyz/oms', author: 'barestate',
+  name: '@barestate/oms', version,
+  description: 'Oh My Sol (OMS): an AI coding tool for Solana. Runs Claude, GPT and other models with current Solana references, a local Surfpool chain and an independent check before a task closes.',
+  keywords: ['solana', 'anchor', 'solana-development', 'ai-coding-agent', 'coding-agent', 'claude-code', 'codex', 'surfpool', 'agave', 'smart-contracts', 'rust', 'llm'],
+  homepage: 'https://barestate.xyz/oh-my-sol', bugs: { url: 'https://barestate.xyz/contact' }, author: 'Barestate (https://barestate.xyz)',
   type: 'module', license: 'MIT', engines: { node: '>=22.19.0' }, publishConfig: { access: 'public' },
   bin: { oms: './packages/cli/src/bin.js' }, dependencies, overrides, bundleDependencies: Object.keys(dependencies),
 }, null, 2) + '\n');
