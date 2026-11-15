@@ -21,7 +21,7 @@ import {
   createOmsExtensions,
   createVerifierRunner,
   type SandboxPort,
-  type SandboxResult,
+  type SandboxPortResult,
   type SurfnetFactory,
 } from "../src/index.ts";
 
@@ -37,7 +37,7 @@ interface Wired {
   sandboxCalls: string[][];
 }
 
-function wire(t: TestContext, sandboxResults: SandboxResult[], items?: TaskContract["items"]): Wired {
+function wire(t: TestContext, sandboxResults: SandboxPortResult[], items?: TaskContract["items"]): Wired {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "oms-engine-wiring-")));
   t.after(() => rmSync(base, { recursive: true, force: true }));
   const workspaceRoot = join(base, "workspace");
@@ -119,8 +119,8 @@ function wire(t: TestContext, sandboxResults: SandboxResult[], items?: TaskContr
   };
 }
 
-const ok = (): SandboxResult => ({ exitCode: 0, stdout: "ok", stderr: "", timedOut: false });
-const bad = (): SandboxResult => ({ exitCode: 1, stdout: "", stderr: "expected 10 got 9", timedOut: false });
+const ok = (): SandboxPortResult => ({ exitCode: 0, stdout: "ok", stderr: "", timedOut: false });
+const bad = (): SandboxPortResult => ({ exitCode: 1, stdout: "", stderr: "expected 10 got 9", timedOut: false });
 
 test("fail then pass: the gate sends the model back once, then the evaluator closes the item", async (t) => {
   const w = wire(t, [bad(), ok()]);

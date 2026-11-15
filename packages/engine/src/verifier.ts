@@ -8,6 +8,7 @@ import type {
   Runner,
   RunnerContext,
 } from "@oms/contract";
+import type { SandboxResult } from "@oms/sandbox";
 import type { VerifierPort, VerifierRunResult } from "./settle.ts";
 
 /** A running offline surfnet the verifier can read from and point tests at. */
@@ -25,16 +26,12 @@ export interface SurfnetFactory {
   start(snapshotPath: string | undefined): Promise<SurfnetSession>;
 }
 
-export interface SandboxResult {
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-  timedOut: boolean;
-}
+/** The part of a sandbox run the verifier reads; `SandboxResult` from `@oms/sandbox` is the full result. */
+export type SandboxPortResult = Pick<SandboxResult, "exitCode" | "stdout" | "stderr" | "timedOut">;
 
 export interface SandboxPort {
   /** Run argv in the run-phase sandbox; the surfnet port is the only reachable host port. */
-  run(argv: string[], opts: { codeRoot: string; surfnetPort: number; timeoutMs: number }): Promise<SandboxResult>;
+  run(argv: string[], opts: { codeRoot: string; surfnetPort: number; timeoutMs: number }): Promise<SandboxPortResult>;
 }
 
 export interface VerifierRunnerOptions {
