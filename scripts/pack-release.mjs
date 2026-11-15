@@ -92,6 +92,8 @@ writeFileSync(
       description: 'Local Solana coding harness with independent offline verification',
       keywords: ['solana', 'anchor', 'coding-agent', 'ai', 'cli', 'surfpool', 'web3'],
       homepage: 'https://barestate.xyz/oms',
+      repository: { type: 'git', url: 'git+https://github.com/akshatcoder-hash/oms.git' },
+      bugs: { url: 'https://github.com/akshatcoder-hash/oms/issues' },
       author: 'barestate',
       type: 'module',
       license: 'MIT',
