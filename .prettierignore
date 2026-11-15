@@ -1,0 +1,14 @@
+node_modules
+.tmp
+package-lock.json
+npm-shrinkwrap.json
+packages/engine/src/runtime/program-reference.json
+packages/engine/src/runtime/error-tables.json
+packages/cli/art
+licenses
+*.md
+# test fixtures, vendored sources and generated data
+**/fixtures
+bench/solbench-harness
+scripts/program-reference
+scripts/art
