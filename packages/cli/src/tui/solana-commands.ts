@@ -3,12 +3,7 @@ import {
   builtInProgramName, decodeProgramError, lookupProgramReference, parseErrorCode, programReference, readLocalIdls,
   type ErrorDecoding, type HarnessSession, type Idl,
 } from '@oms/engine';
-
-/** What a slash command shows: a conversation note, plus optionally the full text for a read-only workbench report. */
-export interface CommandOutput { title: string; text: string; report?: { id: string; text: string } }
-/** A parsed command: either a refusal for the notice row, or the work to run. */
-export type Prepared = { ok: true; run(signal: AbortSignal): Promise<CommandOutput> } | { ok: false; message: string };
-export const refuse = (message: string): Prepared => ({ ok: false, message });
+import { refuse, type Prepared } from './prepared.ts';
 
 // ---------------------------------------------------------------- base58 and formatting
 

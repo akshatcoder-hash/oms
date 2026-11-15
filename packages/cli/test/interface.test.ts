@@ -1440,6 +1440,30 @@ test('/review runs keyless Phase A and opens counts and disclaimer in a read-onl
   } finally { await quit(terminal, run); terminal.vt.dispose(); }
 });
 
+test('the Cancel button is enabled only while cancellable work runs: a command, not a review or verification', async () => {
+  const f = fixture(); const terminal = new InterfaceTerminal(120, 36);
+  const reviewGate = barrier<void>();
+  const run = runOmsInterface(f.harness, { terminal, review: async () => { await reviewGate.promise; return 0; } });
+  const cancelRefused = (screen: string) => screen.includes('cancellation is unavailable');
+  try {
+    await terminal.until(screen => screen.includes('Harness'));
+    terminal.send('/review'); terminal.send('\r');
+    const reviewing = await terminal.until(screen => screen.split('\n')[0]?.includes('review') === true);
+    // Disabled controls have no hit area: pressing Cancel must not produce the refusal.
+    clickText(terminal, reviewing, 'Cancel');
+    await new Promise(done => setTimeout(done, 50));
+    assert.equal(cancelRefused(await terminal.until(() => true)), false);
+    reviewGate.resolve();
+    await terminal.until(screen => screen.split('\n')[0]?.includes('idle') === true);
+    // A sandbox command is cancellable: its button works and aborts it.
+    terminal.send('/run sleep 1'); terminal.send('\r');
+    const running = await terminal.until(screen => screen.split('\n')[0]?.includes('command') === true);
+    clickText(terminal, running, 'Cancel');
+    await terminal.until(screen => screen.includes('Cancellation requested'));
+    f.commandGate.resolve({ exitCode: 0, stdout: '', stderr: '', timedOut: false, cancelled: true, truncated: false });
+  } finally { reviewGate.resolve(); f.commandGate.resolve({ exitCode: 0, stdout: '', stderr: '' }); await quit(terminal, run); terminal.vt.dispose(); }
+});
+
 test('/web off and /web on switch the session web tools and report the call counts; no web reports unavailable', async () => {
   const f = fixture(); const terminal = new InterfaceTerminal();
   let enabled = true;

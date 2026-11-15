@@ -1,52 +1,218 @@
-export const OMS_COMMANDS = [
-  { name: 'workbench', group: 'Navigate', description: 'Files and terminal · same agent' },
-  { name: 'harness', group: 'Navigate', description: 'Return to the agent conversation' },
-  { name: 'files', group: 'Navigate', description: 'Browse task files · Ctrl+P' },
-  { name: 'terminal', group: 'Navigate', description: 'Sandbox shell', argument: '[start|stop|hide]' },
-  { name: 'help', group: 'Navigate', description: 'Keyboard controls and all commands' },
-  { name: 'model', group: 'Setup', description: 'Choose a model in this session', argument: '[search]' },
-  { name: 'connect', group: 'Setup', description: 'Provider sign-in or confirmed private file import', argument: '[provider|import <path>]' },
-  { name: 'theme', group: 'Setup', description: 'Foreground colors; inherited background', argument: '[name]' },
-  { name: 'art', group: 'Setup', description: 'Startup picture', argument: '[next|auto|image|truecolor|256|off]' },
-  { name: 'web', group: 'Setup', description: 'Web search, fetch and Solana MCP for this session', argument: '[on|off]' },
-  { name: 'settings', group: 'Setup', description: 'Canonical harness preferences and policy limits' },
-  { name: 'login', group: 'Setup', description: 'Sign in to OMS (hosted web search) through browser device authorization' },
-  { name: 'logout', group: 'Setup', description: 'Revoke OMS access; retain provider credentials and local files' },
-  { name: 'account', group: 'Setup', description: 'OMS account status; with an address, a local-chain account', argument: '[address]' },
-  { name: 'review', group: 'Inspect', description: 'Offline Phase A security report · no model' },
-  { name: 'status', group: 'Inspect', description: 'Requirements, proof and full budget' },
-  { name: 'session', group: 'Inspect', description: 'Repository, worktree and session' },
-  { name: 'diff', group: 'Inspect', description: 'Task changes against its base; long diffs open in the workbench', argument: '[path]' },
-  { name: 'usage', group: 'Inspect', description: 'Tokens, spend, time and the budget caps' },
-  { name: 'requirements', group: 'Inspect', description: 'Toggle requirements beside conversation' },
-  { name: 'open', group: 'Edit', description: 'Open a task file', argument: '<path>', needsArgument: true },
-  { name: 'newfile', group: 'Edit', description: 'New unsaved file · Ctrl+N', argument: '[path]' },
-  { name: 'save', group: 'Edit', description: 'Save active file · Ctrl+S' },
-  { name: 'close', group: 'Edit', description: 'Close tab; protects unsaved changes · Ctrl+W' },
-  { name: 'find', group: 'Edit', description: 'Find text · Ctrl+F' },
-  { name: 'replace', group: 'Edit', description: 'Replace text · Ctrl+H' },
-  { name: 'next', group: 'Edit', description: 'Next editor tab · Ctrl+Tab' },
-  { name: 'split', group: 'Edit', description: 'Toggle second file view · Ctrl+\\ changes side' },
-  { name: 'layout', group: 'Navigate', description: 'Workbench conversation panel', argument: '[editor|balanced]' },
-  { name: 'verify', group: 'Work', description: 'Independent offline verification', argument: '[item-id]' },
-  { name: 'run', group: 'Work', description: 'Run a sandbox command', argument: '<command>', needsArgument: true },
-  { name: 'test', group: 'Work', description: 'Run the project tests in the sandbox' },
-  { name: 'goal', group: 'Work', description: 'Work until an independent check passes', argument: '[<text> [--check "<command>"] | clear]' },
-  { name: 'clear', group: 'Work', description: 'Fresh conversation; task, files and worktree stay' },
-  { name: 'cancel', group: 'Work', description: 'Request cancellation of current work' },
-  { name: 'quit', group: 'Work', description: 'Close after cleanup; protects dirty files' },
-  { name: 'chain', group: 'Solana', description: 'Local Surfpool: RPC, slot, fork state, health' },
-  { name: 'rewind', group: 'Solana', description: 'Restore the local chain to its starting state', argument: '[confirm]' },
-  { name: 'airdrop', group: 'Solana', description: 'Local-chain SOL airdrop, up to 100', argument: '<address> [sol]', needsArgument: true },
-  { name: 'tx', group: 'Solana', description: 'Local-chain transaction: status, error, compute, logs', argument: '<signature>', needsArgument: true },
-  { name: 'program', group: 'Solana', description: 'Program reference, offline', argument: '<name|id> [instruction]', needsArgument: true },
-  { name: 'error', group: 'Solana', description: 'Decode a custom program error code', argument: '<code> [program]', needsArgument: true },
-] as const;
+import type { HarnessSession } from '@oms/engine';
+import type { runReviewCommand } from '../review.ts';
+import { prepareAccount, prepareAirdrop, prepareChain, prepareError, prepareProgram, prepareRewind, prepareTransaction } from './solana-commands.ts';
+import { prepareDiff, prepareSession, prepareStatus, prepareUsage } from './inspect-commands.ts';
+import { prepareReview, prepareRun, prepareTest, prepareVerify } from './work-commands.ts';
+import { clearConversation, goalCommand } from './conversation-commands.ts';
+import { acceptsArt, acceptsLayout, acceptsWeb, uiCommands } from './ui-commands.ts';
+import type { Prepared } from './prepared.ts';
+import type { Goal } from './goal.ts';
+import type { StartupArtMode } from './startup-art.ts';
+import type { Conversation } from './transcript.ts';
+import type { WorkbenchPane } from './workbench.ts';
+import type { TerminalPane } from './terminal-pane.ts';
 
-export type OmsCommand = typeof OMS_COMMANDS[number];
+export type FocusTarget = 'input' | 'requirements' | 'conversation' | 'editor' | 'terminal' | 'actions';
+export type ViewName = 'harness' | 'workbench';
+export interface Requirement { id: string; title: string; status: string }
+
+/** What a command may do to the interface. interface.ts builds one over its live state; handlers touch nothing else. */
+export interface CommandContext {
+  readonly harness: HarnessSession;
+  readonly workbench: WorkbenchPane;
+  readonly shell: TerminalPane;
+  readonly conversation: Conversation;
+  readonly review: typeof runReviewCommand;
+  columns(): number;
+  setNotice(text: string): void;
+  /** Remove the composer text a command was typed as, if it is still there. */
+  clearDraft(draft: string | undefined): void;
+  /** Answer at once: a note in the conversation, the draft cleared, the agent composer focused. */
+  show(title: string, text: string, draft: string | undefined): void;
+  switchView(view: ViewName): void;
+  setFocus(focus: FocusTarget): void;
+  scrollToEnd(): void;
+  editorAction(action: () => void | Promise<void>): void;
+  terminalAction(action: string): void;
+  /** Show or hide the agent beside the workbench; undefined toggles. */
+  setAgentPanel(visible: boolean | undefined): void;
+  toggleRequirements(): void;
+  /** Re-read the requirements and report what was last checked. */
+  checkRequirements(): { proofAvailable: boolean; checkedAt: string; items: readonly Requirement[] };
+  selectedRequirement(): string | undefined;
+  modelDetail(): string | undefined;
+  openSetup(mode: 'model' | 'connect' | 'theme' | 'settings', query: string, draft: string | undefined): void;
+  openAccount(mode: 'login' | 'logout' | 'account', draft: string | undefined): void;
+  /** False, with a notice, for an unknown theme. */
+  changeTheme(id: string): boolean;
+  art: { setMode(mode: StartupArtMode): void; next(): void; title(): string; reload(): void };
+  goal: { get(): Goal | undefined; set(goal: Goal | undefined): void };
+  startGoal(text: string, check: string | undefined, draft: string | undefined): void;
+  /** Run another command as if chosen from the menu. */
+  submit(text: string): void;
+  cancel(): void;
+  quit(): void;
+}
+
+/** A handler answers directly (nothing returned) or hands back work for the shared pipeline: a refusal, or something to run. */
+export type CommandHandler = (ctx: CommandContext, argument: string, draft: string | undefined) => Prepared | void;
+
+/**
+ * Whether a command runs while work is busy. 'always': reads, any argument. 'accepted': interface-only commands, for the
+ * arguments they accept. 'never': it needs the agent and the task idle. A function decides by argument.
+ */
+export type WhileBusy = 'always' | 'accepted' | 'never' | ((argument: string) => boolean);
+
+export interface CommandSpec {
+  name: string;
+  group: 'Navigate' | 'Setup' | 'Edit' | 'Inspect' | 'Work' | 'Solana';
+  description: string;
+  /** Shown after the name in the menu and /help. */
+  argument?: string;
+  /** Completion leaves the cursor after the name instead of running it. */
+  needsArgument?: true;
+  /** Which arguments the command takes; anything else is "unknown or invalid". Default: none. */
+  accepts?: (argument: string) => boolean;
+  whileBusy: WhileBusy;
+  /** False for work that must finish within its backend timeout: the Cancel control stays off and /cancel refuses. */
+  cancellable?: false;
+  /** What the header and a failure note call this work when it runs as an action. Default: command. */
+  activity?: 'verification' | 'review';
+  run: CommandHandler;
+}
+
+const any = (): boolean => true;
+const present = (argument: string): boolean => argument !== '';
+const singleWord = (argument: string): boolean => !/\s/.test(argument);
+const nonBlank = (argument: string): boolean => argument.trim() !== '';
+
+const KEYBOARD_HELP = '\nKeyboard\n' +
+  'Commands: type / in the agent composer, empty editor, file browser or stopped terminal. Ctrl+K opens commands anywhere (Alt+/ also works). Plain / in a document, text field or running shell stays text.\n' +
+  'Back: Escape closes a menu to its previous pane. From conversation, Escape returns to the agent composer. From the workbench composer, Escape returns to the editor.\n' +
+  'Panes: /harness returns to the agent; /workbench focuses the editor; /files opens the browser; /terminal opens the shell. Ctrl+L focuses the composer, Ctrl+P opens files. F6 optionally cycles panes.\n' +
+  'Tab/Shift+Tab navigate conversation panes. Editor Tab inserts a tab; terminal Tab goes to the shell.\n' +
+  'Toolbar: F10 focuses the toolbar; arrows choose, Enter activates, Esc returns to the pane.\n' +
+  'Editor: Ctrl+S save, Ctrl+F find, Ctrl+H replace, Ctrl+W close tab, Ctrl+Tab next tab. Ctrl+\\ changes split side.\n' +
+  'Terminal: Ctrl+C interrupts its process; /terminal stop releases it for independent verification.\n' +
+  'Agent: Enter sends, Shift/Alt+Enter adds a newline. /cancel requests cancellation. Ctrl+Q quits after cleanup; dirty files need confirmation.\n' +
+  'Setup: ↑↓ chooses an authentication method; PgUp/PgDn scrolls disclosures without moving that choice. Ctrl+U clears masked entry. Ctrl+X copies the setup link. Keys and sign-in codes belong only in /connect.';
+
+/** /help lists every command and the keyboard controls. It lives here because it renders the table. */
+const help: CommandHandler = (ctx, _argument, draft) => {
+  ctx.conversation.note('commands', commandHelp() + KEYBOARD_HELP);
+  ctx.clearDraft(draft); ctx.switchView('harness'); ctx.setFocus('conversation'); ctx.scrollToEnd();
+};
+
+/** The one table of slash commands: what the menu and /help show, when each may run, and what it does. Order is display order. */
+export const OMS_COMMANDS: readonly CommandSpec[] = [
+  { name: 'workbench', group: 'Navigate', description: 'Files and terminal · same agent',
+    whileBusy: 'accepted', run: uiCommands.workbench },
+  { name: 'harness', group: 'Navigate', description: 'Return to the agent conversation',
+    whileBusy: 'accepted', run: uiCommands.harness },
+  { name: 'files', group: 'Navigate', description: 'Browse task files · Ctrl+P',
+    whileBusy: 'accepted', run: uiCommands.files },
+  { name: 'terminal', group: 'Navigate', description: 'Sandbox shell', argument: '[start|stop|hide]',
+    accepts: any, whileBusy: 'accepted', run: uiCommands.terminal },
+  { name: 'help', group: 'Navigate', description: 'Keyboard controls and all commands',
+    whileBusy: 'accepted', run: help },
+  { name: 'model', group: 'Setup', description: 'Choose a model in this session', argument: '[search]',
+    accepts: any, whileBusy: 'accepted', run: uiCommands.model },
+  { name: 'connect', group: 'Setup', description: 'Provider sign-in or confirmed private file import', argument: '[provider|import <path>]',
+    accepts: any, whileBusy: 'accepted', run: uiCommands.connect },
+  { name: 'theme', group: 'Setup', description: 'Foreground colors; inherited background', argument: '[name]',
+    accepts: any, whileBusy: 'accepted', run: uiCommands.theme },
+  { name: 'art', group: 'Setup', description: 'Startup picture', argument: '[next|auto|image|truecolor|256|off]',
+    accepts: acceptsArt, whileBusy: 'accepted', run: uiCommands.art },
+  { name: 'web', group: 'Setup', description: 'Web search, fetch and Solana MCP for this session', argument: '[on|off]',
+    accepts: acceptsWeb, whileBusy: 'accepted', run: uiCommands.web },
+  { name: 'settings', group: 'Setup', description: 'Canonical harness preferences and policy limits',
+    accepts: any, whileBusy: 'accepted', run: uiCommands.settings },
+  { name: 'login', group: 'Setup', description: 'Sign in to OMS (hosted web search) through browser device authorization',
+    whileBusy: 'accepted', run: uiCommands.login },
+  { name: 'logout', group: 'Setup', description: 'Revoke OMS access; retain provider credentials and local files',
+    whileBusy: 'accepted', run: uiCommands.logout },
+  { name: 'account', group: 'Setup', description: 'OMS account status; with an address, a local-chain account', argument: '[address]',
+    accepts: any, whileBusy: 'always', run: (ctx, argument, draft) => argument ? prepareAccount(argument, ctx.harness) : ctx.openAccount('account', draft) },
+  { name: 'review', group: 'Inspect', description: 'Offline Phase A security report · no model',
+    whileBusy: 'never', cancellable: false, activity: 'review', run: ctx => prepareReview(ctx) },
+  { name: 'status', group: 'Inspect', description: 'Requirements, proof and full budget',
+    whileBusy: 'always', run: ctx => prepareStatus(ctx) },
+  { name: 'session', group: 'Inspect', description: 'Repository, worktree and session',
+    whileBusy: 'always', run: ctx => prepareSession(ctx.harness) },
+  { name: 'diff', group: 'Inspect', description: 'Task changes against its base; long diffs open in the workbench', argument: '[path]',
+    accepts: any, whileBusy: 'always', run: (ctx, argument) => prepareDiff(argument, ctx.harness) },
+  { name: 'usage', group: 'Inspect', description: 'Tokens, spend, time and the budget caps',
+    accepts: any, whileBusy: 'always', run: (ctx, argument) => prepareUsage(argument, ctx.harness) },
+  { name: 'requirements', group: 'Inspect', description: 'Toggle requirements beside conversation',
+    whileBusy: 'accepted', run: uiCommands.requirements },
+  { name: 'open', group: 'Edit', description: 'Open a task file', argument: '<path>', needsArgument: true,
+    accepts: present, whileBusy: 'accepted', run: uiCommands.open },
+  { name: 'newfile', group: 'Edit', description: 'New unsaved file · Ctrl+N', argument: '[path]',
+    accepts: any, whileBusy: 'accepted', run: uiCommands.newfile },
+  { name: 'save', group: 'Edit', description: 'Save active file · Ctrl+S',
+    whileBusy: 'accepted', run: uiCommands.save },
+  { name: 'close', group: 'Edit', description: 'Close tab; protects unsaved changes · Ctrl+W',
+    whileBusy: 'accepted', run: uiCommands.close },
+  { name: 'find', group: 'Edit', description: 'Find text · Ctrl+F',
+    whileBusy: 'accepted', run: uiCommands.find },
+  { name: 'replace', group: 'Edit', description: 'Replace text · Ctrl+H',
+    whileBusy: 'accepted', run: uiCommands.replace },
+  { name: 'next', group: 'Edit', description: 'Next editor tab · Ctrl+Tab',
+    whileBusy: 'accepted', run: uiCommands.next },
+  { name: 'split', group: 'Edit', description: 'Toggle second file view · Ctrl+\\ changes side',
+    whileBusy: 'accepted', run: uiCommands.split },
+  { name: 'layout', group: 'Navigate', description: 'Workbench conversation panel', argument: '[editor|balanced]',
+    accepts: acceptsLayout, whileBusy: 'accepted', run: uiCommands.layout },
+  { name: 'verify', group: 'Work', description: 'Independent offline verification', argument: '[item-id]',
+    accepts: singleWord, whileBusy: 'never', cancellable: false, activity: 'verification', run: (ctx, argument) => prepareVerify(ctx, argument) },
+  { name: 'run', group: 'Work', description: 'Run a sandbox command', argument: '<command>', needsArgument: true,
+    accepts: nonBlank, whileBusy: 'never', run: (ctx, argument) => prepareRun(argument, ctx.harness) },
+  { name: 'test', group: 'Work', description: 'Run the project tests in the sandbox',
+    accepts: any, whileBusy: 'never', run: (ctx, argument) => prepareTest(argument, ctx.harness) },
+  { name: 'goal', group: 'Work', description: 'Work until an independent check passes', argument: '[<text> [--check "<command>"] | clear]',
+    accepts: any, whileBusy: argument => !argument.trim(), run: goalCommand },
+  { name: 'clear', group: 'Work', description: 'Fresh conversation; task, files and worktree stay',
+    accepts: any, whileBusy: 'never', run: clearConversation },
+  { name: 'cancel', group: 'Work', description: 'Request cancellation of current work',
+    whileBusy: 'accepted', run: uiCommands.cancel },
+  { name: 'quit', group: 'Work', description: 'Close after cleanup; protects dirty files',
+    whileBusy: 'accepted', run: ctx => ctx.quit() },
+  { name: 'chain', group: 'Solana', description: 'Local Surfpool: RPC, slot, fork state, health',
+    accepts: any, whileBusy: 'always', run: (ctx, argument) => prepareChain(argument, ctx.harness) },
+  { name: 'rewind', group: 'Solana', description: 'Restore the local chain to its starting state', argument: '[confirm]',
+    accepts: any, whileBusy: 'never', run: (ctx, argument) => prepareRewind(argument, ctx.harness) },
+  { name: 'airdrop', group: 'Solana', description: 'Local-chain SOL airdrop, up to 100', argument: '<address> [sol]', needsArgument: true,
+    accepts: any, whileBusy: 'never', run: (ctx, argument) => prepareAirdrop(argument, ctx.harness) },
+  { name: 'tx', group: 'Solana', description: 'Local-chain transaction: status, error, compute, logs', argument: '<signature>', needsArgument: true,
+    accepts: any, whileBusy: 'always', run: (ctx, argument) => prepareTransaction(argument, ctx.harness) },
+  { name: 'program', group: 'Solana', description: 'Program reference, offline', argument: '<name|id> [instruction]', needsArgument: true,
+    accepts: any, whileBusy: 'always', run: (_ctx, argument) => prepareProgram(argument) },
+  { name: 'error', group: 'Solana', description: 'Decode a custom program error code', argument: '<code> [program]', needsArgument: true,
+    accepts: any, whileBusy: 'always', run: (ctx, argument) => prepareError(argument, ctx.harness) },
+];
+
+const BY_NAME: ReadonlyMap<string, CommandSpec> = new Map(OMS_COMMANDS.map(command => [command.name, command]));
+
+export type OmsCommand = CommandSpec;
+export const findCommand = (name: string | undefined): CommandSpec | undefined => name === undefined ? undefined : BY_NAME.get(name);
+
+/** `/name rest` gives the lowercase name and the argument text; undefined for text that is not a command. */
+export function parseCommand(text: string): { name: string; argument: string } | undefined {
+  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);
+  return match ? { name: match[1]!.toLowerCase(), argument: match[2] ?? '' } : undefined;
+}
+
+export function acceptsArgument(command: CommandSpec, argument: string): boolean {
+  return (command.accepts ?? ((value: string) => value === ''))(argument);
+}
+
+export function canRunWhileBusy(command: CommandSpec, argument: string): boolean {
+  const rule = command.whileBusy;
+  return typeof rule === 'function' ? rule(argument) : rule === 'always' || (rule === 'accepted' && acceptsArgument(command, argument));
+}
 
 /** Only an unfinished command name opens completion; arguments remain normal input. */
-export function commandMatches(draft: string): readonly OmsCommand[] | undefined {
+export function commandMatches(draft: string): readonly CommandSpec[] | undefined {
   const match = /^\/([a-z]*)$/i.exec(draft.trimStart());
   if (!match) return undefined;
   const query = match[1]!.toLowerCase();
@@ -56,7 +222,7 @@ export function commandMatches(draft: string): readonly OmsCommand[] | undefined
 export function commandHelp(): string {
   return ['Navigate', 'Setup', 'Edit', 'Inspect', 'Work', 'Solana'].map(group => `${group}\n` +
     OMS_COMMANDS.filter(command => command.group === group).map(command =>
-      `/${command.name}${'argument' in command ? ' ' + command.argument : ''} — ${command.description}`)
+      `/${command.name}${command.argument ? ' ' + command.argument : ''} — ${command.description}`)
       // /account is one name for two jobs (OMS account, or with an address a chain account), listed once in the menu under Setup.
       .concat(group === 'Solana' ? ['/account <address> — Local-chain account: owner, lamports, data, token fields'] : []).join('\n')).join('\n\n');
 }
