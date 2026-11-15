@@ -20,7 +20,7 @@
 
 import {
   decideSettle,
-  type BudgetMeter,
+  type BudgetSource,
   type SettleAction,
   type SettleReason,
 } from '@oms/core';
@@ -56,7 +56,7 @@ export interface SettleTraceSink {
 export interface SettleExtensionOptions {
   verifier: VerifierPort;
   /** `/goal` budget meter; only read (snapshot), never charged here. */
-  budget: Pick<BudgetMeter, 'snapshot'>;
+  budget: BudgetSource;
   /** Hard retry cap; shares the budget with the caps inside the meter. */
   maxAttempts: number;
   trace?: SettleTraceSink;

@@ -14,7 +14,7 @@ The workspace uses native TypeScript execution and requires Node >=22.19.0. Test
 | Module | Responsibility |
 | --- | --- |
 | `src/budget/ledger.ts` | Durable-before-admission dispatch reservations, usage receipts and replay |
-| `src/budget/meter.ts` | Budget caps, snapshots and the simpler explicit-charge meter |
+| `src/budget/meter.ts` | Budget caps, snapshots and formatters |
 | `src/trace/trace.ts` | Redacted append-only JSONL, strict sequence validation and replay |
 | `src/redact/secrets.ts` | Known-secret textual and structured-byte redaction |
 | `src/settle/gate.ts` | Pure verifier/budget/repeated-failure continuation decision |
@@ -34,7 +34,7 @@ Exports are in `src/index.ts`. The production Harness is assembled by `@oms/engi
 
 Snapshots distinguish `known`, `pending` and `unknown` accounting and expose pending dispatch IDs. Replay restores reservations, settled receipts and elapsed wall time; it cannot reset caps/start time or silently forgive an unfinished dispatch. The caller must reject malformed or torn input journals and enforce one writer. The engine's task lease and private journal adapter provide those integration responsibilities.
 
-Money is integer micro-USD; token counts are nonnegative safe integers. The simple `createBudgetMeter` remains for explicit charge consumers, but the production provider path uses the reservation ledger. Neither API guarantees a provider's future invoice: catalog pricing, unsupported billing features and external traffic remain outside this primitive.
+Money is integer micro-USD; token counts are nonnegative safe integers. The reservation ledger is the only budget source. It does not guarantee a provider's future invoice: catalog pricing, unsupported billing features and external traffic remain outside this primitive.
 
 ## Trace continuity and redaction
 

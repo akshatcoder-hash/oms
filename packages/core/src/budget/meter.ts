@@ -1,13 +1,14 @@
 /**
- * `/goal` budget meter.
+ * Budget caps, snapshots and formatters.
  *
  * Three independent caps: tokens, spend and wall clock. Money is integer
  * micro-USD (1 USD = 1_000_000 units) everywhere - no floats, so caps and
  * reservations cannot drift by rounding. Caps are configuration, not constants
  * hidden in call sites; `DEFAULT_BUDGET_CAPS` is only the fallback.
  *
- * The settle gate reads this meter. Callers must supply usage and enforce request
- * admission/cancellation; the meter alone is not a global spending hard stop.
+ * The settle gate reads a `BudgetSource` (the reservation ledger in production).
+ * Callers must enforce request admission/cancellation; a snapshot alone is not a
+ * global spending hard stop.
  */
 
 export interface BudgetCaps {
@@ -39,44 +40,9 @@ export interface BudgetSnapshot {
   readonly reasons: readonly BudgetReason[];
 }
 
-export type BudgetField = 'tokens' | 'spendMicroUsd';
-
-export type ChargeErrorCode = 'E_NON_INTEGER' | 'E_NEGATIVE';
-
-export interface ChargeOk {
-  readonly ok: true;
-  readonly snapshot: BudgetSnapshot;
-}
-
-export interface ChargeError {
-  readonly ok: false;
-  readonly code: ChargeErrorCode;
-  readonly field: BudgetField;
-  readonly message: string;
-}
-
-export type ChargeResult = ChargeOk | ChargeError;
-
-export interface ChargeInput {
-  readonly tokens?: number;
-  readonly spendMicroUsd?: number;
-}
-
-export interface BudgetMeter {
-  charge(input: ChargeInput): ChargeResult;
+/** Anything that can report the current budget; the reservation ledger is the production source. */
+export interface BudgetSource {
   snapshot(): BudgetSnapshot;
-  exhausted(): boolean;
-  /** One-line human summary of caps and usage (`/goal` header line). */
-  explain(): string;
-  readonly caps: BudgetCaps;
-}
-
-export interface BudgetMeterOptions {
-  readonly caps?: BudgetCaps;
-  /** Milliseconds since epoch. Injected for deterministic tests. */
-  readonly clock: () => number;
-  /** Epoch ms the budget started; defaults to `clock()` at creation. */
-  readonly startedAt?: number;
 }
 
 export class InvalidBudgetCapsError extends Error {
@@ -87,16 +53,6 @@ export class InvalidBudgetCapsError extends Error {
     this.name = 'InvalidBudgetCapsError';
     this.problems = problems;
   }
-}
-
-function capProblems(caps: BudgetCaps): string[] {
-  const problems: string[] = [];
-  for (const field of ['tokens', 'spendMicroUsd', 'wallClockMs'] as const) {
-    const value = caps[field];
-    if (!Number.isSafeInteger(value)) problems.push(`${field} must be a safe integer, got ${String(value)}`);
-    else if (value < 0) problems.push(`${field} must be >= 0, got ${value}`);
-  }
-  return problems;
 }
 
 function reasonsFor(caps: BudgetCaps, used: BudgetUsage): BudgetReason[] {
@@ -158,102 +114,4 @@ export function formatDuration(ms: number): string {
   if (hours > 0) return `${hours}h${minutes}m${seconds}s`;
   if (minutes > 0) return `${minutes}m${seconds}s`;
   return `${seconds}s`;
-}
-
-export function createBudgetMeter(options: BudgetMeterOptions): BudgetMeter {
-  const caps = options.caps ?? DEFAULT_BUDGET_CAPS;
-  const problems = capProblems(caps);
-  if (problems.length > 0) throw new InvalidBudgetCapsError(problems);
-
-  const startedAt = options.startedAt ?? options.clock();
-  if (!Number.isFinite(startedAt)) {
-    throw new InvalidBudgetCapsError([`startedAt must be finite, got ${String(startedAt)}`]);
-  }
-
-  let tokensUsed = 0;
-  let spendUsed = 0;
-
-  const elapsed = (): number => {
-    const now = options.clock();
-    if (!Number.isFinite(now)) return Math.max(0, Number.MAX_SAFE_INTEGER);
-    return Math.max(0, Math.floor(now - startedAt));
-  };
-
-  const snapshot = (): BudgetSnapshot =>
-    snapshotFor(caps, { tokens: tokensUsed, spendMicroUsd: spendUsed, wallClockMs: elapsed() });
-
-  const charge = (input: ChargeInput): ChargeResult => {
-    if (input.tokens !== undefined) {
-      if (!Number.isSafeInteger(input.tokens)) {
-        return {
-          ok: false,
-          code: 'E_NON_INTEGER',
-          field: 'tokens',
-          message: `tokens must be a safe integer, got ${String(input.tokens)}`,
-        };
-      }
-      if (input.tokens < 0) {
-        return { ok: false, code: 'E_NEGATIVE', field: 'tokens', message: `tokens must be >= 0, got ${input.tokens}` };
-      }
-    }
-    if (input.spendMicroUsd !== undefined) {
-      if (!Number.isSafeInteger(input.spendMicroUsd)) {
-        return {
-          ok: false,
-          code: 'E_NON_INTEGER',
-          field: 'spendMicroUsd',
-          message: `spend must be an integer number of micro-USD, got ${String(input.spendMicroUsd)}`,
-        };
-      }
-      if (input.spendMicroUsd < 0) {
-        return {
-          ok: false,
-          code: 'E_NEGATIVE',
-          field: 'spendMicroUsd',
-          message: `spend must be >= 0, got ${input.spendMicroUsd}`,
-        };
-      }
-    }
-    if ((input.tokens ?? 0) > Number.MAX_SAFE_INTEGER - tokensUsed) {
-      return {
-        ok: false,
-        code: 'E_NON_INTEGER',
-        field: 'tokens',
-        message: 'token counter would overflow a safe integer',
-      };
-    }
-    if ((input.spendMicroUsd ?? 0) > Number.MAX_SAFE_INTEGER - spendUsed) {
-      return {
-        ok: false,
-        code: 'E_NON_INTEGER',
-        field: 'spendMicroUsd',
-        message: 'spend counter would overflow a safe integer',
-      };
-    }
-    tokensUsed += input.tokens ?? 0;
-    spendUsed += input.spendMicroUsd ?? 0;
-    return { ok: true, snapshot: snapshot() };
-  };
-
-  const explain = (): string => {
-    const state = snapshot();
-    const parts = [
-      `${formatInteger(state.caps.tokens)} tokens`,
-      formatMicroUsd(state.caps.spendMicroUsd),
-      formatDuration(state.caps.wallClockMs),
-    ];
-    const used = `used ${formatInteger(state.used.tokens)} tokens, ${formatMicroUsd(state.used.spendMicroUsd)}, ${formatDuration(state.used.wallClockMs)}`;
-    const tail = state.exhausted
-      ? `EXHAUSTED (${state.reasons.join(', ')})`
-      : `remaining ${formatInteger(state.remaining.tokens)} tokens, ${formatMicroUsd(state.remaining.spendMicroUsd)}, ${formatDuration(state.remaining.wallClockMs)}`;
-    return `budget ${parts.join(' / ')} - ${used} - ${tail}`;
-  };
-
-  return {
-    charge,
-    snapshot,
-    exhausted: (): boolean => snapshot().exhausted,
-    explain,
-    caps,
-  };
 }

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { createTraceWriter, parseTrace } from "@oms/core";
+import { DEFAULT_BUDGET_CAPS, createTraceWriter, parseTrace, snapshotFor } from "@oms/core";
 import {
   createEvaluator,
   createProposer,
@@ -105,6 +105,7 @@ function wire(t: TestContext, sandboxResults: SandboxResult[], items?: TaskContr
     evaluator,
     cwd: root,
     trace,
+    budget: { snapshot: () => snapshotFor(DEFAULT_BUDGET_CAPS, { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 }) },
     protectedPaths: [join(root, "tests"), contractPath],
   });
   return {

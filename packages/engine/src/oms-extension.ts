@@ -2,10 +2,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import {
-  createBudgetMeter,
   createDeepRedactor,
-  type BudgetCaps,
-  type BudgetMeter,
+  type BudgetSource,
   type TraceWriter,
 } from "@oms/core";
 import type { Evaluator, Proposer } from "@oms/contract";
@@ -41,8 +39,7 @@ export interface OmsExtensionOptions {
   deniedRoots?: readonly string[];
   /** Secret byte strings to scrub from traces and from what the model sees. */
   secrets?: readonly Uint8Array[];
-  budget?: Pick<BudgetMeter, "snapshot">;
-  budgetCaps?: BudgetCaps;
+  budget: BudgetSource;
   maxAttempts?: number;
   /** Bounded runs stop at a successful propose_done; the settle gate then verifies without a closing model reply. */
   endRunOnProposal?: boolean;
@@ -55,7 +52,7 @@ export interface OmsExtensionOptions {
 export interface OmsExtensions {
   extensions: ExtensionFactory[];
   settle: SettleExtension;
-  budget: Pick<BudgetMeter, "snapshot">;
+  budget: BudgetSource;
 }
 
 /** Verifier runs one retry loop may use; shared by the settle gate and the TUI `/goal` loop. */
@@ -74,9 +71,7 @@ function activeItemId(proposer: Proposer): string | null {
  */
 export function createOmsExtensions(options: OmsExtensionOptions): OmsExtensions {
   const now = options.now ?? Date.now;
-  const budget =
-    options.budget ??
-    createBudgetMeter({ clock: now, ...(options.budgetCaps ? { caps: options.budgetCaps } : {}) });
+  const budget = options.budget;
   const redact = createDeepRedactor(options.secrets ?? []);
 
   const settleTrace: SettleTraceSink = {

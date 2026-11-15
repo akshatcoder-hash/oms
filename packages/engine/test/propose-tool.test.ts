@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { fauxAssistantMessage, fauxText, fauxToolCall } from '@earendil-works/pi-ai';
-import { createBudgetMeter } from '@oms/core';
+import { DEFAULT_BUDGET_CAPS, snapshotFor, type BudgetSource } from '@oms/core';
 import {
   createProposer,
   pinContract,
@@ -97,6 +97,8 @@ function makeProject(t: TestContext): Project {
 function transcript(h: { session: { messages: unknown[] } }): string {
   return JSON.stringify(h.session.messages);
 }
+
+const idleBudget: BudgetSource = { snapshot: () => snapshotFor(DEFAULT_BUDGET_CAPS, { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 }) };
 
 test('propose_done proposes the active item; the evaluator, not the tool, closes', async (t) => {
   const project = makeProject(t);
@@ -234,7 +236,7 @@ test('end to end: propose_done then the settle gate verifies and settles, item s
   };
   const gate = createSettleExtension({
     verifier,
-    budget: createBudgetMeter({ clock: () => 1_000 }),
+    budget: idleBudget,
     maxAttempts: 3,
   });
   const h = await createHarness({
@@ -271,7 +273,7 @@ for (const endRunOnProposal of [true, false]) {
     };
     const h = await createHarness({
       extensions: [createProposeDoneExtension({ proposer: project.proposer, getActiveItemId: () => 'item-1', endRunOnProposal }),
-        createSettleExtension({ verifier, budget: createBudgetMeter({ clock: () => 1_000_000 }), maxAttempts: 3 })],
+        createSettleExtension({ verifier, budget: idleBudget, maxAttempts: 3 })],
       responses: [
         fauxAssistantMessage(fauxToolCall(PROPOSE_DONE_TOOL_NAME, { itemId: 'item-1' }), { stopReason: 'toolUse' }),
         fauxAssistantMessage(fauxText('Proposed; waiting for the verdict.')),

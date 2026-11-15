@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fauxAssistantMessage, fauxText } from '@earendil-works/pi-ai';
-import { createBudgetMeter, createDeepRedactor, type BudgetMeter } from '@oms/core';
+import { DEFAULT_BUDGET_CAPS, createDeepRedactor, snapshotFor, type BudgetSource } from '@oms/core';
 import { createHarness } from '../test-support/harness.ts';
 import {
   createSettleExtension,
@@ -34,8 +34,8 @@ function scriptedVerifier(
   };
 }
 
-function fixedBudget(): BudgetMeter {
-  return createBudgetMeter({ clock: () => 1_000_000 });
+function fixedBudget(): BudgetSource {
+  return { snapshot: () => snapshotFor(DEFAULT_BUDGET_CAPS, { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 }) };
 }
 
 function transcript(h: { session: { messages: unknown[] } }): string {
@@ -122,10 +122,8 @@ test('an exhausted budget stops instead of continuing', async () => {
   const verifier = scriptedVerifier([
     { status: 'fail', failureDigest: DIGEST_A, summary: 'still failing' },
   ]);
-  const budget = createBudgetMeter({
-    caps: { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 },
-    clock: () => 1_000,
-  });
+  const zero = { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 };
+  const budget: BudgetSource = { snapshot: () => snapshotFor(zero, zero) };
   const gate = createSettleExtension({ verifier, budget, maxAttempts: 10 });
   const h = await createHarness({
     extensions: [gate],
@@ -323,7 +321,7 @@ test('injected redactor covers verifier feedback and every model-visible error p
   const secret = Uint8Array.from({ length: 32 }, (_, i) => i * 3 + 1);
   const encoded = Buffer.from(secret).toString('hex');
   const redact = createDeepRedactor<string>([secret]);
-  const scenarios: Array<{ verifier: VerifierPort; budget?: BudgetMeter }> = [
+  const scenarios: Array<{ verifier: VerifierPort; budget?: BudgetSource }> = [
     { verifier: scriptedVerifier([
       { status: 'fail', summary: `failure ${encoded}`, failureDigest: DIGEST_A },
       { status: 'pass', summary: `passed ${encoded}` },
