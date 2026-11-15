@@ -23,7 +23,7 @@ test('host verifier runs real command against owned offline Surfpool with loopba
       .then(r=>r.json()).then(r=>{if(r.result!=='ok')throw Error('unhealthy');console.log('VERIFIED')}).catch(e=>{console.error(e);process.exitCode=1});
   `);
   const backend = await createVerifierBackend({ backend: 'host', taskName: 'host-verifier',
-    binary: process.env.OMS_SURFPOOL_BINARY ?? join(homedir(), '.local/bin/surfpool'), image: '', forwarderImage: '',
+    binary: process.env.SURFPOOL_BINARY ?? process.env.OMS_SURFPOOL_BINARY ?? join(homedir(), '.local/bin/surfpool'), image: '', forwarderImage: '',
     dependencies, workDir: join(root, 'work'), leaseDir: join(root, 'leases') });
   try {
     const surf = await backend.surfnets.start(undefined);

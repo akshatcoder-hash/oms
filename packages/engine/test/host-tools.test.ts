@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 
 test('real host tools use task paths, protect verifier/.git and gate shell commands', async () => {
-  const fixtureRoot = mkdtempSync(join(tmpdir(), 'oms-host-tools-'));
+  const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'oms-host-tools-')));
   const root = join(fixtureRoot, '.oms/worktrees/task');
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, 'verify.js'), 'pinned');

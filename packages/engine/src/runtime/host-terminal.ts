@@ -5,7 +5,7 @@ import { LatestResizeQueue, TerminalOutput, type OwnedTaskTerminal, type TaskTer
 
 /** The platform script utility supplies a PTY without an npm/native dependency. */
 export async function createHostTerminal(options: TaskTerminalOptions): Promise<OwnedTaskTerminal> {
-  const { home, cleanup } = acquireHostRun(options.run, options.run.mounts.projectMount.hostPath);
+  const { home, cleanup } = acquireHostRun(options.run, realpathSync(options.run.mounts.projectMount.hostPath));
   try {
     const terminal = await startHostTerminal(options, home);
     const exited = terminal.exited.finally(cleanup);
@@ -17,8 +17,10 @@ export async function createHostTerminal(options: TaskTerminalOptions): Promise<
 async function startHostTerminal(options: TaskTerminalOptions, home: string): Promise<OwnedTaskTerminal> {
   options.run.signal?.throwIfAborted();
   const env = hostEnvironment({ HOME: home, ...options.run.env, TERM: 'xterm-256color' });
+  // BSD script(1) refuses a socket on stdin (tcgetattr fails), and Node gives children socket pairs on macOS, so a cat pipe
+  // feeds it a real pipe there. Closing kills the whole process group, cat included.
   const [command, ...args] = hostArgv(options.run, realpathSync(options.run.mounts.projectMount.hostPath), home, env, process.platform === 'darwin'
-    ? ['script', '-q', '/dev/null', '/bin/sh', '-i'] : ['script', '-qefc', '/bin/sh -i', '/dev/null']);
+    ? ['/bin/sh', '-c', 'cat | script -q /dev/null /bin/sh -i'] : ['script', '-qefc', '/bin/sh -i', '/dev/null']);
   const child = spawn(command!, args, { cwd: options.run.cwd ?? options.run.mounts.projectMount.hostPath,
     env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
   let closing = false, timedOut = false, cancelled = false;

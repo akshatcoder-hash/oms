@@ -121,6 +121,7 @@ test('verifier mounts only immutable inputs read-only and fresh writable outputs
 });
 
 test('locked dependencies and the trusted in-container Surfpool stay read-only beside the writable output', async t => {
+  if (process.platform !== 'linux') { t.skip('the in-container Surfpool needs the Linux loader and libraries'); return; }
   const f = fixture(t);
   const dependencies = join(f.root, 'dependencies');
   mkdirSync(join(dependencies, 'node_modules'), { recursive: true });
