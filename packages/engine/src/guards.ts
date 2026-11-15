@@ -16,11 +16,6 @@
  * construction: a command can build a path at runtime (`p=~/.ss; cat ${p}h/id`). The
  * Docker sandbox in SPEC.md section 2 is the real control. This hook only keeps the
  * obvious forms from reaching a shell at all.
- *
- * The symlink-safe resolution helpers (`isInside`, `resolveWithExistingAncestor`,
- * `realpathOfNearest`, `pathVariants`) are copied from `packages/signer/src/guard.ts`
- * in this repo. `@oms/engine` does not depend on `@oms/signer`, so importing them would
- * mean adding a dependency to a package manifest this worker does not own.
  */
 
 import { realpathSync, statSync } from 'node:fs';
@@ -93,7 +88,7 @@ const PATH_TOOL_SPECS: Record<string, { readonly access: 'read' | 'write'; reado
 const REQUIRED_PATH_TOOLS = new Set(['read', 'write', 'edit']);
 const COMMAND_TOOLS = new Set(['bash', 'powershell']);
 
-// --- copied from packages/signer/src/guard.ts (see file header) -------------------
+// --- symlink-safe path resolution --------------------------------------------------
 
 function isInside(parent: string, candidate: string): boolean {
   if (candidate === parent) return true;
@@ -289,7 +284,7 @@ function pathDecision(call: GuardedToolCall, targets: PreparedTargets, cwd: stri
     if (matchesTarget(candidates, deniedTarget)) {
       return block(
         'denied_root',
-        'that path holds key material or signer state; the model may not read or write it. Use the oms-signer tool',
+        'that path holds key material or signer state; the model may not read or write it',
       );
     }
   }
@@ -319,7 +314,7 @@ function commandDecision(call: GuardedToolCall, targets: PreparedTargets): Guard
     return block(
       rule,
       rule === 'denied_root'
-        ? 'the command mentions a path that holds key material or signer state; use the oms-signer tool instead'
+        ? 'the command mentions a path that holds key material or signer state; the model may not read or write it'
         : 'the command mentions a digest-pinned file the model may not modify; ask the user to change it',
     );
   }
