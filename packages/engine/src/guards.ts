@@ -17,16 +17,15 @@
  * Docker sandbox in SPEC.md section 2 is the real control. This hook only keeps the
  * obvious forms from reaching a shell at all.
  *
- * The symlink-safe resolution helpers (`isInside`, `resolveWithExistingAncestor`,
- * `realpathOfNearest`, `pathVariants`) are copied from `packages/signer/src/guard.ts`
- * in this repo. `@oms/engine` does not depend on `@oms/signer`, so importing them would
- * mean adding a dependency to a package manifest this worker does not own.
+ * Path containment and symlink-safe resolution (`isInside`, `realpathAllowingMissing`) come from `@oms/contract`,
+ * so the guards and the contract resolve paths with one implementation.
  */
 
 import { realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
+import { isInside, realpathAllowingMissing } from '@oms/contract';
 
 export const DEFAULT_MAX_EDIT_BYTES = 64 * 1024;
 export const DEFAULT_REPETITION_THRESHOLD = 3;
@@ -93,40 +92,9 @@ const PATH_TOOL_SPECS: Record<string, { readonly access: 'read' | 'write'; reado
 const REQUIRED_PATH_TOOLS = new Set(['read', 'write', 'edit']);
 const COMMAND_TOOLS = new Set(['bash', 'powershell']);
 
-// --- copied from packages/signer/src/guard.ts (see file header) -------------------
-
-function isInside(parent: string, candidate: string): boolean {
-  if (candidate === parent) return true;
-  const withSep = parent.endsWith(sep) ? parent : parent + sep;
-  return candidate.startsWith(withSep);
-}
-
-/**
- * Resolve as far as the filesystem allows: realpath the deepest existing ancestor and
- * re-append the non-existent tail. This is what makes a symlinked ancestor directory
- * (e.g. `root/evil -> ~/.ssh`) detectable even when the final component does not exist.
- */
-function resolveWithExistingAncestor(absolutePath: string): string {
-  let current = absolutePath;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = realpathSync(current);
-      return tail.length === 0 ? real : join(real, ...tail.reverse());
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-      const parent = resolve(current, '..');
-      if (parent === current) return absolutePath;
-      tail.push(current.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)));
-      current = parent;
-    }
-  }
-}
-
 function realpathOfNearest(p: string): string {
   try {
-    const resolved = resolveWithExistingAncestor(p);
+    const resolved = realpathAllowingMissing(p);
     try {
       return realpathSync(resolved);
     } catch {
