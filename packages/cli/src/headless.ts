@@ -10,6 +10,15 @@ import { openHarnessWithOwnership } from './ownership.ts';
 const digest = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex');
 const harnessDigest = () => digest([
   import.meta.url, new URL('../../engine/src/runtime/session.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-types.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-lifecycle.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-environment.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-tools.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-hooks.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-model.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/session-api.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/task-definition.ts', import.meta.url).href,
+  new URL('../../engine/src/runtime/system-prompt.ts', import.meta.url).href,
   new URL('../../engine/src/runtime/usage.ts', import.meta.url).href,
   new URL('../../engine/src/runtime/run-record.ts', import.meta.url).href,
   new URL('../../engine/src/runtime/knowledge-service.ts', import.meta.url).href,
