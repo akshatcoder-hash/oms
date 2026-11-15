@@ -2167,10 +2167,12 @@ test('startup art follows the window size and is hidden when under 60 columns of
   try {
     const wide = artOnScreen(terminal, await terminal.until((s) => !!artOnScreen(terminal, s)))!;
     terminal.setSize(100, 50);
-    const narrow = artOnScreen(
-      terminal,
-      await terminal.until((s) => (artOnScreen(terminal, s)?.width ?? 999) < wide.width),
-    )!;
+    // Wait for art that fits the new window, not for art smaller than `wide`, which may have been measured mid-draw.
+    const fits = (s: string) => {
+      const art = artOnScreen(terminal, s);
+      return !!art && art.width <= 98 && art.rows >= 10;
+    };
+    const narrow = artOnScreen(terminal, await terminal.until(fits))!;
     assert.ok(narrow.width <= 98 && narrow.rows >= 10, `${narrow.width}x${narrow.rows}`);
     for (const [columns, rows] of [
       [59, 40],
