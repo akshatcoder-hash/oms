@@ -103,27 +103,25 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     return operation;
   };
   const rpcUrl = `http://${options.backend === "host" ? "127.0.0.1" : "host.docker.internal"}:${options.surfnetPort}`;
-  const baseRun = {
-    backend: options.backend,
+  const sharedRun = {
     onSpawn: options.onSpawn,
     taskName: options.taskName,
     phase: "run" as const,
     mounts: options.mounts,
-    image: options.image,
-    forwarderImage: options.forwarderImage,
-    leaseDir: options.leaseDir,
     sourceControlDir: options.sourceControlDir,
     surfnet: { port: options.surfnetPort },
     cwd: root,
-    protectedPaths: options.protectedPaths,
-    ...(options.buildProfile ? { limits: BUILD_LIMITS } : {}),
     env: { ...(options.backend === "host" ? {} : { HOME: "/tmp", TMPDIR: "/tmp" }), ...(options.buildProfile ? { CARGO_HOME: "/work/.oms-cargo", CARGO_NET_OFFLINE: "true" } : {}), SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, ...(options.surfpool ? { SURFPOOL_BINARY: options.surfpool } : {}) },
     stdoutLimitBytes: MAX_TASK_FILE_BYTES * 2,
     stderrLimitBytes: MAX_TASK_FILE_BYTES,
   };
+  const hostRun = { ...sharedRun, backend: "host" as const, protectedPaths: options.protectedPaths };
+  const dockerRun = { ...sharedRun, backend: "docker" as const, image: options.image, forwarderImage: options.forwarderImage, leaseDir: options.leaseDir,
+    ...(options.buildProfile ? { limits: BUILD_LIMITS } : {}) };
+  const baseRun = options.backend === "host" ? hostRun : dockerRun;
   const runOptions = (argv: string[], signal: AbortSignal, timeoutMs: number): RunInSandboxOptions => ({ ...baseRun, argv, signal, timeoutMs });
   // One container serves every command and file operation of the task. Host mode runs processes directly.
-  const session = options.backend === "host" ? undefined : createSandboxSession({ ...baseRun, signal: lifetimeSignal });
+  const session = options.backend === "host" ? undefined : createSandboxSession({ ...dockerRun, signal: lifetimeSignal });
   const run = (argv: string[], signal: AbortSignal | undefined, timeoutMs: number, capture: boolean) => enqueue(async () => {
     const operationSignal = signal ? AbortSignal.any([signal, lifetimeSignal]) : lifetimeSignal;
     operationSignal.throwIfAborted();
@@ -258,9 +256,10 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
         assertVerificationAllowed();
         const remaining = Math.floor(options.remainingWallClockMs?.() ?? BUILD_TIMEOUT_MS);
         if (remaining <= 0) throw new Error("Task wall-clock budget exhausted");
-        const result = await runInSandbox({ ...runOptions(dependencyFetchArgv(input.manager),
-          AbortSignal.any([lifetimeSignal, ...(signal ? [signal] : [])]), Math.min(BUILD_TIMEOUT_MS, remaining)),
-          phase: "install", installAllowlist: DEPENDENCY_ALLOWLIST,
+        const fetchRun = runOptions(dependencyFetchArgv(input.manager),
+          AbortSignal.any([lifetimeSignal, ...(signal ? [signal] : [])]), Math.min(BUILD_TIMEOUT_MS, remaining));
+        const result = await runInSandbox({ ...fetchRun, phase: "install",
+          ...(fetchRun.backend === "docker" ? { installAllowlist: DEPENDENCY_ALLOWLIST } : {}),
           env: { HOME: "/tmp", TMPDIR: "/tmp", CARGO_HOME: "/work/.oms-cargo" },
         });
         return { content: [{ type: "text" as const, text: result.stdout + result.stderr || "(no output)" }],

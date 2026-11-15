@@ -212,7 +212,7 @@ test('session: median exec latency over 20 trivial commands beats the per-comman
     const perCommand: number[] = [];
     for (let i = 0; i < 5; i++) {
       const started = performance.now();
-      const r = await runInSandbox({ ...f.options, phase: 'run', argv: ['ls', '/work'], timeoutMs: 120_000 });
+      const r = await runInSandbox({ ...f.options, backend: 'docker', phase: 'run', argv: ['ls', '/work'], timeoutMs: 120_000 });
       assert.equal(r.exitCode, 0);
       perCommand.push(performance.now() - started);
     }

@@ -208,7 +208,7 @@ function engineResize(socketPath: string, id: string, columns: number, rows: num
 
 export async function createTaskTerminal(options: TaskTerminalOptions): Promise<OwnedTaskTerminal> {
   if (![options.columns, options.rows].every(value => Number.isInteger(value) && value > 0 && value <= 500)) throw new Error('invalid terminal dimensions');
-  if (options.run.backend === 'host') return createHostTerminal(options);
+  if (options.run.backend === 'host') return createHostTerminal({ ...options, run: options.run });
   const environment = { ...process.env };
   const out: DockerOut = (args, signal) => new Promise((resolve, reject) => {
     execFile('docker', args, { env: environment, signal, timeout: 30_000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {

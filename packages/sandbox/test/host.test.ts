@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { hostEnvironment, runInSandbox, type RunInSandboxOptions } from '../src/index.ts';
+import { hostEnvironment, runInSandbox, type HostRunOptions } from '../src/index.ts';
 
-function fixture(): RunInSandboxOptions {
+function fixture(): HostRunOptions {
   const root = mkdtempSync(path.join(tmpdir(), 'oms-host-'));
   return { backend: 'host', taskName: 'fixture', phase: 'run', argv: [process.execPath, '-e', 'console.log(process.cwd())'],
     mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    timeoutMs: 5000, image: '', forwarderImage: '', leaseDir: root };
+    timeoutMs: 5000 };
 }
 
 test('host environment excludes credentials and unlisted variables from both sources', () => {

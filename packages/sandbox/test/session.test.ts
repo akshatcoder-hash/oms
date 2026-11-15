@@ -25,7 +25,7 @@ function fixture(t: TestContext, overrides: Partial<SandboxSessionOptions> = {})
   const session = createSandboxSession(options, daemon);
   t.after(() => session.close().catch(() => {}));
   return { options, daemon, session, install: () => runInSandbox({
-    ...options, phase: 'install', argv: ['true'], timeoutMs: 5000, installAllowlist: ['registry.npmjs.org:443'],
+    ...options, backend: 'docker', phase: 'install', argv: ['true'], timeoutMs: 5000, installAllowlist: ['registry.npmjs.org:443'],
   }, daemon) };
 }
 const exec = { timeoutMs: 5000 };

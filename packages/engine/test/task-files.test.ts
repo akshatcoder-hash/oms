@@ -21,7 +21,7 @@ test('shared file access preserves bytes, refuses stale saves and keeps the task
   const taskName = 'files-' + randomUUID();
   const mounts = buildMounts({ projectRoot: project, taskName, forbidden: { signerDir: signer, stateDir: state }, heavyDirs: [] });
   const files = createTaskFileAccess((argv, signal) => runInSandbox({
-    taskName, phase: 'run', argv, mounts, image, forwarderImage, timeoutMs: 30_000,
+    backend: 'docker', taskName, phase: 'run', argv, mounts, image, forwarderImage, timeoutMs: 30_000,
     leaseDir: join(base, 'leases'), sourceControlDir: join(base, 'source-control'),
     surfnet: { port: 9 }, signal,
   }));

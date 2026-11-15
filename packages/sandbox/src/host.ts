@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { RunInSandboxOptions, SandboxResult } from './exec.ts';
+import type { HostRunOptions, SandboxResult } from './exec.ts';
 import { hostSandbox, seatbeltArgv } from './seatbelt.ts';
 
 const ALLOWED_ENV = ['PATH', 'HOME', 'CARGO_HOME', 'RUSTUP_HOME', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TMPDIR', 'SHELL', 'TERM', 'SOLANA_RPC_URL', 'SURFNET_RPC_URL', 'OMS_OUTPUT_DIR'];
@@ -27,14 +27,14 @@ export function hostEnvironment(extra: NodeJS.ProcessEnv = {}, inherited: NodeJS
 }
 
 /** Host argv for one command: under Seatbelt on macOS, unchanged elsewhere. */
-export const hostArgv = (o: RunInSandboxOptions, root: string, home: string, env: NodeJS.ProcessEnv, argv: string[]): string[] =>
+export const hostArgv = (o: HostRunOptions, root: string, home: string, env: NodeJS.ProcessEnv, argv: string[]): string[] =>
   hostSandbox() === 'seatbelt' ? seatbeltArgv(o, root, home, env, argv) : argv;
 
 /** Empty per-execution HOME; the caller removes it when the command exits. */
 export const createPrivateHome = (): string => mkdtempSync(path.join(tmpdir(), 'oms-home-'));
 
 /** Temporary dependency link lives only under the execution source lease. This is not a read-only mount. */
-export function hostDependencyLink(o: RunInSandboxOptions): () => void {
+export function hostDependencyLink(o: HostRunOptions): () => void {
   const root = realpathSync(o.mounts.projectMount.hostPath);
   const dependency = o.mounts.readOnlyMounts.find(mount => ['/work/node_modules', path.join(root, 'node_modules')].includes(mount.containerPath));
   if (!dependency) return () => {};
@@ -58,7 +58,7 @@ export function hostDependencyLink(o: RunInSandboxOptions): () => void {
 }
 
 /** Source lease, dependency link and private HOME for one host execution; the returned function releases all three. */
-export function acquireHostRun(o: RunInSandboxOptions, root: string): { home: string; cleanup: () => void } {
+export function acquireHostRun(o: HostRunOptions, root: string): { home: string; cleanup: () => void } {
   const release = acquireSourceAccess(root, { sourceControlDir: sourceControlDirectory(o), kind: 'sandbox' });
   let removeDependency: () => void;
   try { removeDependency = hostDependencyLink(o); } catch (error) { release(); throw error; }
@@ -70,7 +70,7 @@ export function acquireHostRun(o: RunInSandboxOptions, root: string): { home: st
 }
 
 /** Seatbelt-confined on macOS; no filesystem or network isolation on Linux. Approval belongs to the tool layer. */
-export async function runOnHost(o: RunInSandboxOptions): Promise<SandboxResult> {
+export async function runOnHost(o: HostRunOptions): Promise<SandboxResult> {
   if (!Number.isInteger(o.timeoutMs) || o.timeoutMs <= 0 || o.timeoutMs > 2_147_483_647) throw new Error('invalid host timeout');
   if (!o.argv.length || o.argv.some(arg => typeof arg !== 'string' || arg.includes('\0'))) throw new Error('invalid host argv');
   const root = realpathSync(o.mounts.projectMount.hostPath);

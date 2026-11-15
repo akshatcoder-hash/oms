@@ -16,37 +16,50 @@ import {
 
 export type SandboxPhase = 'install' | 'run';
 
-export interface RunInSandboxOptions {
-  /** Explicit until engine backend selection is wired. */
-  backend?: 'host' | 'docker';
+/** What every backend takes: the command, its mounts, and how it is bounded and observed. */
+interface RunOptionsBase {
   onSpawn?: (pid: number, cwd: string) => void;
   taskName: string;
   phase: SandboxPhase;
-  /** Container argv. Shell strings may appear only inside container argv. */
+  /** Command argv. Shell strings may appear only inside the argv. */
   argv: string[];
   mounts: MountPlan;
   /** Includes lease/setup and execution; cleanup is bounded separately and always awaited. */
   timeoutMs: number;
-  /** Approved local immutable sha256 image ID or repository@sha256 digest. Never pulled. */
-  image: string;
-  forwarderImage: string;
-  /** Shared, private host directory, outside every sandbox bind; never placed in agent-controlled code. */
-  leaseDir: string;
   /** Same trusted directory used by contract capture for this codeRoot. */
   sourceControlDir?: string;
   signal?: AbortSignal;
   cwd?: string;
   env?: Record<string, string>;
-  /** Host mode: files and trees a command may never write (pinned verifier files, git control). */
-  protectedPaths?: string[];
-  limits?: Limits;
-  installAllowlist?: string[];
-  surfnet?: { port: number; targetHost?: string; targetPort?: number };
   stdoutLimitBytes?: number;
   stderrLimitBytes?: number;
   /** Trusted host stream sink, before the ordinary head-only evidence limits. */
   onOutput?: (chunk: Buffer) => void;
 }
+
+/** A command on the user's machine: Seatbelt-confined on macOS, unconfined elsewhere. Takes no image, lease or egress settings. */
+export interface HostRunOptions extends RunOptionsBase {
+  backend: 'host';
+  /** Files and trees a command may never write (pinned verifier files, git control). */
+  protectedPaths?: string[];
+  /** The one loopback port the command may reach. */
+  surfnet?: { port: number };
+}
+
+/** A command in a container with its own egress network. */
+export interface DockerRunOptions extends RunOptionsBase {
+  backend: 'docker';
+  /** Approved local immutable sha256 image ID or repository@sha256 digest. Never pulled. */
+  image: string;
+  forwarderImage: string;
+  /** Shared, private host directory, outside every sandbox bind; never placed in agent-controlled code. */
+  leaseDir: string;
+  limits?: Limits;
+  installAllowlist?: string[];
+  surfnet?: { port: number; targetHost?: string; targetPort?: number };
+}
+
+export type RunInSandboxOptions = HostRunOptions | DockerRunOptions;
 
 export interface SandboxResult {
   exitCode: number;

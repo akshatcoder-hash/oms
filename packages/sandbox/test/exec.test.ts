@@ -3,20 +3,20 @@ import { mkdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { buildMounts } from '../src/mounts.ts';
-import { runInSandbox, type RunInSandboxOptions } from '../src/exec.ts';
+import { runInSandbox, type DockerRunOptions } from '../src/exec.ts';
 import { SandboxError } from '../src/errors.ts';
 import { makeScratchDir, removeScratchDir } from '../src/docker.ts';
 import { abortable, Daemon, deferred, IMAGE, values } from '../test-support/daemon.ts';
 import { digestCodeInputs, EMPTY_SNAPSHOT_DIGEST } from '@oms/contract';
 
-function fixture(t: TestContext): { options: RunInSandboxOptions; daemon: Daemon } {
+function fixture(t: TestContext): { options: DockerRunOptions; daemon: Daemon } {
   const root = makeScratchDir('oms-sandbox-exec-');
   t.after(() => removeScratchDir(root));
   const project = path.join(root, 'project');
   mkdirSync(project);
   return {
     options: {
-      taskName: 'test-task', phase: 'run', argv: ['true'], timeoutMs: 5000,
+      backend: 'docker', taskName: 'test-task', phase: 'run', argv: ['true'], timeoutMs: 5000,
       image: IMAGE, forwarderImage: IMAGE, leaseDir: path.join(root, 'leases'),
       sourceControlDir: path.join(root, 'source-control'),
       mounts: buildMounts({ taskName: 'test-task', projectRoot: project }),

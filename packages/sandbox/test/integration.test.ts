@@ -23,7 +23,7 @@ import { after, before, test } from 'node:test';
 import { dockerInfoWorks, removeScratchDir, dockerOut } from '../src/docker.ts';
 import { buildMounts } from '../src/mounts.ts';
 import { removeTaskResources, hasLeftovers } from '../src/cleanup.ts';
-import { runInSandbox, type RunInSandboxOptions } from '../src/exec.ts';
+import { runInSandbox, type DockerRunOptions } from '../src/exec.ts';
 import type { AddressInfo } from 'node:net';
 import { digestCodeInputs, EMPTY_SNAPSHOT_DIGEST, saveCodeInputs } from '@oms/contract';
 import { skipUnavailable } from '../test-support/infrastructure.ts';
@@ -124,8 +124,9 @@ function mounts(f: Fixture) {
   });
 }
 
-function run(f: Fixture, over: Partial<RunInSandboxOptions>): Promise<import('../src/exec.ts').SandboxResult> {
+function run(f: Fixture, over: Partial<DockerRunOptions>): Promise<import('../src/exec.ts').SandboxResult> {
   return runInSandbox({
+    backend: 'docker',
     taskName: TASK,
     phase: 'run',
     argv: ['sh', '-c', 'true'],

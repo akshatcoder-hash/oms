@@ -298,7 +298,7 @@ export async function createVerifierBackend(
               const fetchRemaining = buildTimeout - (Date.now() - buildStarted);
               if (fetchRemaining <= 0) throw new Error(exhausted);
               const fetched = await dependencies.runInSandbox({
-                taskName: buildTask, phase: 'install', argv: dependencyFetchArgv(kind), mounts,
+                backend: 'docker', taskName: buildTask, phase: 'install', argv: dependencyFetchArgv(kind), mounts,
                 image: options.image, forwarderImage: options.forwarderImage, leaseDir,
                 sourceControlDir: options.sourceControlDir, signal, timeoutMs: fetchRemaining,
                 cwd: '/work', env: { HOME: '/tmp', TMPDIR: '/tmp', CARGO_HOME: '/work/.oms-cargo' },
@@ -314,23 +314,32 @@ export async function createVerifierBackend(
             }
             const remaining = buildTimeout - (Date.now() - buildStarted);
             if (options.buildProfile && remaining <= 0) throw new Error('verifier build timeout exhausted during dependency fetch');
-            const result = await dependencies.runInSandbox({
-              backend: options.backend,
+            const shared = {
               onSpawn: options.onSpawn,
               taskName: buildTask,
-              phase: 'run',
-              argv: options.backend === 'host' ? argv.map(arg => arg.replaceAll('/work/', codeRoot + '/').replaceAll(TRUSTED_SURFPOOL, binary)) : argv,
-              image: options.image,
-              forwarderImage: options.forwarderImage,
-              leaseDir,
+              phase: 'run' as const,
               sourceControlDir: options.sourceControlDir,
               signal,
               timeoutMs: options.buildProfile ? remaining : runOptions.timeoutMs,
-              ...(options.buildProfile ? { limits: BUILD_LIMITS } : {}),
               surfnet: { port: runOptions.surfnetPort },
-              cwd: options.backend === 'host' ? codeRoot : '/work',
-              env: { ...(options.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: options.backend === 'host' ? output : '/output', SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, ...(options.backend === 'host' ? { SURFPOOL_BINARY: binary } : {}) },
               mounts,
+            };
+            const result = await dependencies.runInSandbox(options.backend === 'host' ? {
+              ...shared,
+              backend: 'host',
+              argv: argv.map(arg => arg.replaceAll('/work/', codeRoot + '/').replaceAll(TRUSTED_SURFPOOL, binary)),
+              cwd: codeRoot,
+              env: { ...(options.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: output, SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl, SURFPOOL_BINARY: binary },
+            } : {
+              ...shared,
+              backend: 'docker',
+              argv,
+              image: options.image,
+              forwarderImage: options.forwarderImage,
+              leaseDir,
+              ...(options.buildProfile ? { limits: BUILD_LIMITS } : {}),
+              cwd: '/work',
+              env: { ...(options.buildProfile ? { CARGO_HOME: '/work/.oms-cargo', CARGO_NET_OFFLINE: 'true' } : {}), OMS_OUTPUT_DIR: '/output', SOLANA_RPC_URL: rpcUrl, SURFNET_RPC_URL: rpcUrl },
             });
             signal.throwIfAborted();
             await assertIntegrity();

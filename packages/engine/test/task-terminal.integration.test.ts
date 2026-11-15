@@ -27,7 +27,7 @@ test('actual owned DockerTTY streams VT, execs in the same source, resizes, acce
   const output = new WeakMap<OwnedTaskTerminal, string>();
   const options: TaskTerminalOptions = {
     run: {
-      taskName, phase: 'run', surfnet: { port: 9 }, argv: ['sh', '-c', String.raw`test -t 0 && test -t 1 || exit 91; trap "printf '\nINTERRUPTED\n'; exit 0" INT; printf "\033[2J\033[HREADY\n"; while IFS= read -r value; do printf "INPUT:%s\n" "$value"; done`],
+      backend: 'docker', taskName, phase: 'run', surfnet: { port: 9 }, argv: ['sh', '-c', String.raw`test -t 0 && test -t 1 || exit 91; trap "printf '\nINTERRUPTED\n'; exit 0" INT; printf "\033[2J\033[HREADY\n"; while IFS= read -r value; do printf "INPUT:%s\n" "$value"; done`],
       image: IMAGE, forwarderImage: FORWARDER, timeoutMs: 90_000, leaseDir: path.join(base, 'leases'), sourceControlDir,
       mounts: buildMounts({ projectRoot: project, taskName, forbidden: { signerDir: signer, stateDir: state } }),
     }, columns: 50, rows: 10,

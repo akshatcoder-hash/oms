@@ -5,7 +5,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSyn
 import net from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import { hostEnvironment, hostSandbox, runInSandbox, seatbeltArgv, seatbeltProfile, type RunInSandboxOptions } from '../src/index.ts';
+import { hostEnvironment, hostSandbox, runInSandbox, seatbeltArgv, seatbeltProfile, type HostRunOptions } from '../src/index.ts';
 import { skipUnavailable } from '../test-support/infrastructure.ts';
 
 const policy = { home: '/Users/dev', root: '/Users/dev/repos/task', writable: ['/private/tmp/oms-home-1'],
@@ -75,8 +75,8 @@ test('seatbelt reads: a PATH entry never opens its parent, and a linked worktree
 const SECRETS = { XAI_API_KEY: 'x', TINYFISH_API_KEY: 't', ANTHROPIC_API_KEY: 'a', OPENAI_API_KEY: 'o', OMS_KNOWLEDGE_TOKEN: 'k',
   AWS_ACCESS_KEY_ID: 'id', AWS_SECRET_ACCESS_KEY: 's', AWS_SESSION_TOKEN: 'st', AWS_PROFILE: 'p', NODE_OPTIONS: '--require=/x' };
 
-function fixture(root: string, argv: string[]): RunInSandboxOptions {
-  return { backend: 'host', taskName: 'seatbelt', phase: 'run', argv, timeoutMs: 10_000, image: '', forwarderImage: '', leaseDir: root,
+function fixture(root: string, argv: string[]): HostRunOptions {
+  return { backend: 'host', taskName: 'seatbelt', phase: 'run', argv, timeoutMs: 10_000,
     mounts: { projectMount: { hostPath: root, containerPath: root, mode: 'rw' }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] } };
 }
 
@@ -101,7 +101,7 @@ test('no credential variable reaches a host child, from the engine env or from t
 // darwin only: each prototype block, proven by a real child under sandbox-exec. scripts/seatbelt-verify.sh runs these.
 const darwin = { skip: hostSandbox() !== 'seatbelt' && 'needs macOS sandbox-exec' };
 
-async function sandboxed(script: string, extra: Partial<RunInSandboxOptions> = {}) {
+async function sandboxed(script: string, extra: Partial<HostRunOptions> = {}) {
   const base = mkdtempSync(path.join(homedir(), '.oms-seatbelt-probe-'));
   const root = path.join(base, 'task');
   mkdirSync(root);

@@ -5,7 +5,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
-import type { RunInSandboxOptions } from './exec.ts';
+import type { HostRunOptions } from './exec.ts';
 
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
@@ -107,7 +107,7 @@ function gitControlDirs(root: string): string[] {
 }
 
 /** Writes this run's profile into the private home and returns argv wrapped in sandbox-exec. */
-export function seatbeltArgv(o: RunInSandboxOptions, root: string, privateHome: string, env: NodeJS.ProcessEnv, argv: string[]): string[] {
+export function seatbeltArgv(o: HostRunOptions, root: string, privateHome: string, env: NodeJS.ProcessEnv, argv: string[]): string[] {
   const home = resolved(homedir());
   const cargoHome = env.CARGO_HOME ?? path.join(home, '.cargo');
   const policy: SeatbeltPolicy = {

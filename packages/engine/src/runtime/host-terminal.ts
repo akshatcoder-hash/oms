@@ -1,10 +1,13 @@
 import { execFile, spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { acquireHostRun, hostArgv, hostEnvironment, type SandboxResult } from '@oms/sandbox';
+import { acquireHostRun, hostArgv, hostEnvironment, type HostRunOptions, type SandboxResult } from '@oms/sandbox';
 import { LatestResizeQueue, TerminalOutput, type OwnedTaskTerminal, type TaskTerminalOptions } from './task-terminal.ts';
 
+/** A terminal on the host: the run options carry no image, lease or egress settings. */
+export type HostTerminalOptions = Omit<TaskTerminalOptions, 'run'> & { run: HostRunOptions };
+
 /** The platform script utility supplies a PTY without an npm/native dependency. */
-export async function createHostTerminal(options: TaskTerminalOptions): Promise<OwnedTaskTerminal> {
+export async function createHostTerminal(options: HostTerminalOptions): Promise<OwnedTaskTerminal> {
   const { home, cleanup } = acquireHostRun(options.run, realpathSync(options.run.mounts.projectMount.hostPath));
   try {
     const terminal = await startHostTerminal(options, home);
@@ -14,7 +17,7 @@ export async function createHostTerminal(options: TaskTerminalOptions): Promise<
   } catch (error) { cleanup(); throw error; }
 }
 
-async function startHostTerminal(options: TaskTerminalOptions, home: string): Promise<OwnedTaskTerminal> {
+async function startHostTerminal(options: HostTerminalOptions, home: string): Promise<OwnedTaskTerminal> {
   options.run.signal?.throwIfAborted();
   const env = hostEnvironment({ HOME: home, ...options.run.env, TERM: 'xterm-256color' });
   // BSD script(1) refuses a socket on stdin (tcgetattr fails), and Node gives children socket pairs on macOS, so a cat pipe
