@@ -14,13 +14,17 @@ concurrency:
 
 jobs:
   test:
-    name: Typecheck and test (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Typecheck and test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        node: ['22.19.0', '24']
+        os: [ubuntu-latest, macos-latest]
+        node: ['24']
+        include:
+          - os: ubuntu-latest
+            node: '22.19.0'
     steps:
       - uses: actions/checkout@v4
 
