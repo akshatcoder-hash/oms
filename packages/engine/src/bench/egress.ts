@@ -15,15 +15,6 @@ export interface EgressOptions {
   logFile: string;
 }
 
-/** Vendor hosts the subscription CLIs talk to. Only these are reachable from their containers. */
-export const SUBSCRIPTION_HOSTS = [
-  'chatgpt.com', 'auth.openai.com', 'api.openai.com',
-  'api.x.ai', 'auth.x.ai', 'accounts.x.ai', 'grok.com', '*.grok.com',
-] as const;
-
-/** Claude Code on the owner subscription (owner 2026-11-09 17:26Z), with nonessential traffic off; the Opus experiment's tunnel allows only these. */
-export const CLAUDE_CODE_HOSTS = ['api.anthropic.com'] as const;
-
 const PRIVATE = new BlockList();
 for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
   ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3]] as const) PRIVATE.addSubnet(net, bits, 'ipv4');

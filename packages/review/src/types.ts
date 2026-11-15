@@ -38,7 +38,6 @@ export type ModelFinding = Static<typeof ModelFindingSchema>;
 export const CoverageSchema = Type.Object({
   class: VulnClassSchema, verdict: enumeration(['found', 'clear', 'n/a', 'unreviewed'] as const), evidence: text,
 }, strict);
-export type Coverage = Static<typeof CoverageSchema>;
 
 // Phase A cannot accept or manufacture confirmed findings. Phase B must extend
 // this union with oracle-issued evidence, not relax the label to an arbitrary string.

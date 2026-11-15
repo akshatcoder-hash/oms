@@ -24,7 +24,6 @@ export type OnlineLabel = 'web + Solana MCP';
 const ONLINE: Record<string, OnlineLabel> = {
   'codex-web:gpt-sol': 'web + Solana MCP', 'oms3-web:gpt-sol': 'web + Solana MCP', 'claude-code-web:opus-sub': 'web + Solana MCP',
 };
-export const ONLINE_CONTENDERS = Object.keys(ONLINE);
 
 /** `oms3-web:gpt-sol` -> harness `oms3`, model key `gpt-sol`, online label. Anything else is not a cell. */
 export function parseContender(id: string): { harness: Harness; modelKey: string; online: OnlineLabel } | null {

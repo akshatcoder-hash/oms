@@ -67,24 +67,6 @@ export interface EvaluatorOptions extends TaskRoots {
   maxReopen?: number;
 }
 
-export type EvaluateReason =
-  | 'verified'
-  | 'pin-mismatch'
-  | 'evaluator-config-invalid'
-  | 'contract-invalid'
-  | 'unknown-item'
-  | 'blocked'
-  | 'not-proposed'
-  | 'code-unreadable'
-  | 'inputs-changed'
-  | 'evidence-invalid'
-  | 'evidence-not-bound'
-  | 'forked-evidence'
-  | 'failed'
-  | 'reopen-cap'
-  | 'runner-error'
-  | 'write-refused';
-
 export type EvaluateResult =
   | {
       closed: true;

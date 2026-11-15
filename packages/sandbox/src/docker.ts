@@ -9,10 +9,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { SandboxError } from './errors.ts';
 
-export function dockerLabel(taskName: string): Record<string, string> {
-  return { 'oms.component': 'sandbox', 'oms.task': taskName };
-}
-
 export async function dockerOut(args: string[], timeoutMs = 30_000, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('docker', args, {

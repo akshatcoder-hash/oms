@@ -10,7 +10,7 @@
  * the root or throws a `PathError`.
  */
 
-import { mkdirSync, realpathSync, statSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, posix, resolve, sep } from 'node:path';
 
 export type PathCode =
@@ -179,13 +179,6 @@ export function assertOutsideRoot(root: string, target: string): void {
   if (isInside(rootReal, lexical) || isInside(rootReal, real)) {
     throw new PathError('E_PATH_INSIDE_ROOT', 'this path must live outside the project root', target);
   }
-}
-
-/** Best-effort parent directory creation with owner-only permissions. */
-export function ensureParentDirectory(filePath: string): string {
-  const parent = dirname(resolve(filePath));
-  mkdirSync(parent, { recursive: true, mode: 0o700 });
-  return parent;
 }
 
 /** Trusted host configuration, never values accepted from model tool arguments. */

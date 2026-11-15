@@ -15,39 +15,6 @@ import type {
   TaskContract,
 } from './types.ts';
 
-export type SchemaCode =
-  | 'E_NOT_OBJECT'
-  | 'E_UNKNOWN_FIELD'
-  | 'E_MISSING_FIELD'
-  | 'E_BAD_TYPE'
-  | 'E_BAD_VERSION'
-  | 'E_BAD_STRING'
-  | 'E_BAD_ITEM_ID'
-  | 'E_DUPLICATE_ID'
-  | 'E_BAD_STATUS'
-  | 'E_MULTIPLE_ACTIVE'
-  | 'E_BAD_REOPEN_COUNT'
-  | 'E_EMPTY_DONE'
-  | 'E_BAD_KIND'
-  | 'E_BAD_COMMAND'
-  | 'E_BAD_EXPECT'
-  | 'E_BAD_ADDRESS'
-  | 'E_BAD_FIELD'
-  | 'E_BAD_EQUALS'
-  | 'E_BAD_DESCRIPTION'
-  | 'E_CLOSED_WITHOUT_EVIDENCE'
-  | 'E_EVIDENCE_ON_ITEM_NOT_CLOSED'
-  | 'E_CLOSED_WITH_FAILED_EVIDENCE'
-  | 'E_EVIDENCE_ITEM_MISMATCH'
-  | 'E_INVALID_JSON'
-  | 'E_BAD_SCHEMA_TAG'
-  | 'E_BAD_DIGEST'
-  | 'E_BAD_PATH'
-  | 'E_BAD_TIMEOUT'
-  | 'E_BAD_CODE_PATHS'
-  | 'E_DUPLICATE_CODE_PATH'
-  | 'E_EMPTY_CODE_PATHS';
-
 const CONTRACT_KEYS = new Set(['version', 'template', 'items']);
 const ITEM_KEYS = new Set(['id', 'title', 'done', 'status', 'reopenCount', 'evidence']);
 const TESTS_KEYS = new Set(['kind', 'command', 'expect']);

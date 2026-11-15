@@ -15,9 +15,6 @@ export interface ValidationIssue {
 
 export type Result<T> = { ok: true; value: T } | { ok: false; issues: ValidationIssue[] };
 
-/** Alias kept for readability at call sites that validate external input. */
-export type ValidationResult<T> = Result<T>;
-
 export function okResult<T>(value: T): Result<T> {
   return { ok: true, value };
 }

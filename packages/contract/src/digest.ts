@@ -12,7 +12,6 @@ import { createHash } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { readCheckedFile } from './source-files.ts';
 import { withSourceAccess, type SourceAccessOptions } from './source-access.ts';
-import { dirname } from 'node:path';
 import {
   PathError,
   isPathError,
@@ -105,10 +104,6 @@ export function canonicalJson(value: unknown): string {
 
 export function digestJson(value: unknown): string {
   return sha256Hex(canonicalJson(value));
-}
-
-export function digestFile(absolutePath: string, options: SourceAccessOptions = {}): string {
-  return withSourceAccess(dirname(absolutePath), () => sha256Hex(readCheckedFile(absolutePath, lstatSync(absolutePath), 256 * 1024 * 1024)), options);
 }
 
 /**
