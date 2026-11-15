@@ -43,12 +43,11 @@ function copySource(path) {
   writeFileSync(compiled, result.outputText);
   compiledFiles.push(compiled);
 }
-// The Solana Bench harness (packages/engine/src/bench, packages/cli/src/bench-*.ts) is source-checkout only and never ships.
 function copyTree(path) {
   for (const entry of readdirSync(join(root, path), { withFileTypes: true })) {
     const child = join(path, entry.name);
-    if (entry.isDirectory()) { if (child.replaceAll('\\', '/') !== 'packages/engine/src/bench') copyTree(child); }
-    else if (entry.isFile() && !entry.name.endsWith('.d.ts') && !/^packages\/cli\/src\/bench-/.test(child.replaceAll('\\', '/'))) copySource(child);
+    if (entry.isDirectory()) copyTree(child);
+    else if (entry.isFile() && !entry.name.endsWith('.d.ts')) copySource(child);
   }
 }
 for (const name of names) copyTree(`packages/${name}/src`);
