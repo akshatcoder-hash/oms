@@ -7,8 +7,8 @@
  * Rules enforced here:
  *  - the project root is mounted rw at the container root;
  *  - verifier/contract paths (readOnlyPaths) are re-mounted :ro on top of the
- *    project mount so a model cannot edit what the evaluator trusts (C1);
- *  - heavy dirs become named volumes (macOS bind-mount performance, C2);
+ *    project mount so a model cannot edit what the evaluator trusts;
+ *  - heavy dirs become named volumes (macOS bind-mount performance);
  *  - forbidden paths (signer dir, token/state dir, ~/.ssh, ~/.aws,
  *    ~/.config/solana, home, /, docker.sock) can never be mounted, directly,
  *    via a parent, via a child, or via a symlink that escapes the project;

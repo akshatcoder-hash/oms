@@ -1,5 +1,5 @@
 /**
- * Tool-call guards for the generator agent (SPEC.md sections 3 and 7, eng-review C1).
+ * Tool-call guards for the generator agent.
  *
  * Three rules, all fail-closed:
  *
@@ -8,13 +8,13 @@
  *    directory, Solana CLI config, `~/.ssh`, oms state) is refused. Every path is
  *    resolved through `realpath` on its deepest existing ancestor first, so a symlink,
  *    a `..` segment or a `~` prefix cannot walk around the rule.
- * 2. Repetition guard (L6). The same tool with the same canonical input N times inside
+ * 2. Repetition guard. The same tool with the same canonical input N times inside
  *    a sliding window is blocked, so a stuck loop costs one call instead of a turn.
  * 3. Diff-size guard. One call may not carry more than `maxEditBytes` of new text.
  *
  * For `bash`/`powershell` the path rule is a text scan and is best effort by
  * construction: a command can build a path at runtime (`p=~/.ss; cat ${p}h/id`). The
- * Docker sandbox in SPEC.md section 2 is the real control. This hook only keeps the
+ * sandbox is the real control. This hook only keeps the
  * obvious forms from reaching a shell at all.
  *
  * Path containment and symlink-safe resolution (`isInside`, `realpathAllowingMissing`) come from `@oms/contract`,

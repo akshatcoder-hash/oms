@@ -268,7 +268,7 @@ async function main(argv: string[]): Promise<number> {
   if (!cells.length || cells.some(cell => !(cell in CELLS))) throw new Error(`--cell must be one of ${Object.keys(CELLS).join(', ')}`);
   if (variant !== 'basic' && variant !== 'swap') throw new Error('--variant basic|swap');
   if (!values['out-root'] || !values.runs) throw new Error('--out-root and --runs are required');
-  // A series name keeps each build's runs in their own directories (main, dev, cap3, f2, sf, ...).
+  // A series name keeps each build's runs in their own directories (main, dev, ...).
   if (!/^[a-z][a-z0-9]{0,11}$/.test(prefix)) throw new Error('--prefix must be a short lowercase series name');
   // Development series (names starting with dev) tune on a short budget; every other series is scored on the full one.
   if (!prefix.startsWith('dev') ? maxSubmissions !== MAX_SUBMISSIONS : maxSubmissions > 10) throw new Error('scored runs use 50 submissions; dev* runs at most 10');

@@ -18,7 +18,7 @@ from PIL import Image
 WIDTH = 640  # 3 sub-pixels per cell: full detail up to 213 columns
 # The JPEGs at 1200 px, quality 75 look as clean as 1024 px at 85, and the folder stays under its 2.5 MB budget.
 IMAGE_WIDTH, IMAGE_QUALITY = 1200, 75
-# The manifest drops the dash and the place-name capitals; these are the owner's titles.
+# The manifest drops the dash and the place-name capitals; these are the intended titles.
 TITLES = {59: "After the monsoon — Chiang Mai", 62: "A city in the sunlight — Victorian"}
 OUT = Path(__file__).resolve().parents[2] / "packages" / "cli" / "art"
 

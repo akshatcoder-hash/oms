@@ -113,7 +113,7 @@ test('the colour tier comes from the environment, and the setting overrides it',
     [{ TERM: 'xterm-kitty' }, 'truecolor'],
     [{ TERM: 'xterm-ghostty' }, 'truecolor'],
     [{ TERM: 'wezterm' }, 'truecolor'],
-    // SSH forwards TERM but not COLORTERM (the owner's Warp over SSH): 256color alone means truecolor.
+    // SSH forwards TERM but not COLORTERM (Warp over SSH): 256color alone means truecolor.
     [{ TERM: 'xterm-256color' }, 'truecolor'],
     [{ TERM: 'xterm-256color', SSH_TTY: '/dev/pts/3' }, 'truecolor'],
     [{ TERM_PROGRAM: 'WarpTerminal', TERM: 'xterm-256color' }, 'truecolor'],

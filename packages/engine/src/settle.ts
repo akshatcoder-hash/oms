@@ -1,6 +1,5 @@
 /**
- * The settle gate as a Pi extension (SPEC 3 verification row; eng-review
- * finding 5).
+ * The settle gate as a Pi extension.
  *
  * `agent_before_settle` fires when the model stops. With no pending proposal
  * the model is just chatting and the gate stays out of the way. With a pending

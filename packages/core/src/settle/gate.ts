@@ -2,8 +2,7 @@
  * `agent_before_settle` gate.
  *
  * Pi can request one more model request when the agent tries to finish, so without
- * a gate a failing verifier turns into an infinite loop (docs/eng-review.md finding
- * 5). This function is the decision half: pure, deterministic, and fail-closed.
+ * a gate a failing verifier turns into an infinite loop. This function is the decision half: pure, deterministic, and fail-closed.
  *
  * The retry cap shares the `/goal` budget: `attempts < maxAttempts` is necessary but
  * not sufficient - the budget snapshot must also have room left.

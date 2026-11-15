@@ -1,6 +1,5 @@
 /**
- * One-writer queue for state-changing surfnet calls (eng-review finding 3:
- * a single writer per surfnet). Writes run strictly FIFO; reads never queue
+ * One-writer queue for state-changing surfnet calls (a single writer per surfnet). Writes run strictly FIFO; reads never queue
  * and may interleave with writes.
  */
 export interface StateQueue {

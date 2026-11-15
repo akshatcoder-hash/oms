@@ -1,4 +1,4 @@
-/** The night-2 section "Solana Bench, harness version (our environment)", rendered from the run results. */
+/** The section "Solana Bench, harness version (our environment)", rendered from the run results. */
 import { meanPermutation, signTest } from './stats.ts';
 import { withoutPrecompiles, type Score } from './score.ts';
 

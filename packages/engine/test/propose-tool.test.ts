@@ -188,7 +188,7 @@ test('a tampered contract surfaces the store pin error code, unwritten', async (
     ],
   });
   try {
-    // The generator edits the contract behind the pin's back (eng-review C1).
+    // The generator edits the contract behind the pin's back.
     writeFileSync(project.contractPath, '{"version":0,"items":[]}');
     const tampered = project.readContractText();
     await h.session.prompt('done');

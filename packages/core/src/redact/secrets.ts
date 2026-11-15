@@ -1,8 +1,7 @@
 /**
  * Secret scanning and redaction.
  *
- * Engine-side half of the "0 key bytes in context or traces" acceptance test
- * (SPEC section 9): the signer scans its own outputs, this scans everything the
+ * Engine-side half of the "0 key bytes in context or traces" acceptance test: the signer scans its own outputs, this scans everything the
  * engine emits, and it is also the trace redactor.
  *
  * Forms checked for a given byte string: hex (lower and upper), base58, base64
