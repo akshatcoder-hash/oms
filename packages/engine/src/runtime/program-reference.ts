@@ -55,11 +55,38 @@ export function programReferenceIndex(data: ProgramReferenceData = programRefere
     `${program.count ? ` (${program.count.lead})` : ""}${program.factsOnly ? ` ${NAMES_ONLY}` : ""}${program.standalone ? " (standalone)" : ""}${program.clients?.length ? ` | client: ${program.clients.join(" | ")}` : ""}`;
   const section = (title: string, category: ReferenceProgram["category"]) =>
     `${title}\n${data.programs.filter(program => program.category === category).map(line).join("\n")}`;
-  return `Solana program reference (built in, offline; generated from pinned public interfaces). Use it instead of recalling program ids, instruction tags or account lists from memory, and instead of searching for them. ` +
-    `Call ${PROGRAM_REFERENCE_TOOL}({program, instruction?}) for the discriminator bytes, accounts in order with signer/writable flags, and argument types of any listed program or instruction (instruction "*" returns all of a program's instructions in one call); names may be partial and any case. ` +
-    `Line format: name program-id [instruction tag] instruction names | client: the program's official npm TypeScript client. Tags: u8 = 1-byte instruction tag, u32 = 4-byte little-endian instruction index, a8 = 8-byte Anchor discriminator, count = no tag, the leading field is a count that varies and each value is a distinct prefix, - = no tag. "+N more" means the tool lists N further instructions. ${NAMES_ONLY} = no argument types or account flags recorded: take arguments from the installed client or its bundled IDL. (standalone) = the whole lifecycle runs on accounts your wallet creates; other applications need existing deployment state. ` +
-    `Signature precompiles (Ed25519, Secp256k1, Secp256r1) verify several signatures per instruction, although common SDK helpers emit one: byte 0 is the count, and offset records may point at the same signature, key and message bytes, in this or another instruction of the transaction, so one buffer serves many records (repeated records re-verify; they do not prove distinct signers). Records are 14 bytes after a 2-byte header (Ed25519, Secp256r1) or 11 bytes after a 1-byte header (Secp256k1); Secp256r1 allows 1 to 8 per instruction.\n` +
-    `${section("Native and SPL programs:", "native")}\n${section("Applications (most used on Solana by DefiLlama volume and TVL, plus oracle, multisig and NFT standards):", "application")}`;
+  const words = (...parts: string[]) => parts.join(" ");
+  // Model-facing text: its bytes are pinned by test/prompt-lock.test.ts.
+  const preamble = words(
+    words(
+      "Solana program reference (built in, offline; generated from pinned public interfaces).",
+      "Use it instead of recalling program ids, instruction tags or account lists from memory, and instead of searching for them.",
+    ),
+    words(
+      `Call ${PROGRAM_REFERENCE_TOOL}({program, instruction?}) for the discriminator bytes, accounts in order with signer/writable flags, and argument`,
+      "types of any listed program or instruction (instruction \"*\" returns all of a program's instructions in one call);",
+      "names may be partial and any case.",
+    ),
+    words(
+      "Line format: name program-id [instruction tag] instruction names | client:",
+      "the program's official npm TypeScript client.",
+      "Tags: u8 = 1-byte instruction tag, u32 = 4-byte little-endian instruction index, a8 = 8-byte Anchor discriminator, count = no",
+      "tag, the leading field is a count that varies and each value is a distinct prefix, - = no tag. \"+N more\" means the tool lists N",
+      `further instructions. ${NAMES_ONLY} = no argument types or account flags recorded:`,
+      "take arguments from the installed client or its bundled IDL.",
+      "(standalone) = the whole lifecycle runs on accounts your wallet creates;",
+      "other applications need existing deployment state.",
+    ),
+    words(
+      "Signature precompiles (Ed25519, Secp256k1, Secp256r1) verify several signatures per instruction, although common SDK helpers",
+      "emit one: byte 0 is the count, and offset records may point at the same signature, key and message bytes, in this or another",
+      "instruction of the transaction, so one buffer serves many records (repeated records re-verify;",
+      "they do not prove distinct signers).",
+      "Records are 14 bytes after a 2-byte header (Ed25519, Secp256r1) or 11 bytes after a 1-byte header (Secp256k1);",
+      "Secp256r1 allows 1 to 8 per instruction.",
+    ),
+  );
+  return `${preamble}\n${section("Native and SPL programs:", "native")}\n${section("Applications (most used on Solana by DefiLlama volume and TVL, plus oracle, multisig and NFT standards):", "application")}`;
 }
 
 /** Official program client packages from the reference that are installed in the workspace, as "name version", for the initial toolchain report. */

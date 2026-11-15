@@ -112,7 +112,8 @@ export const KNOWLEDGE_PRIMER_LIMIT = 6_000;
 /** Ceiling on the bytes of the topic cards inside that block. */
 export const TOPIC_CARDS_LIMIT = 3_000;
 const MANIFEST_LIMIT = 200_000;
-export const KNOWLEDGE_RULE = "For a Solana API you have not seen in this session, check the installed package's types or source first (they match the versions in use). Call search_docs when they are missing or conflict, or when the question is a protocol rule, a changed network parameter, an error code or a version difference; version-sensitive facts come from the docs, never from memory. Prefer the newest doc.";
+export { KNOWLEDGE_RULE } from "./system-prompt.ts";
+import { KNOWLEDGE_RULE } from "./system-prompt.ts";
 export const TOPICS_RULE = "For a Solana API you have not seen in this session, check the installed package's types or source first (they match the versions in use). Call search_docs(topic=...) with the topic below (detect_topics and get_topic find and read other topics) when they are missing or conflict, or when the question is a protocol rule, a changed network parameter, an error code or a version difference; version-sensitive facts come from the docs, never from memory. Prefer the newest doc.";
 export const API_LOOKUP_RULE = "To call a Solana API you have not used in this session, read its name and signature from the installed package's types first; use api_lookup when they are missing or conflict, or when the signature changed between versions.";
 /** Which first-turn block ran: topic cards plus topic-scoped hits, or the search-only fallback for a Worker without detect_topics. */
