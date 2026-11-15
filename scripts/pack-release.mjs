@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import ts from 'typescript';
@@ -79,6 +79,27 @@ execFileSync('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], 
 // npm omits package-lock.json from archives; the verifier reads the lock from the install root.
 cpSync(join(stage, 'package-lock.json'), join(stage, 'npm-shrinkwrap.json'));
 pruneSourceMaps(join(stage, 'node_modules'));
+stripBundledScripts(join(stage, 'node_modules'));
+// npm runs a bundled dependency's install hooks when the package is installed, so none may carry a scripts section.
+function stripBundledScripts(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = join(directory, entry.name);
+    if (entry.name.startsWith('@')) { stripBundledScripts(path); continue; }
+    const manifestPath = join(path, 'package.json');
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      // A binding.gyp makes npm infer `node-gyp rebuild` as an install step unless gypfile is false.
+      const changed = manifest.scripts !== undefined || manifest.gypfile !== undefined;
+      delete manifest.scripts;
+      if (existsSync(join(path, 'binding.gyp'))) manifest.gypfile = false;
+      else delete manifest.gypfile;
+      if (changed || existsSync(join(path, 'binding.gyp'))) writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    }
+    const nested = join(path, 'node_modules');
+    if (existsSync(nested)) stripBundledScripts(nested);
+  }
+}
 rmSync(join(stage, 'node_modules/@earendil-works/pi-coding-agent/docs/images'), { recursive: true, force: true });
 function pruneSourceMaps(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -87,6 +108,8 @@ function pruneSourceMaps(directory) {
     else if (entry.isFile() && entry.name.endsWith('.map')) rmSync(path);
   }
 }
+// npm only keeps the executable bit on the bin file when the staged copy already has it.
+chmodSync(join(stage, 'packages/cli/src/bin.js'), 0o755);
 const [packed] = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', output], { cwd: stage, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }));
 if (packed.size > 25_000_000) throw new Error(`Archive exceeds 25 MB: ${packed.size} bytes`);
 console.log(`${join(output, packed.filename)}\n${packed.size} bytes compressed; ${packed.unpackedSize} bytes unpacked`);
