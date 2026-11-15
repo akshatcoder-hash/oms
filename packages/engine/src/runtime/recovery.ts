@@ -1,7 +1,7 @@
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, rmdirSync, unlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { recoverTaskExecutionResources, SandboxError } from '@oms/sandbox';
@@ -10,7 +10,12 @@ import { assertPrivate, contains, isMissing, privateDirectory, readPrivateJson, 
 import type { Task, Workspace } from '../workspace/index.ts';
 import { taskContext, type TaskContext } from './task-context.ts';
 
-function capturedRoot(cwd: string): boolean { return dirname(cwd) === tmpdir() && basename(cwd).startsWith('oms-proof-'); }
+/** Proof snapshots are created under the real temp directory; on macOS tmpdir() is a symlinked path (/var -> /private/var). */
+function temporaryRoots(): string[] {
+  const root = tmpdir();
+  try { return [...new Set([root, realpathSync(root)])]; } catch { return [root]; }
+}
+function capturedRoot(cwd: string): boolean { return basename(cwd).startsWith('oms-proof-') && temporaryRoots().includes(dirname(cwd)); }
 
 function sameIdentity(left: unknown, right: LeaseOwner): boolean {
   if (!left || typeof left !== 'object') return false;
