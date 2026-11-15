@@ -8,10 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { address, getAddressEncoder, getBase58Decoder, getProgramDerivedAddress } from '@solana/kit';
-import { buildMounts, buildRunArgs } from '../../sandbox/src/index.ts';
+import { buildMounts, buildRunArgs } from '@oms/sandbox';
 import { skipUnavailable, skipUnavailableToolchain } from '../../sandbox/test-support/infrastructure.ts';
 import { configuredToolchainImage } from '../../engine/src/runtime/environment.ts';
-import { createVerifierBackend } from '../../engine/src/runtime/verifier-backend.ts';
+import { createVerifierBackend } from '@oms/engine';
 import { createSurfnet } from '../src/manager.ts';
 import { exportSnapshot } from '../test-support/snapshot.ts';
 

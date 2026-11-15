@@ -7,7 +7,7 @@ import { getTheme } from '../src/tui/theme.ts';
 import { barrier } from '../test-support/interface-terminal.ts';
 import type { SandboxResult } from '@oms/sandbox';
 
-import { TerminalStoppedError } from '../../engine/src/runtime/task-terminal.ts';
+import { TerminalStoppedError } from '@oms/engine';
 test('terminal stop blocks input before asynchronous cleanup finishes', async () => {
   const exit = barrier<SandboxResult>();
   let closing = false;

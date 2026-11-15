@@ -1,5 +1,5 @@
 import { readWorktreeText, type HarnessSession } from '@oms/engine';
-import { REVIEW_DISCLAIMER } from '../../../review/src/disclaimer.ts';
+import { REVIEW_DISCLAIMER } from '@oms/review';
 import { previewBytes, refuse, refuseWith, REPORT_BYTES, type Prepared } from './prepared.ts';
 import { singleLine } from './transcript.ts';
 import type { ReviewPresentation } from '../review.ts';

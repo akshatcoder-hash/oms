@@ -57,7 +57,7 @@ for (const scenario of ['closed', 'blocked', 'usd', 'wall', 'unknown', 'owned'] 
       const exitCode = await runHarnessCommand('run', args, { modelRuntime: f.modelRuntime, clock: () => now });
       assert.equal(exitCode, ['usd', 'wall'].includes(scenario) ? 2 : scenario === 'closed' ? 0 : 1);
       const raw = JSON.parse(readFileSync(jsonOut, 'utf8'));
-      const { parseRunRecord, RunRecordSchema } = await import('../../engine/src/runtime/run-record.ts');
+      const { parseRunRecord, RunRecordSchema } = await import('@oms/engine');
       const record = parseRunRecord(raw);
       assert.ok(RunRecordSchema);
       assert.equal(record.taskId, f.task.id);
