@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -75,6 +75,11 @@ test("copied identity cannot attach external state and moving a repository needs
   const a = openWorkspace(f.root, { stateRoot: f.stateRoot, initialize: { ignore: "exclude" } });
   const copy = join(f.base, "copy");
   cpSync(f.root, copy, { recursive: true });
+  // cpSync creates directories with the default mode, so restore the private mode the copy would have after `cp -Rp`.
+  chmodSync(join(copy, ".oms"), 0o700);
+  for (const entry of readdirSync(join(copy, ".oms"), { recursive: true, withFileTypes: true })) {
+    if (entry.isDirectory()) chmodSync(join(entry.parentPath, entry.name), 0o700);
+  }
   assert.throws(() => openWorkspace(copy, { stateRoot: f.stateRoot }), errorCode("IDENTITY_DECISION_REQUIRED"));
   assert.throws(() => openWorkspace(copy, { stateRoot: f.stateRoot, identityDecision: "relink" }), errorCode("IDENTITY_IN_USE"));
   const b = openWorkspace(copy, { stateRoot: f.stateRoot, identityDecision: "new" });
