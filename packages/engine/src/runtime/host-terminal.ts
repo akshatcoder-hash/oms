@@ -56,13 +56,16 @@ async function startHostTerminal(options: HostTerminalOptions, home: string): Pr
     timedOut = false,
     cancelled = false;
   let failure: unknown;
-  const kill = () => {
+  // After the shell exits, this sweeps what is left of its process group. macOS answers EPERM instead of
+  // ESRCH when only zombies remain, so on that sweep EPERM also means the group is gone.
+  const kill = (afterExit = false) => {
     closing = true;
     if (child.pid)
       try {
         process.kill(-child.pid, 'SIGKILL');
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') failure ??= error;
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ESRCH' && !(afterExit && code === 'EPERM')) failure ??= error;
       }
   };
   if (child.pid)
@@ -149,7 +152,7 @@ async function startHostTerminal(options: HostTerminalOptions, home: string): Pr
     child.once('error', (error) => {
       failure = error;
     });
-    child.once('exit', kill);
+    child.once('exit', () => kill(true));
     child.once('close', async (code) => {
       clearTimeout(timer);
       options.run.signal?.removeEventListener('abort', cancel);
