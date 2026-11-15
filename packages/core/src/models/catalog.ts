@@ -38,12 +38,9 @@ export interface WorkerSpec {
   readonly maxOutputTokens: number;
   readonly cost: WorkerCost;
   readonly cachePolicy: CachePolicy;
-  readonly credentialClass: 'payg' | 'token-plan';
-  readonly lifecycle: 'active';
   readonly sourceUrl: string;
   readonly pricingSourceUrl: string;
   readonly windowSource: string;
-  readonly verifiedAt: '2026-11-01';
 }
 
 function freeze<T extends object>(value: T): T {
@@ -61,8 +58,8 @@ const MIMO_PRICING = 'https://mimo.mi.com/static/docs/price/pay-as-you-go.md';
 const OPENCODE_MODELS = 'https://opencode.ai/v2/docs/console/models/';
 const OPENCODE_WINDOWS = '@earendil-works/pi-ai@1.4.0/providers/data/opencode.json';
 
-function spec(value: Omit<WorkerSpec, 'credentialClass' | 'lifecycle' | 'verifiedAt'>): WorkerSpec {
-  return freeze({ ...value, credentialClass: 'payg', lifecycle: 'active', verifiedAt: '2026-11-01' });
+function spec(value: WorkerSpec): WorkerSpec {
+  return freeze({ ...value });
 }
 function openai(key: 'sol' | 'astra' | 'terra', modelId: string, rates: TokenRates): WorkerSpec {
   const sourceUrl = `https://developers.openai.com/api/docs/models/${modelId}`;
@@ -126,27 +123,18 @@ export const MODEL_CATALOG: Readonly<Record<WorkerKey, WorkerSpec>> = freeze({
 
 interface MimoBinding {
   readonly baseUrl: string;
-  readonly credentialClass: 'payg' | 'token-plan';
-  readonly admissionDisclosure: string;
-  readonly sourceUrl: string;
 }
-const tokenPlanDisclosure = 'Local Token Plan uses PAYG-equivalent admission estimates, not subscription billing. Regional entitlement is required; no automatic PAYG spillover.';
-const tokenPlanSource = 'https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/subscription.md';
 export const MIMO_BINDINGS: Readonly<Record<MimoProvider, MimoBinding>> = freeze({
-  xiaomi: { baseUrl: 'https://api.xiaomimimo.com/v1', credentialClass: 'payg',
-    admissionDisclosure: 'PAYG-equivalent admission uses published overseas API token prices; actual invoices may differ.', sourceUrl: MIMO_PRICING },
-  'xiaomi-token-plan-cn': { baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1', credentialClass: 'token-plan',
-    admissionDisclosure: tokenPlanDisclosure, sourceUrl: tokenPlanSource },
-  'xiaomi-token-plan-sgp': { baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1', credentialClass: 'token-plan',
-    admissionDisclosure: tokenPlanDisclosure, sourceUrl: tokenPlanSource },
-  'xiaomi-token-plan-ams': { baseUrl: 'https://token-plan-ams.xiaomimimo.com/v1', credentialClass: 'token-plan',
-    admissionDisclosure: tokenPlanDisclosure, sourceUrl: tokenPlanSource },
+  xiaomi: { baseUrl: 'https://api.xiaomimimo.com/v1' },
+  'xiaomi-token-plan-cn': { baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1' },
+  'xiaomi-token-plan-sgp': { baseUrl: 'https://token-plan-sgp.xiaomimimo.com/v1' },
+  'xiaomi-token-plan-ams': { baseUrl: 'https://token-plan-ams.xiaomimimo.com/v1' },
 });
 
-/** Managed callers explicitly select xiaomi; local callers supply their persisted choice. */
+/** The caller supplies the MiMo provider explicitly: PAYG or a regional Token Plan. */
 export function resolveMimoWorker(key: 'mimo-pro' | 'mimo-flash', provider: MimoProvider | null): WorkerSpec {
   if (provider === null || !Object.hasOwn(MIMO_BINDINGS, provider)) throw new Error('MiMo configuration required: explicitly select PAYG or a regional Token Plan provider');
   if (provider === 'xiaomi') return MODEL_CATALOG[key];
   const binding = MIMO_BINDINGS[provider];
-  return freeze({ ...MODEL_CATALOG[key], provider, baseUrl: binding.baseUrl, credentialClass: binding.credentialClass });
+  return freeze({ ...MODEL_CATALOG[key], provider, baseUrl: binding.baseUrl });
 }

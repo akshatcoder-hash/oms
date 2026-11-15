@@ -369,7 +369,7 @@ test('external journal mutation is a durable admission failure rather than overw
 test('cache support stays unknown and tiered prices use normalized disjoint token categories', () => {
   const selected = { ...model, cost: { ...model.cost,
     tiers: [{ inputTokensAbove: 10, input: 4, output: 8, cacheRead: 2, cacheWrite: 6 }] } };
-  assert.deepEqual(normalizePiUsage(selected, message().usage), { tokens: 20, spendMicroUsd: 100, cacheHitRatio: null });
+  assert.deepEqual(normalizePiUsage(selected, message().usage), { tokens: 20, spendMicroUsd: 100 });
 });
 
 test('already cancelled calls never acquire a reservation or contact the provider', async () => {

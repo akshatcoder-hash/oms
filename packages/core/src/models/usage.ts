@@ -35,7 +35,7 @@ function curatedSpec(model: Model<Api>): WorkerSpec | undefined {
  * inferred from zero normalized cache fields, so no measured cache-hit ratio is asserted here.
  */
 export function normalizePiUsage(model: Model<Api>, usage: Usage): {
-  tokens: number; spendMicroUsd: number; cacheHitRatio: null;
+  tokens: number; spendMicroUsd: number;
 } | null {
   if (!pricingKnown(model) || !usage || !costFields.every((field) => count(usage[field]))) return null;
   const inputTokens = usage.input + usage.cacheRead + usage.cacheWrite;
@@ -64,7 +64,7 @@ export function normalizePiUsage(model: Model<Api>, usage: Usage): {
   const reported = usage.cost?.total;
   if (typeof reported !== 'number' || !Number.isFinite(reported) || reported < 0) return null;
   const spendMicroUsd = Math.ceil(Math.max(calculated, reported * 1_000_000));
-  return count(spendMicroUsd) ? { tokens, spendMicroUsd, cacheHitRatio: null } : null;
+  return count(spendMicroUsd) ? { tokens, spendMicroUsd } : null;
 }
 
 /** The output cap a request to this model carries: the session cap lowered to the model's own maximum, never raised. */
@@ -89,7 +89,7 @@ export function modelReservationBound(model: Model<Api>, sessionMaxOutputTokens:
   return count(tokens) && count(spendMicroUsd) ? { tokens, spendMicroUsd } : null;
 }
 
-/** Invoked after payload hooks, on direct and managed upstream OpenAI requests. */
+/** Invoked after payload hooks, on upstream OpenAI requests. */
 export function enforceCachePolicy(model: Model<Api>, body: Record<string, unknown>): void {
   if (model.provider !== 'openai' || model.api !== 'openai-responses') return;
   const cache = body.prompt_cache_options;

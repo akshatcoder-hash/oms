@@ -145,7 +145,7 @@ test('deep redactor walks nested values, arrays and keys', () => {
   const input = {
     seq: 1,
     time: '2025-10-29T01:02:03.000Z',
-    type: 'sign_request',
+    type: 'tool_call',
     nested: { blob: `0x${hex}`, list: [`${hex}`, 42, null] },
     [hex]: 'secret key',
   };
@@ -157,7 +157,7 @@ test('deep redactor walks nested values, arrays and keys', () => {
   assert.equal(output.nested.list[1], 42);
   assert.equal(output.nested.list[2], null);
   assert.equal(output.seq, 1, 'non-string fields are untouched');
-  assert.equal(output.type, 'sign_request');
+  assert.equal(output.type, 'tool_call');
 });
 
 test('deep redactor handles cycles without throwing', () => {

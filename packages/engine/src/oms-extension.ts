@@ -48,7 +48,7 @@ export interface OmsExtensionOptions {
   endRunOnProposal?: boolean;
   guards?: Pick<GuardsConfig, "repetition" | "maxEditBytes" | "approveHostCommands">;
   now?: () => number;
-  /** Extra extensions (cache accounting, routing) composed after the core ones. */
+  /** Extra extensions composed after the core ones. */
   extra?: readonly ExtensionFactory[];
 }
 

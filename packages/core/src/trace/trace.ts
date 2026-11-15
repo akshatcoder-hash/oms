@@ -12,28 +12,9 @@
 
 import { closeSync, fsyncSync, openSync, readFileSync, writeSync } from 'node:fs';
 
-export const TRACE_EVENT_TYPES: readonly TraceEventType[] = Object.freeze([
-  'turn',
-  'tool_call',
-  'tool_result',
-  'verify',
-  'route',
-  'settle',
-  'budget',
-  'cache_bust',
-  'sign_request',
-]);
+export const TRACE_EVENT_TYPES = Object.freeze(['turn', 'tool_call', 'tool_result', 'settle', 'budget'] as const);
 
-export type TraceEventType =
-  | 'turn'
-  | 'tool_call'
-  | 'tool_result'
-  | 'verify'
-  | 'route'
-  | 'settle'
-  | 'budget'
-  | 'cache_bust'
-  | 'sign_request';
+export type TraceEventType = (typeof TRACE_EVENT_TYPES)[number];
 
 export interface TraceEvent {
   readonly seq: number;

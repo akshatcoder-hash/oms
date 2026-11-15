@@ -26,10 +26,7 @@ test('dated immutable catalog binds exact paid models, rates and conservative wi
       worker.cost.cacheRead, worker.cost.cacheWrite], expected[worker.key]);
     assert.ok(worker.effectiveContextWindow <= worker.publishedContextWindow);
     assert.ok(worker.maxOutputTokens > 0);
-    assert.equal(worker.verifiedAt, '2026-11-01');
     assert.match(worker.sourceUrl, /^https:\/\//);
-    assert.equal(worker.lifecycle, 'active');
-    assert.equal(worker.credentialClass, 'payg');
     if (worker.provider === 'openai') {
       assert.equal(worker.effectiveContextWindow, 272_000);
       assert.equal(worker.publishedContextWindow, 1_050_000);
@@ -68,8 +65,6 @@ test('MiMo requires an explicit local source and never infers a TP region or PAY
     assert.equal(worker.provider, provider);
     assert.equal(worker.baseUrl, MIMO_BINDINGS[provider].baseUrl);
     assert.deepEqual(worker.cost, MODEL_CATALOG['mimo-pro'].cost);
-    assert.equal(worker.credentialClass, provider === 'xiaomi' ? 'payg' : 'token-plan');
-    assert.match(MIMO_BINDINGS[provider].admissionDisclosure, /PAYG-equivalent/i);
     assert.equal(Object.isFrozen(worker), true);
   }
 });

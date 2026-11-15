@@ -63,7 +63,7 @@ test('writer owns seq and time even if the payload tries to set them', (t) => {
   const dir = workDir(t);
   const path = join(dir, 'trace.jsonl');
   const writer = createTraceWriter({ path, clock: fixedClock() });
-  const result = writer.append({ type: 'route', seq: 99, time: '1999-01-01T00:00:00.000Z' });
+  const result = writer.append({ type: 'tool_call', seq: 99, time: '1999-01-01T00:00:00.000Z' });
   writer.close();
   assert.deepEqual(result, { ok: true, seq: 1 });
   const parsed = readTraceFile(path);
@@ -156,14 +156,14 @@ test('writer never contains a planted secret in any encoding', (t) => {
     { base64: forms.find((form) => form.encoding === 'base64')?.text },
     { base64url: forms.find((form) => form.encoding === 'base64url')?.text },
     { json: `key=${forms.find((form) => form.encoding === 'json_array')?.text ?? ''}` },
-    { note: `sign_request payload ${forms.find((form) => form.encoding === 'csv')?.text ?? ''}` },
+    { note: `tool_call payload ${forms.find((form) => form.encoding === 'csv')?.text ?? ''}` },
     { [forms.find((form) => form.encoding === 'base58')?.text ?? 'x']: 'secret in a key' },
     { bytes: Array.from(SECRET) },
     { typed: new Uint8Array(SECRET) },
     { buffer: Buffer.from(SECRET) },
     { serializedBuffer: Buffer.from(SECRET).toJSON() },
   ];
-  for (const payload of payloads) writer.append({ type: 'sign_request', ...payload });
+  for (const payload of payloads) writer.append({ type: 'tool_call', ...payload });
   writer.close();
 
   const contents = readFileSync(path, 'utf8');
@@ -180,7 +180,7 @@ test('negative control: without the redactor the scanner finds the secret', (t) 
   const path = join(dir, 'trace.jsonl');
   const writer = createTraceWriter({ path, clock: fixedClock() });
   const hex = secretForms(SECRET).find((form) => form.encoding === 'hex')?.text ?? '';
-  writer.append({ type: 'sign_request', blob: hex });
+  writer.append({ type: 'tool_call', blob: hex });
   writer.close();
 
   const contents = readFileSync(path, 'utf8');
@@ -258,7 +258,7 @@ test('fsync mode still writes parseable lines', (t) => {
   const dir = workDir(t);
   const path = join(dir, 'trace.jsonl');
   const writer = createTraceWriter({ path, clock: fixedClock(), fsync: true });
-  writer.append({ type: 'verify', status: 'pass' });
+  writer.append({ type: 'tool_result', status: 'pass' });
   writer.append({ type: 'settle', action: 'allow' });
   writer.close();
   const parsed = readTraceFile(path);
@@ -273,7 +273,7 @@ test('replay iterates the readable prefix, optionally filtered', (t) => {
   writer.append({ type: 'turn', turn: 1 });
   writer.append({ type: 'tool_call', tool: 'getBalance' });
   writer.append({ type: 'turn', turn: 2 });
-  writer.append({ type: 'cache_bust', segment: 'tool_schemas' });
+  writer.append({ type: 'tool_result', segment: 'tool_schemas' });
   writer.close();
   appendFileSync(path, '{"seq":5,"ty');
 
@@ -295,7 +295,7 @@ test('same input and clock produce identical bytes', (t) => {
   const dir = workDir(t);
   const events = [
     { type: 'turn' as const, turn: 1, agent: 'lead' },
-    { type: 'route' as const, phase: 'plan', toolClass: 'edit', role: 'lead' },
+    { type: 'tool_call' as const, phase: 'plan', toolClass: 'edit', role: 'lead' },
     { type: 'settle' as const, action: 'continue', reason: 'verifier_failed' },
   ];
   const write = (name: string): string => {
