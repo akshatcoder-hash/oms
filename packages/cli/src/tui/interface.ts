@@ -27,6 +27,8 @@ import { colorText, DEFAULT_THEME_ID, getTheme, paintThemeRow, THEME_IDS, type O
 type ActionKind = 'agent' | 'command' | 'verification' | 'review';
 interface Action {
   kind: ActionKind;
+  /** Verification and review run to their backend timeout; nothing stops them early. */
+  cancellable: boolean;
   draft: string | undefined;
   accepted: boolean;
   controller: AbortController;
@@ -150,6 +152,10 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     return component;
   });
   const requestRender = () => { if (!disposed) renderer.requestRender(); };
+  /** The one busy rule: a model turn, a command, or a cancellation still settling. */
+  const busy = () => !!active || externalBusy || !!externalCancellation;
+  /** Cancel does something only for cancellable work: the running action, or a turn this presentation did not start. */
+  const canCancel = () => active ? active.cancellable : externalBusy;
   const input = createFileEditorPane('', () => {
     if (input.document.text !== dismissedCommands) dismissedCommands = undefined;
     requestRender();
@@ -237,7 +243,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   }
   function openSetup(mode: 'model' | 'connect' | 'theme' | 'settings', query = '', draft?: string): void {
     if (closing) return;
-    if ((mode === 'model' || mode === 'connect') && (active || externalBusy || externalCancellation)) {
+    if ((mode === 'model' || mode === 'connect') && busy()) {
       setNotice('Wait for current work to finish before changing model credentials; draft retained.');
       return;
     }
@@ -254,7 +260,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
   }
   function openAccount(mode: 'login' | 'logout' | 'account', draft?: string): void {
     if (closing) return;
-    if (mode === 'login' && (active || externalBusy || externalCancellation)) {
+    if (mode === 'login' && busy()) {
       setNotice('Wait for current work before signing in; draft retained.'); return;
     }
     setup?.dispose();
@@ -376,7 +382,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     input.focus.invalidate();
   }
   function maybeFinish(): void {
-    if (closing && shutdownComplete && !active && !externalBusy && !externalCancellation) {
+    if (closing && shutdownComplete && !busy()) {
       if (failure) reject(failure); else resolve();
     }
   }
@@ -411,7 +417,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
 
   function cancel(): void {
     if (active) {
-      if (active.kind === 'verification' || active.kind === 'review') { setNotice('This operation must finish within its backend timeout; cancellation is unavailable.'); return; }
+      if (!active.cancellable) { setNotice('This operation must finish within its backend timeout; cancellation is unavailable.'); return; }
       if (active.cancellation) return;
       active.controller.abort();
       const action = active;
@@ -436,15 +442,15 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     }
     closing = true;
     setNotice('Closing the task controller; awaiting authoritative cleanup.');
-    if (active?.kind !== 'verification') cancel();
+    if (!active || active.cancellable) cancel();
     shutdown = Promise.resolve().then(() => harness.close()).then(() => {
       shutdownComplete = true;
       maybeFinish();
     }, error => { shutdownComplete = true; fail(error); });
   }
 
-  function begin(kind: ActionKind, draft: string | undefined, operation: (signal: AbortSignal) => Promise<void>): void {
-    const action: Action = { kind, draft, accepted: false, controller: new AbortController(), completion: Promise.resolve() };
+  function begin(kind: ActionKind, draft: string | undefined, operation: (signal: AbortSignal) => Promise<void>, cancellable = true): void {
+    const action: Action = { kind, cancellable, draft, accepted: false, controller: new AbortController(), completion: Promise.resolve() };
     active = action;
     notice = '';
     action.completion = Promise.resolve().then(async () => {
@@ -604,7 +610,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
       switchView('harness'); toggleRequirements(); return;
     }
     const readOnly = !!command && (READ_ONLY_COMMANDS.has(command) || (command === 'goal' && !argument.trim()));
-    if ((active || externalBusy || externalCancellation) && !readOnly) {
+    if (busy() && !readOnly) {
       setNotice('Work is running. Use /cancel to stop it, or keep editing your next request.'); return;
     }
     if (trimmed.startsWith('/')) {
@@ -642,7 +648,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
             switchView('workbench'); setFocus('editor');
           }
           if (code !== 0) throw new Error(report ? 'Partial review saved; one or more stages failed.' : 'Review did not produce a report. See the review status.');
-        });
+        }, false);
         return;
       } else if (command === 'verify' && !/\s/.test(argument)) {
         const id = argument || selectedId;
@@ -650,7 +656,7 @@ export async function runOmsInterface(harness: HarnessSession, options: {
           const verification = await harness.verify(id);
           const result = verification.result;
           conversation.note('verification', `${verification.itemId}: ${result.closed ? 'closed by independent verification' : result.reason}`);
-        });
+        }, false);
         return;
       } else if (command === 'run' && argument.trim()) {
         begin('command', composerDraft, async signal => {
@@ -734,13 +740,13 @@ export async function runOmsInterface(harness: HarnessSession, options: {
     { id: 'workbench', label: 'Workbench', active: view === 'workbench', onPress: () => submit('/workbench', true) },
     { id: 'commands', label: 'Commands', icon: '≡', onPress: () => openPalette() },
     { id: 'files', label: 'Files', icon: '▸', onPress: () => submit('/files', true) },
-    { id: 'model', label: 'Model', disabled: !!active || externalBusy, onPress: () => openSetup('model') },
+    { id: 'model', label: 'Model', disabled: busy(), onPress: () => openSetup('model') },
     { id: 'settings', label: 'Settings', onPress: () => openSetup('settings') },
     { id: 'help', label: 'Help', icon: '?', onPress: () => submit('/help', true) },
   ], { theme: () => theme!, render: requestRender, onEscape: () => setFocus(view === 'harness' ? 'input' : 'editor') });
   const composerActions = new ActionBar(() => [
-    { id: 'send', label: 'Send', icon: '↑', disabled: !input.document.text.trim() || !!active || externalBusy, onPress: () => submit() },
-    { id: 'cancel', label: 'Cancel', icon: '×', disabled: (!active && !externalBusy) || active?.kind === 'verification', onPress: cancel },
+    { id: 'send', label: 'Send', icon: '↑', disabled: !input.document.text.trim() || busy(), onPress: () => submit() },
+    { id: 'cancel', label: 'Cancel', icon: '×', disabled: !canCancel(), onPress: cancel },
     { id: 'commands', label: 'Commands', icon: '/', onPress: () => openPalette() },
   ], { theme: () => theme!, render: requestRender });
   const setupActions = new ActionBar(() => [
