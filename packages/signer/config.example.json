@@ -1,0 +1,19 @@
+{
+  "signerDir": "/abs/path/to/private-oms-signer",
+  "alias": "development",
+  "socketDir": "/abs/path/to/private-oms-signer-sockets",
+  "config": {
+    "allowlist": {
+      "programIds": [
+        "11111111111111111111111111111111",
+        "ComputeBudget111111111111111111111111111111"
+      ],
+      "accountIds": []
+    },
+    "spend": {
+      "perTxLamports": 100000000,
+      "cumulativeLamports": 1000000000
+    },
+    "feeCapLamports": 10000000
+  }
+}

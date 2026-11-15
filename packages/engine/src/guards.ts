@@ -16,6 +16,11 @@
  * construction: a command can build a path at runtime (`p=~/.ss; cat ${p}h/id`). The
  * Docker sandbox in SPEC.md section 2 is the real control. This hook only keeps the
  * obvious forms from reaching a shell at all.
+ *
+ * The symlink-safe resolution helpers (`isInside`, `resolveWithExistingAncestor`,
+ * `realpathOfNearest`, `pathVariants`) are copied from `packages/signer/src/guard.ts`
+ * in this repo. `@oms/engine` does not depend on `@oms/signer`, so importing them would
+ * mean adding a dependency to a package manifest this worker does not own.
  */
 
 import { realpathSync, statSync } from 'node:fs';
@@ -88,7 +93,7 @@ const PATH_TOOL_SPECS: Record<string, { readonly access: 'read' | 'write'; reado
 const REQUIRED_PATH_TOOLS = new Set(['read', 'write', 'edit']);
 const COMMAND_TOOLS = new Set(['bash', 'powershell']);
 
-// --- symlink-safe path resolution --------------------------------------------------
+// --- copied from packages/signer/src/guard.ts (see file header) -------------------
 
 function isInside(parent: string, candidate: string): boolean {
   if (candidate === parent) return true;
