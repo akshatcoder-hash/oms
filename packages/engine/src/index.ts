@@ -18,7 +18,7 @@ export { type HarnessSettingsControls, type HarnessSettingsSnapshot } from "./ru
 export type { OmsAccountControls, OmsAccountSnapshot, AccountInteraction } from "./runtime/oms-account.ts";
 export { recoverHarnessWorkspace } from "./runtime/recovery.ts";
 export { createKnowledgeExtension, callKnowledgeTool, knowledgePrimer, wrapUntrusted, KNOWLEDGE_RESULT_LIMIT, KNOWLEDGE_TOOL_NAMES, type KnowledgeConfig } from "./runtime/knowledge-service.ts";
-export { createWeb, SEARCH_BACKENDS, type WebConfig, type WebUsage } from "./runtime/web.ts";
+export { createWeb, omsBase, SEARCH_BACKENDS, type WebConfig, type WebUsage } from "./runtime/web.ts";
 export { readProject } from './toolchain/project.ts';
 export { checkToolchain } from './toolchain/check.ts';
 export { planToolchainFix, applyToolchainFix } from './toolchain/fix.ts';
