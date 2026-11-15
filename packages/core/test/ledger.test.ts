@@ -232,24 +232,20 @@ test('fsynced JSONL reservations and uncertain receipts survive reopening the re
   assert.equal(reopened.snapshot().used.spendMicroUsd, 200);
 });
 
-const routerReservation = {
-  ...reservation, tokens: 0, spendMicroUsd: 934,
-  provenance: { role: 'router' as const, provider: 'cloudflare-workers-ai', modelId: 'clef-flash',
-    endpointId: 'cloudflare-account', policyVersion: '2026-11-01.1' },
-};
-const routerRecord = {
-  dispatchId: reservation.dispatchId, inputTokens: 100, outputTokens: 10_000_000,
-  calls: 1 as const, outcome: 'known' as const, spendMicroUsd: 4,
+const workerReservation = {
+  ...reservation,
+  provenance: { role: 'worker' as const, provider: 'openai', modelId: 'worker-model',
+    endpointId: 'https://example.invalid/v1', policyVersion: '2026-11-01.1' },
 };
 
 test('provenance participates in reservation identity and is detached from caller mutation', () => {
   const { ledger, events } = fixture();
-  const input = { ...routerReservation, provenance: { ...routerReservation.provenance } };
+  const input = { ...workerReservation, provenance: { ...workerReservation.provenance } };
   assert.equal(ledger.reserve(input).ok, true);
   input.provenance.modelId = 'tampered';
-  assert.equal(ledger.reservations()[0]?.provenance?.modelId, 'clef-flash');
-  for (const field of ['role', 'provider', 'modelId', 'endpointId', 'policyVersion'] as const) {
-    const result = ledger.reserve({ ...routerReservation, provenance: { ...routerReservation.provenance, [field]: field === 'role' ? 'worker' : 'other' } });
+  assert.equal(ledger.reservations()[0]?.provenance?.modelId, 'worker-model');
+  for (const field of ['provider', 'modelId', 'endpointId', 'policyVersion'] as const) {
+    const result = ledger.reserve({ ...workerReservation, provenance: { ...workerReservation.provenance, [field]: 'other' } });
     assert.equal(result.ok ? '' : result.code, 'E_CONFLICT');
   }
   const snapshot = ledger.reservations();
@@ -257,15 +253,15 @@ test('provenance participates in reservation identity and is detached from calle
   assert.equal(Reflect.deleteProperty(snapshot, '0'), false);
   const replay = createBudgetLedger({ caps, clock: () => 100, events: JSON.parse(JSON.stringify(events)), persist: () => {} });
   assert.deepEqual(replay.reservations(), ledger.reservations());
-  assert.equal(replay.reserve(routerReservation).ok, true);
+  assert.equal(replay.reserve(workerReservation).ok, true);
 });
 
 test('invalid provenance is refused both on admission and journal replay; old receipts remain valid', () => {
-  for (const provenance of [null, {}, { ...routerReservation.provenance, role: 'other' },
-    { ...routerReservation.provenance, provider: '' }, { ...routerReservation.provenance, modelId: 3 },
-    { ...routerReservation.provenance, endpointId: '' }, { ...routerReservation.provenance, policyVersion: '' }]) {
+  for (const provenance of [null, {}, { ...workerReservation.provenance, role: 'other' }, { ...workerReservation.provenance, role: 'router' },
+    { ...workerReservation.provenance, provider: '' }, { ...workerReservation.provenance, modelId: 3 },
+    { ...workerReservation.provenance, endpointId: '' }, { ...workerReservation.provenance, policyVersion: '' }]) {
     const { ledger, events } = fixture();
-    const malformed = { ...routerReservation, provenance } as never;
+    const malformed = { ...workerReservation, provenance } as never;
     assert.equal(ledger.reserve(malformed).ok, false);
     assert.throws(() => createBudgetLedger({ caps, clock: () => 100,
       events: [...events, { type: 'budget_reserve', seq: 2, at: 100, reservation: malformed }], persist: () => {} }), /invalid budget event/);
@@ -276,129 +272,10 @@ test('invalid provenance is refused both on admission and journal replay; old re
   assert.deepEqual(replay.reservations(), [reservation]);
 });
 
-test('router records persist once, retain worker tokens, and replay quota and separate observed tokens', () => {
-  const { ledger, events } = fixture();
-  assert.equal(ledger.reserve(routerReservation).ok, true);
-  assert.equal(ledger.recordRouter(routerRecord).ok, true);
-  const duplicate = ledger.recordRouter({ ...routerRecord });
-  assert.equal(duplicate.ok && duplicate.duplicate, true);
-  assert.equal(events.filter((event) => event.type === 'budget_router').length, 1);
-  assert.equal(ledger.snapshot().used.spendMicroUsd, 934);
-  assert.equal(ledger.settle({ dispatchId: reservation.dispatchId, receiptId: 'router-receipt',
-    outcome: 'known', tokens: 0, spendMicroUsd: 4 }).ok, true);
-  assert.equal(ledger.snapshot().used.tokens, 0);
-  assert.equal(ledger.snapshot().used.spendMicroUsd, 4);
-  const replay = createBudgetLedger({ caps, clock: () => 100, events: JSON.parse(JSON.stringify(events)), persist: () => {} });
-  assert.deepEqual(replay.routerRecords(), [routerRecord]);
-  assert.equal(replay.routerRecords().reduce((total, record) => total + record.calls, 0), 1);
-  assert.equal(Reflect.set(replay.routerRecords()[0]!, 'calls', 0), false);
-  for (const field of ['inputTokens', 'outputTokens', 'calls', 'outcome', 'spendMicroUsd'] as const) {
-    const result = ledger.recordRouter({ ...routerRecord, [field]: field === 'outcome' ? 'unknown' : field === 'calls' ? 0 : 5 } as never);
-    assert.equal(result.ok, false);
-  }
-});
-
-test('router telemetry validates reservation role and safe amounts without an output token cap', () => {
-  const { ledger } = fixture();
-  assert.equal(ledger.recordRouter(routerRecord).ok, false);
-  ledger.reserve(reservation);
-  assert.equal(ledger.recordRouter(routerRecord).ok, false);
-  const routed = fixture().ledger;
-  routed.reserve(routerReservation);
-  for (const malformed of [
-    { ...routerRecord, inputTokens: 0 }, { ...routerRecord, inputTokens: null },
-    { ...routerRecord, inputTokens: 0.5 }, { ...routerRecord, outputTokens: -1 },
-    { ...routerRecord, outputTokens: Number.MAX_SAFE_INTEGER + 1 },
-    { ...routerRecord, spendMicroUsd: null }, { ...routerRecord, calls: 0 },
-    { ...routerRecord, outcome: 'not_dispatched', calls: 0 },
-  ]) assert.equal(routed.recordRouter(malformed as never).ok, false);
-  assert.equal(routed.recordRouter({ ...routerRecord, outputTokens: Number.MAX_SAFE_INTEGER }).ok, true);
-});
-
-test('unknown router records retain reservations and block admission through replay', () => {
-  const { ledger, events } = fixture();
-  ledger.reserve(routerReservation);
-  const unknown = { ...routerRecord, outcome: 'unknown' as const, inputTokens: null, outputTokens: null, spendMicroUsd: null };
-  assert.equal(ledger.recordRouter(unknown).ok, true);
-  assert.equal(ledger.snapshot().used.spendMicroUsd, 934);
-  assert.equal(ledger.snapshot().used.tokens, 0);
-  assert.equal(ledger.snapshot().accounting, 'unknown');
-  const replay = createBudgetLedger({ caps, clock: () => 100, events, persist: () => {} });
-  assert.equal(replay.snapshot().admissionBlocked, true);
-  assert.equal(replay.reserve({ ...reservation, dispatchId: 'next', attempt: 2, spendMicroUsd: 1 }).ok, false);
-});
-
-test('router journal failure grants no telemetry commit and poisons subsequent writes', () => {
-  const events: BudgetLedgerEvent[] = [];
-  const ledger = createBudgetLedger({ caps, clock: () => 100, persist(event) {
-    if (event.type === 'budget_router') throw new Error('disk unavailable');
-    events.push(event);
-  } });
-  ledger.reserve(routerReservation);
-  const result = ledger.recordRouter(routerRecord);
-  assert.equal(result.ok ? '' : result.code, 'E_PERSIST');
-  assert.deepEqual(ledger.routerRecords(), []);
-  assert.equal(ledger.snapshot().used.spendMicroUsd, 934);
-  assert.equal(ledger.snapshot().accounting, 'unknown');
-  assert.equal(ledger.settle({ dispatchId: reservation.dispatchId, receiptId: 'settled',
-    outcome: 'known', tokens: 0, spendMicroUsd: 4 }).ok, false);
-});
-
-test('replay rejects forged router telemetry and not-dispatched records count no call', () => {
-  const { ledger, events } = fixture();
-  ledger.reserve(routerReservation);
-  const zero = { ...routerRecord, calls: 0 as const, outcome: 'not_dispatched' as const,
-    inputTokens: 0, outputTokens: 0, spendMicroUsd: 0 };
-  assert.equal(ledger.recordRouter(zero).ok, true);
-  assert.equal(ledger.routerRecords()[0]?.calls, 0);
-  const bad = [...events.slice(0, -1), { type: 'budget_router' as const, seq: 3, at: 100,
-    record: { ...routerRecord, dispatchId: 'unadmitted' } }];
-  assert.throws(() => createBudgetLedger({ caps, clock: () => 100, events: bad, persist: () => {} }), /invalid budget event/);
-});
-
-test('trusted financial reconciliation clears unknown router admission without inventing missing tokens', () => {
-  const { ledger, events } = fixture();
-  ledger.reserve(routerReservation);
-  ledger.recordRouter({ ...routerRecord, outcome: 'unknown', inputTokens: null, outputTokens: null, spendMicroUsd: 3 });
-  const receipt = { dispatchId: reservation.dispatchId, receiptId: 'reconciled', outcome: 'known' as const, tokens: 0, spendMicroUsd: 4 };
-  assert.equal(ledger.settle(receipt).ok, true);
-  assert.equal(ledger.snapshot().accounting, 'known');
-  assert.equal(ledger.routerRecords()[0]?.inputTokens, null);
-  assert.equal(ledger.routerRecords()[0]?.calls, 1);
-  const replay = createBudgetLedger({ caps, clock: () => 100, events, persist: () => {} });
-  assert.equal(replay.snapshot().admissionBlocked, false);
-  assert.equal(replay.reserve({ ...reservation, dispatchId: 'next', attempt: 2 }).ok, true);
-});
-
-test('router receipts cannot charge worker tokens or contradict durable observed spend', () => {
-  const { ledger } = fixture();
-  ledger.reserve(routerReservation);
-  ledger.recordRouter({ ...routerRecord, outcome: 'unknown', spendMicroUsd: 20 });
-  const receipt = { dispatchId: reservation.dispatchId, receiptId: 'reconciled', outcome: 'known' as const, tokens: 0, spendMicroUsd: 20 };
-  assert.equal(ledger.settle({ ...receipt, tokens: 1 }).ok, false);
-  assert.equal(ledger.settle({ ...receipt, spendMicroUsd: 19 }).ok, false);
-  assert.equal(ledger.settle({ ...receipt, outcome: 'not_dispatched', spendMicroUsd: 0 }).ok, false);
-  assert.equal(ledger.snapshot().used.spendMicroUsd, 934);
-  assert.equal(ledger.settle(receipt).ok, true);
-});
-
-test('router telemetry refuses unsafe aggregate counters before persistence', () => {
-  const { ledger, events } = fixture();
-  ledger.reserve(routerReservation);
-  ledger.recordRouter({ ...routerRecord, outputTokens: Number.MAX_SAFE_INTEGER });
-  ledger.settle({ dispatchId: reservation.dispatchId, receiptId: 'first', outcome: 'known', tokens: 0, spendMicroUsd: 4 });
-  ledger.reserve({ ...routerReservation, dispatchId: 'second', attempt: 2 });
-  const before = events.length;
-  const result = ledger.recordRouter({ ...routerRecord, dispatchId: 'second', outputTokens: 1 });
-  assert.equal(result.ok ? '' : result.code, 'E_INVALID');
-  assert.equal(events.length, before);
-  assert.equal(ledger.routerRecords().length, 1);
-});
-
 test('provenance projects only semantic fields and cannot be mutated through replay input', () => {
   const { ledger, events } = fixture();
-  ledger.reserve({ ...routerReservation, provenance: { ...routerReservation.provenance, ...reservation } });
-  assert.deepEqual(ledger.reservations()[0]?.provenance, routerReservation.provenance);
+  ledger.reserve({ ...workerReservation, provenance: { ...workerReservation.provenance, ...reservation } });
+  assert.deepEqual(ledger.reservations()[0]?.provenance, workerReservation.provenance);
   const source: BudgetLedgerEvent[] = JSON.parse(JSON.stringify(events));
   const replay = createBudgetLedger({ caps, clock: () => 100, events: source, persist: () => {} });
   const admitted = source[1];
@@ -406,22 +283,7 @@ test('provenance projects only semantic fields and cannot be mutated through rep
   if (admitted?.type === 'budget_reserve' && admitted.reservation.provenance) {
     Reflect.set(admitted.reservation.provenance, 'provider', 'tampered');
   }
-  assert.equal(replay.reservations()[0]?.provenance?.provider, routerReservation.provenance.provider);
-});
-
-test('trustworthy router reconciliation updates observed tokens once and preserves monetary reservation until settlement', () => {
-  const { ledger, events } = fixture();
-  ledger.reserve(routerReservation);
-  ledger.recordRouter({ ...routerRecord, outcome: 'unknown', inputTokens: null, outputTokens: null, spendMicroUsd: null });
-  ledger.settle({ dispatchId: reservation.dispatchId, receiptId: 'unknown', outcome: 'uncertain', tokens: null, spendMicroUsd: null });
-  assert.equal(ledger.recordRouter(routerRecord).ok, true);
-  assert.equal(ledger.snapshot().used.spendMicroUsd, 934);
-  assert.equal(ledger.routerRecords()[0]?.inputTokens, 100);
-  assert.equal(ledger.routerRecords()[0]?.calls, 1);
-  assert.equal(ledger.settle({ dispatchId: reservation.dispatchId, receiptId: 'known', outcome: 'known', tokens: 0, spendMicroUsd: 4 }).ok, true);
-  const replay = createBudgetLedger({ caps, clock: () => 100, events, persist() {} });
-  assert.equal(replay.routerRecords()[0]?.outputTokens, 10_000_000);
-  assert.equal(replay.snapshot().used.spendMicroUsd, 4);
+  assert.equal(replay.reservations()[0]?.provenance?.provider, workerReservation.provenance.provider);
 });
 
 test('worker receipt token partitions survive replay and reject conflicting or mutable observations', () => {
@@ -436,108 +298,4 @@ test('worker receipt token partitions survive replay and reject conflicting or m
   assert.equal(ledger.settle({ ...receipt, usage: { ...usage, cacheReadTokens: 2, cacheWriteTokens: 3 } }).ok, false);
   const replay = createBudgetLedger({ caps, clock: () => 100, events, persist() {} });
   assert.equal(replay.receipts()[0]?.usage?.cacheWriteTokens, 2);
-});
-
-// ---- Exempt reservations: spend funded by something other than this ledger's caps (external funding) --------------------------
-
-const exempt = { ...reservation, dispatchId: 'managed-1', logicalTurnId: 'managed-turn-1', exempt: true as const };
-
-test('an exempt reservation is admitted beyond the local token and spend caps without consuming them', () => {
-  for (const mode of ['bounded', 'interactive'] as const) {
-    const ledger = createBudgetLedger({ caps, clock: () => 100, startedAt: 0, executionMode: mode, persist() {} });
-    if (mode === 'interactive') ledger.beginOperation('op-1');
-    // 50x the local spend cap and 500x the local token cap.
-    const big = ledger.reserve({ ...exempt, tokens: 500_000, spendMicroUsd: 50_000 });
-    assert.equal(big.ok, true, mode);
-    const snapshot = ledger.snapshot();
-    assert.deepEqual([snapshot.used.tokens, snapshot.used.spendMicroUsd], [0, 0]);
-    assert.deepEqual([snapshot.remaining.tokens, snapshot.remaining.spendMicroUsd], [1000, 1000]);
-    assert.deepEqual(snapshot.exemptUsed, { tokens: 500_000, spendMicroUsd: 50_000 });
-    assert.equal(snapshot.exhausted, false);
-    // The local allowance is still whole and still enforced.
-    assert.equal(ledger.reserve({ ...reservation, dispatchId: 'local-1', logicalTurnId: 'local-turn', tokens: 1001 }).ok, false);
-    assert.equal(ledger.reserve({ ...reservation, dispatchId: 'local-2', logicalTurnId: 'local-turn-2', tokens: 1000, spendMicroUsd: 1000 }).ok, true);
-  }
-});
-
-test('local spend still hits the cap while exempt usage accumulates beside it, and neither borrows from the other', () => {
-  const { ledger } = fixture();
-  assert.equal(ledger.reserve({ ...reservation, spendMicroUsd: 1000 }).ok, true);
-  assert.equal(ledger.snapshot().remaining.spendMicroUsd, 0);
-  assert.equal(ledger.reserve({ ...reservation, dispatchId: 'local-2', logicalTurnId: 'local-turn-2', attempt: 1, spendMicroUsd: 1 }).ok, false);
-  assert.equal(ledger.reserve({ ...exempt, spendMicroUsd: 99_999 }).ok, true);
-  assert.equal(ledger.snapshot().exhausted, true, 'the local cap is exhausted, and an exempt dispatch does not undo that');
-  assert.equal(ledger.snapshot().exemptUsed.spendMicroUsd, 99_999);
-});
-
-test('an exempt dispatch is still bounded by wall-clock time', () => {
-  let now = 100;
-  const ledger = createBudgetLedger({ caps, clock: () => now, startedAt: 0, persist() {} });
-  now = caps.wallClockMs;
-  const result = ledger.reserve({ ...exempt });
-  assert.equal(result.ok, false);
-});
-
-test('unknown exempt usage still blocks every later admission until it is reconciled, and keeps its bound out of the local caps', () => {
-  const { ledger } = fixture();
-  ledger.reserve({ ...exempt, tokens: 5000, spendMicroUsd: 5000 });
-  const unknown = ledger.settle({ dispatchId: 'managed-1', receiptId: 'u1', outcome: 'uncertain', tokens: null, spendMicroUsd: null });
-  assert.equal(unknown.ok, true);
-  assert.equal(ledger.snapshot().accounting, 'unknown');
-  assert.equal(ledger.snapshot().admissionBlocked, true);
-  assert.deepEqual([ledger.snapshot().used.tokens, ledger.snapshot().used.spendMicroUsd], [0, 0]);
-  const blocked = ledger.reserve({ ...reservation, dispatchId: 'local-3', logicalTurnId: 'local-turn-3' });
-  assert.deepEqual([blocked.ok, blocked.ok ? '' : blocked.code], [false, 'E_UNKNOWN']);
-  const blockedExempt = ledger.reserve({ ...exempt, dispatchId: 'managed-2', logicalTurnId: 'managed-turn-2' });
-  assert.deepEqual([blockedExempt.ok, blockedExempt.ok ? '' : blockedExempt.code], [false, 'E_UNKNOWN']);
-  assert.equal(ledger.settle({ dispatchId: 'managed-1', receiptId: 'k1', outcome: 'known', tokens: 700, spendMicroUsd: 300 }).ok, true);
-  assert.equal(ledger.snapshot().accounting, 'known');
-  assert.deepEqual(ledger.snapshot().exemptUsed, { tokens: 700, spendMicroUsd: 300 });
-  assert.equal(ledger.reserve({ ...reservation, dispatchId: 'local-3', logicalTurnId: 'local-turn-3' }).ok, true);
-});
-
-test('known and not-dispatched receipts settle exempt entries in the exempt counters only', () => {
-  const { ledger } = fixture();
-  ledger.reserve({ ...exempt, tokens: 4000, spendMicroUsd: 4000 });
-  ledger.settle({ dispatchId: 'managed-1', receiptId: 'k1', outcome: 'known', tokens: 1234, spendMicroUsd: 567 });
-  assert.deepEqual(ledger.snapshot().exemptUsed, { tokens: 1234, spendMicroUsd: 567 });
-  ledger.reserve({ ...exempt, dispatchId: 'managed-2', logicalTurnId: 'managed-turn-2', tokens: 4000, spendMicroUsd: 4000 });
-  ledger.settle({ dispatchId: 'managed-2', receiptId: 'n2', outcome: 'not_dispatched', tokens: 0, spendMicroUsd: 0 });
-  assert.deepEqual(ledger.snapshot().exemptUsed, { tokens: 1234, spendMicroUsd: 567 });
-  assert.deepEqual([ledger.snapshot().used.tokens, ledger.snapshot().used.spendMicroUsd], [0, 0]);
-});
-
-test('exempt usage does not spend the interactive per-operation token allowance', () => {
-  const ledger = createBudgetLedger({ caps, clock: () => 100, startedAt: 0, executionMode: 'interactive', persist() {} });
-  ledger.beginOperation('op-1');
-  ledger.reserve({ ...exempt, tokens: 900_000, spendMicroUsd: 0 });
-  assert.equal(ledger.snapshot().executionUsed.tokens, 0);
-  assert.equal(ledger.reserve({ ...reservation, tokens: 1000 }).ok, true);
-});
-
-test('exempt identity participates in a reservation and invalid values are refused', () => {
-  const { ledger } = fixture();
-  assert.equal(ledger.reserve({ ...exempt }).ok, true);
-  assert.equal(ledger.reserve({ ...exempt }).ok && (ledger.reserve({ ...exempt }) as { duplicate: boolean }).duplicate, true);
-  const conflict = ledger.reserve({ ...exempt, exempt: undefined });
-  assert.deepEqual([conflict.ok, conflict.ok ? '' : conflict.code], [false, 'E_CONFLICT']);
-  for (const bad of [false, 'yes', 1] as const) {
-    const result = ledger.reserve({ ...reservation, dispatchId: 'bad', logicalTurnId: 'bad-turn', exempt: bad as never });
-    assert.deepEqual([result.ok, result.ok ? '' : result.code], [false, 'E_INVALID'], String(bad));
-  }
-});
-
-test('a real journal replays exempt reservations into the same accounting, and old journals without the field count as local', () => {
-  const events: BudgetLedgerEvent[] = [];
-  const ledger = createBudgetLedger({ caps, clock: () => 100, startedAt: 0, persist: event => { events.push(event); } });
-  ledger.reserve({ ...exempt, tokens: 5000, spendMicroUsd: 5000 });
-  ledger.settle({ dispatchId: 'managed-1', receiptId: 'k1', outcome: 'known', tokens: 4000, spendMicroUsd: 3000 });
-  ledger.reserve({ ...reservation });
-  const reopened = createBudgetLedger({ caps, clock: () => 100, startedAt: 0, events: JSON.parse(JSON.stringify(events)), persist() { throw new Error('inspection must not write'); } });
-  assert.deepEqual(reopened.snapshot(), ledger.snapshot());
-  assert.deepEqual(reopened.snapshot().exemptUsed, { tokens: 4000, spendMicroUsd: 3000 });
-  // The same events with the flag stripped (an old journal) are admitted as ordinary local usage and fail the local caps.
-  const old = JSON.parse(JSON.stringify(events)) as BudgetLedgerEvent[];
-  for (const event of old) if (event.type === 'budget_reserve') delete (event.reservation as { exempt?: true }).exempt;
-  assert.throws(() => createBudgetLedger({ caps, clock: () => 100, startedAt: 0, events: old, persist() {} }), /budget/i);
 });

@@ -5,11 +5,11 @@ import { MODEL_POLICY_VERSION } from '../src/models/catalog.ts';
 
 const model = { provider: 'openai', modelId: 'gpt-6.1-sol', endpointId: 'https://api.openai.com/v1' };
 
-test('one allocator orders every role and tool continuation within the same turn', () => {
+test('one allocator orders every tool continuation within the same turn', () => {
   const allocate = createDispatchAllocator();
-  const roles: DispatchRole[] = ['router', 'planner', 'candidate', 'candidate', 'synthesizer', 'worker', 'worker'];
+  const roles: DispatchRole[] = ['worker', 'worker', 'worker', 'worker'];
   const identities = roles.map((role) => allocate('turn', role, model));
-  assert.deepEqual(identities.map((identity) => identity.attempt), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(identities.map((identity) => identity.attempt), [1, 2, 3, 4]);
   assert.deepEqual(identities.map((identity) => identity.role), roles);
   assert.equal(new Set(identities.map((identity) => identity.dispatchId)).size, roles.length);
   for (const identity of identities) {
@@ -26,9 +26,9 @@ test('restored allocations advance beyond every historical reservation without m
   const previous = Object.freeze([{ logicalTurnId: 'turn', attempt: 8 }, { logicalTurnId: 'turn', attempt: 3 },
     { logicalTurnId: 'other', attempt: 2 }].map((reservation) => Object.freeze(reservation)));
   const allocate = createDispatchAllocator(previous);
-  assert.equal(allocate('turn', 'router', model).attempt, 9);
+  assert.equal(allocate('turn', 'worker', model).attempt, 9);
   assert.equal(allocate('turn', 'worker', model).attempt, 10);
-  assert.equal(allocate('other', 'planner', model).attempt, 3);
+  assert.equal(allocate('other', 'worker', model).attempt, 3);
   assert.equal(previous.length, 3);
 });
 
@@ -40,7 +40,7 @@ test('invalid seed or exhausted attempt range fails closed rather than reusing a
   const allocate = createDispatchAllocator([{ logicalTurnId: 'turn', attempt: Number.MAX_SAFE_INTEGER }]);
   assert.throws(() => allocate('turn', 'worker', model));
   assert.throws(() => allocate('', 'worker', model));
-  assert.throws(() => allocate('new', 'invalid' as never, model));
+  assert.throws(() => allocate('new', 'router' as never, model));
   assert.throws(() => allocate('new', 'worker', { ...model, endpointId: '' }));
   assert.equal(allocate('new', 'worker', model).attempt, 1);
 });

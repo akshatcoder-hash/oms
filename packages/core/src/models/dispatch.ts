@@ -1,6 +1,6 @@
 import { MODEL_POLICY_VERSION } from './catalog.ts';
 
-export type DispatchRole = 'router' | 'planner' | 'candidate' | 'synthesizer' | 'worker';
+export type DispatchRole = 'worker';
 
 export interface ModelIdentity {
   readonly provider: string;
@@ -32,7 +32,7 @@ export function createDispatchAllocator(
   }
   return (turnId, role, model) => {
     if (typeof turnId !== 'string' || turnId.length === 0 ||
-        !['router', 'planner', 'candidate', 'synthesizer', 'worker'].includes(role) ||
+        role !== 'worker' ||
         !model || ![model.provider, model.modelId, model.endpointId].every((value) => typeof value === 'string' && value.length > 0)) {
       throw new Error('Invalid dispatch identity');
     }

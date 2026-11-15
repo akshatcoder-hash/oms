@@ -70,7 +70,7 @@ function fixture() {
       await interaction.prompt({ type: 'secret', message: 'Provider API key', signal: interaction.signal });
       configuredProviders.add(provider);
     },
-    budget: { receipts: () => [], routerRecords: () => [], reservations: () => [], snapshot: () => ({ caps: { tokens: 9000, spendMicroUsd: 3000000, wallClockMs: 120000 },
+    budget: { receipts: () => [], reservations: () => [], snapshot: () => ({ caps: { tokens: 9000, spendMicroUsd: 3000000, wallClockMs: 120000 },
       used: { tokens: 200, spendMicroUsd: 2999999, wallClockMs: 1000 },
       remaining: { tokens: 8800, spendMicroUsd: 1, wallClockMs: 119000 }, accounting: 'known', exhausted: false }) },
     async verify(id?: string) { verified.push(id ?? 'R1'); items[0]!.status = 'closed'; return { itemId: id ?? 'R1', result: { closed: true } }; },

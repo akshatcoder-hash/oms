@@ -18,7 +18,7 @@ import {
 
 import { BYTES_PER_TOKEN } from './context-trim.ts';
 import { modelOutputCap, modelReservationBound, normalizePiUsage, enforceCachePolicy, isClaudeCodeModel } from '@oms/core/usage';
-import type { DispatchAllocator, DispatchRole } from '@oms/core/dispatch';
+import type { DispatchAllocator } from '@oms/core/dispatch';
 
 function count(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -31,7 +31,6 @@ export interface MeteredStreamOptions {
   /** Unique per user run, stable across its tool-loop continuations. Never reuse after restart. */
   readonly logicalTurnId: () => string;
   readonly allocate: DispatchAllocator;
-  readonly role?: Exclude<DispatchRole, 'router'>;
   readonly clock?: () => number;
   readonly executionMode?: ExecutionMode;
   /**
@@ -228,7 +227,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
             return;
           }
         }
-        const identity = config.allocate(config.logicalTurnId(), config.role ?? 'worker',
+        const identity = config.allocate(config.logicalTurnId(), 'worker',
           { provider: model.provider, modelId: model.id, endpointId: model.baseUrl });
         const id = identity.dispatchId;
         const admission = config.ledger.reserve({ dispatchId: id, logicalTurnId: identity.logicalTurnId,

@@ -208,7 +208,6 @@ test('omitting the input cap preserves the full catalog reservation', async () =
   const admitted = await consume(wide);
   assert.equal(admitted.result.stopReason, 'stop');
   assert.equal(wide.events.find((event) => event.type === 'budget_reserve')?.reservation.spendMicroUsd, full!.spendMicroUsd);
-  assert.equal(wide.events.find((event) => event.type === 'budget_reserve')?.reservation.exempt, undefined);
 });
 
 test('a web_fetch tool call carries a url argument, which is model text, not a remote file: the next turn is admitted', async () => {
