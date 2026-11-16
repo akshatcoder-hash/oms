@@ -139,6 +139,7 @@ test('the chat opens the given folder, names it in the header, and tells the use
 test('--yolo reaches the session, and without it YOLO is off', async (t) => {
   const f = setup(t);
   const opened: Array<Record<string, unknown>> = [];
+  const notes: Array<string | undefined> = [];
   for (const yolo of [true, undefined]) {
     await capture(() =>
       runInteractiveChat({
@@ -151,12 +152,15 @@ test('--yolo reaches the session, and without it YOLO is off', async (t) => {
           opened.push(options as unknown as Record<string, unknown>);
           return fakeChat(options.folder, []);
         },
-        run: async () => {},
+        run: async (_chat, interfaceOptions) => {
+          notes.push(interfaceOptions?.startNote);
+        },
       }),
     );
   }
   assert.equal(opened[0]!.yolo, true);
   assert.equal(opened[1]!.yolo, undefined);
+  assert.deepEqual(notes, ['YOLO: commands run without asking and without the sandbox.', undefined]);
 });
 
 test('a folder that holds personal files opens a scratch folder and says so in the interface', async (t) => {

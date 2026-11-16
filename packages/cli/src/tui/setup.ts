@@ -227,9 +227,7 @@ export class SetupPane {
           return {
             value,
             label: line(`${model.provider}/${model.id}`),
-            description: line(
-              `${model.selectable === false ? 'Unavailable' : 'Connected'} · ${model.detail ?? model.name}`,
-            ),
+            description: line(model.selectable === false ? `Unavailable · ${model.detail ?? model.name}` : model.name),
           };
         }),
     );

@@ -12,6 +12,7 @@ import type { LaunchOptions } from './harness.ts';
 import { chooseLocalAction } from './ownership.ts';
 import { runOmsInterface } from './tui/interface.ts';
 import { DEFAULT_THEME_ID } from './tui/theme.ts';
+import { YOLO_NOTICE } from './tui/ui-commands.ts';
 
 export interface ChatLaunch {
   folder: string;
@@ -70,7 +71,13 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
     await (o.run ?? runOmsInterface)(chat, {
       theme: DEFAULT_THEME_ID,
       view: 'harness',
-      ...(folder.scratch ? { startNote: scratchNotice(folder.path) } : {}),
+      ...(folder.scratch || o.yolo
+        ? {
+            startNote: [folder.scratch ? scratchNotice(folder.path) : '', o.yolo ? YOLO_NOTICE : '']
+              .filter(Boolean)
+              .join('\n'),
+          }
+        : {}),
     });
   } finally {
     await chat.close();
