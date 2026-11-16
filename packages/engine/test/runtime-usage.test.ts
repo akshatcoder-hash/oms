@@ -1378,3 +1378,27 @@ test('a dropped network says so in plain words and is retried', async () => {
   assert.equal(result.errorMessage, 'Network error reaching xAI. Check your connection and try again.');
   assert.ok(isRetryableAssistantError(result));
 });
+
+test('a Grok subscription sign-in is plan usage in a chat, while an xAI API key stays under the dollar cap', () => {
+  const grok: Model<Api> = {
+    ...model,
+    id: 'grok-big',
+    provider: 'xai',
+    api: 'openai-responses',
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+    cost: { input: 5, output: 15, cacheRead: 1, cacheWrite: 1 },
+  };
+  const ledger = createBudgetLedger({
+    caps: { tokens: 10_000_000, spendMicroUsd: 1_000_000, wallClockMs: 60_000 },
+    executionMode: 'interactive',
+    clock: () => 0,
+    persist() {},
+  });
+  const subscribed = modelReadiness(grok, ledger, 64_000, 'interactive', undefined, false, true);
+  assert.equal(subscribed.ready, true);
+  assert.match(subscribed.detail, /xAI subscription/);
+  const apiKey = modelReadiness(grok, ledger, 64_000, 'interactive', undefined, false, false);
+  assert.equal(apiKey.ready, false);
+  assert.match(apiKey.detail, /cannot cover this model's maximum request cost/);
+});
