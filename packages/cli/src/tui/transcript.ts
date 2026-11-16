@@ -1,5 +1,14 @@
-import { stripTerminalSequences, wrapTextWithAnsi, type Component } from '@earendil-works/pi-tui';
-import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent';
+import { stripTerminalSequences, wrapTextWithAnsi, type Component, type TUI } from '@earendil-works/pi-tui';
+import {
+  AssistantMessageComponent,
+  BashExecutionComponent,
+  getMarkdownTheme,
+  initTheme,
+  ToolExecutionComponent,
+  UserMessageComponent,
+  type AgentSessionEvent,
+} from '@earendil-works/pi-coding-agent';
+import type { AssistantMessage } from '@earendil-works/pi-ai';
 
 const ENTRY_CHARS = 12_000;
 const HISTORY_CHARS = 192_000;
@@ -40,175 +49,292 @@ export function describeValue(value: unknown, depth = 0): string {
   return parts.join('\n').slice(0, 4000);
 }
 
-interface Entry {
-  key: string;
-  label: string;
-  text: string;
-  context?: string;
+/** What the transcript needs from its host to draw tool calls the way pi does. */
+export interface ConversationOptions {
+  /** The registered tool, whose own renderers draw its call and result. */
+  toolDefinition?: (name: string) => unknown;
+  cwd?: string;
+  requestRender?: () => void;
 }
-function contentText(content: unknown): string {
+
+interface Item {
+  key: string;
+  component: Component;
+}
+
+let themed = false;
+function ensureTheme(): void {
+  if (themed) return;
+  initTheme();
+  themed = true;
+}
+
+function textOf(content: unknown): string {
   if (typeof content === 'string') return displayText(content);
   if (!Array.isArray(content)) return '';
   let text = '';
   for (const block of content.slice(0, 128)) {
     if (!block || typeof block !== 'object') continue;
     if (block.type === 'text' && typeof block.text === 'string') text += displayText(block.text) + '\n';
-    else if (block.type === 'thinking' && typeof block.thinking === 'string')
-      text += 'Reasoning: ' + displayText(block.thinking) + '\n';
     else if (block.type === 'image') text += '[image]\n';
     if (text.length >= ENTRY_CHARS) break;
   }
   return displayText(text.trimEnd());
 }
 
+/** Every provider string crosses displayText before a pi component draws it. */
+function assistantForDisplay(message: AssistantMessage, diagnostic: string): AssistantMessage {
+  const content = (message.content ?? []).slice(0, 128).map((block) => {
+    if (block.type === 'text') return { ...block, text: displayText(block.text) };
+    if (block.type === 'thinking') return { ...block, thinking: displayText(block.thinking) };
+    return block;
+  });
+  const budget = ENTRY_CHARS - diagnostic.length - 1 - '\n[display truncated]'.length;
+  let used = 0;
+  const bounded = content.map((block) => {
+    if (block.type === 'text' || block.type === 'thinking') {
+      const field = block.type === 'text' ? 'text' : 'thinking';
+      const value = displayText((block as never)[field], Math.max(0, diagnostic ? budget - used : ENTRY_CHARS));
+      used += value.length;
+      return { ...block, [field]: value };
+    }
+    return block;
+  });
+  return {
+    ...message,
+    content: bounded,
+    ...(diagnostic ? { errorMessage: diagnostic, stopReason: 'error' } : { errorMessage: undefined }),
+  } as AssistantMessage;
+}
+
 export class Conversation implements Component {
-  private readonly entries: Entry[] = [];
+  private readonly items: Item[] = [];
+  private readonly tools = new Map<string, ToolExecutionComponent>();
   private readonly formatError: (message: string, recordedProvider?: string) => string;
+  private readonly options: ConversationOptions;
+  private readonly ui: TUI;
   private sequence = 0;
   private currentMessage: string | undefined;
-  private chars = 0;
+  private streaming: { key: string; component: AssistantMessageComponent } | undefined;
   private trimmed = false;
+  private toolsExpanded = false;
+  private thinkingHidden = false;
   focused = false;
 
   constructor(
     messages: readonly unknown[],
     formatError: (message: string, recordedProvider?: string) => string = (text) => text,
+    options: ConversationOptions = {},
   ) {
+    ensureTheme();
     this.formatError = formatError;
-    for (const message of messages.slice(-HISTORY_ENTRIES)) this.message(message, `history-${this.sequence++}`);
+    this.options = options;
+    this.ui = { requestRender: () => options.requestRender?.(), terminal: { columns: 80, rows: 24 } } as unknown as TUI;
+    for (const message of messages.slice(-HISTORY_ENTRIES)) this.restore(message, `history-${this.sequence++}`);
     this.trimmed ||= messages.length > HISTORY_ENTRIES;
   }
-  invalidate(): void {}
+  invalidate(): void {
+    for (const item of this.items) item.component.invalidate?.();
+  }
 
   /** Forget everything shown, for a fresh conversation. */
   clear(): void {
-    this.entries.length = 0;
-    this.chars = 0;
+    this.items.length = 0;
+    this.tools.clear();
     this.trimmed = false;
     this.currentMessage = undefined;
+    this.streaming = undefined;
   }
 
-  note(label: string, text: string): void {
-    this.put({ key: `notice-${this.sequence++}`, label: displayText(label, 100), text: displayText(text) });
+  /** Ctrl+O: show every tool call and result in full, or back to the short form. */
+  toggleToolOutput(): boolean {
+    this.toolsExpanded = !this.toolsExpanded;
+    for (const item of this.items)
+      if (item.component instanceof ToolExecutionComponent || item.component instanceof BashExecutionComponent)
+        item.component.setExpanded(this.toolsExpanded);
+    return this.toolsExpanded;
   }
 
-  private put(entry: Entry): void {
-    const existing = this.entries.findIndex((item) => item.key === entry.key);
-    if (existing >= 0) {
-      this.chars -= this.entries[existing]!.text.length;
-      this.entries[existing] = entry;
-    } else this.entries.push(entry);
-    this.chars += entry.text.length;
-    while (this.entries.length > HISTORY_ENTRIES || this.chars > HISTORY_CHARS) {
-      this.chars -= this.entries.shift()!.text.length;
+  /** Ctrl+T: hide or show the model's thinking. */
+  toggleThinking(): boolean {
+    this.thinkingHidden = !this.thinkingHidden;
+    for (const item of this.items)
+      if (item.component instanceof AssistantMessageComponent) item.component.setHideThinkingBlock(this.thinkingHidden);
+    return this.thinkingHidden;
+  }
+
+  note(_label: string, text: string): void {
+    const lines = displayText(text);
+    this.put({
+      key: `notice-${this.sequence++}`,
+      component: { invalidate() {}, render: (width) => ['', ...wrapTextWithAnsi(lines, Math.max(1, width - 1))] },
+    });
+  }
+
+  private put(item: Item): void {
+    const existing = this.items.findIndex((entry) => entry.key === item.key);
+    if (existing >= 0) this.items[existing] = item;
+    else this.items.push(item);
+    while (this.items.length > HISTORY_ENTRIES) {
+      const dropped = this.items.shift()!;
+      for (const [id, tool] of this.tools) if (tool === dropped.component) this.tools.delete(id);
       this.trimmed = true;
     }
   }
 
-  private message(value: unknown, key: string): void {
+  private toolComponent(id: string, name: string, args: unknown): ToolExecutionComponent {
+    const known = this.tools.get(id);
+    if (known) return known;
+    const component = new ToolExecutionComponent(
+      displayText(name, 80),
+      id,
+      args,
+      { showImages: false },
+      this.options.toolDefinition?.(name) as never,
+      this.ui,
+      this.options.cwd ?? process.cwd(),
+    );
+    component.setExpanded(this.toolsExpanded);
+    this.tools.set(id, component);
+    this.put({ key: `tool-${id}`, component });
+    return component;
+  }
+
+  private assistant(message: AssistantMessage, key: string, streaming: boolean): void {
+    const diagnostic = message.errorMessage
+      ? displayText(this.formatError(message.errorMessage, message.provider), 3000)
+      : '';
+    const shown = assistantForDisplay(message, diagnostic);
+    if (this.streaming?.key === key) {
+      this.streaming.component.updateContent(shown, streaming);
+    } else {
+      const visible = shown.content.some(
+        (block) => (block.type === 'text' && block.text.trim()) || block.type === 'thinking',
+      );
+      if (!visible && !diagnostic) return;
+      const component = new AssistantMessageComponent(shown, this.thinkingHidden, getMarkdownTheme());
+      this.put({ key, component });
+      if (streaming) this.streaming = { key, component };
+    }
+    for (const block of shown.content)
+      if (block.type === 'toolCall') {
+        const known = this.tools.has(block.id);
+        const tool = this.toolComponent(block.id, block.name, block.arguments);
+        if (known) tool.updateArgs(block.arguments);
+      }
+  }
+
+  /** A message from saved history or the event stream, drawn as pi draws it. */
+  private restore(value: unknown, key: string): void {
     if (!value || typeof value !== 'object') return;
-    const message = value as {
-      role?: string;
-      content?: unknown;
-      toolCallId?: string;
-      toolName?: string;
-      provider?: string;
-      errorMessage?: string;
-      output?: string;
-      command?: string;
-      exitCode?: number;
-    };
+    const message = value as { role?: string; [field: string]: unknown };
     if (message.role === 'toolResult') {
-      const previous = this.entries.find((entry) => entry.key === `tool-${message.toolCallId}`);
-      this.put({
-        key: `tool-${message.toolCallId}`,
-        label: previous?.label ?? `tool · ${displayText(message.toolName ?? 'result', 80)}`,
-        context: previous?.context,
-        text: displayText(`${previous?.context ?? ''}\n${contentText(message.content)}`),
-      });
+      const tool = this.tools.get(String(message.toolCallId));
+      if (tool)
+        tool.updateResult({
+          content: Array.isArray(message.content) ? (message.content as never) : [],
+          details: message.details,
+          isError: message.isError === true,
+        });
+      return;
+    }
+    if (message.role === 'assistant') {
+      const assistant = message as unknown as AssistantMessage;
+      this.assistant(assistant, key, false);
+      if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted')
+        for (const block of assistant.content ?? [])
+          if (block.type === 'toolCall')
+            this.tools.get(block.id)?.updateResult({
+              content: [{ type: 'text', text: displayText(assistant.errorMessage ?? 'Operation aborted', 400) }],
+              isError: true,
+            });
       return;
     }
     if (message.role === 'bashExecution') {
-      this.put({
-        key,
-        label: `sandbox · exit ${message.exitCode ?? 'unknown'}`,
-        text: displayText(`${message.command ?? ''}\n${message.output ?? ''}`),
-      });
+      const command = displayText(String(message.command ?? ''), 2000);
+      const component = new BashExecutionComponent(command, this.ui, message.excludeFromContext === true);
+      component.setExpanded(this.toolsExpanded);
+      if (message.output) component.appendOutput(displayText(String(message.output)));
+      component.setComplete(
+        typeof message.exitCode === 'number' ? message.exitCode : undefined,
+        message.cancelled === true,
+      );
+      this.put({ key, component });
       return;
     }
-    const diagnostic = message.errorMessage
-      ? displayText(
-          message.role === 'assistant'
-            ? this.formatError(message.errorMessage, message.provider)
-            : message.errorMessage,
-          3000,
-        )
-      : '';
-    const text = contentText(message.content);
-    // Budget the diagnostic first so a complete streamed/restored body cannot hide its failure.
-    // displayText may append its truncation marker; reserve that space inside the entry bound.
-    const body = diagnostic
-      ? displayText(text, ENTRY_CHARS - diagnostic.length - 1 - '\n[display truncated]'.length)
-      : text;
-    if (body || diagnostic)
-      this.put({
-        key,
-        label: message.role === 'user' ? 'you' : message.role === 'assistant' ? 'agent' : 'session',
-        text: diagnostic ? `${body}\n${diagnostic}` : displayText(body),
-      });
+    if (message.role === 'user') {
+      const text = textOf(message.content);
+      if (text) this.put({ key, component: new UserMessageComponent(text, getMarkdownTheme()) });
+      return;
+    }
+    const diagnostic = typeof message.errorMessage === 'string' ? displayText(message.errorMessage, 3000) : '';
+    const text = textOf(message.content);
+    if (text || diagnostic) this.note('', [text, diagnostic].filter(Boolean).join('\n'));
   }
 
   accept(event: AgentSessionEvent): void {
     switch (event.type) {
-      case 'message_start':
+      case 'message_start': {
         this.currentMessage = `message-${this.sequence++}`;
-        this.message(event.message, this.currentMessage);
-        break;
-      case 'message_update':
-      case 'message_end':
-        this.currentMessage ??= `message-${this.sequence++}`;
-        this.message(event.message, this.currentMessage);
-        if (event.type === 'message_end') this.currentMessage = undefined;
-        break;
-      case 'tool_execution_start': {
-        const context = describeValue(event.args);
-        this.put({
-          key: `tool-${event.toolCallId}`,
-          label: `tool · ${displayText(event.toolName, 80)} · running`,
-          context,
-          text: context,
-        });
+        if ((event.message as { role?: string }).role === 'assistant')
+          this.assistant(event.message as AssistantMessage, this.currentMessage, true);
+        else this.restore(event.message, this.currentMessage);
         break;
       }
+      case 'message_update':
+      case 'message_end': {
+        const message = event.message as { role?: string };
+        if (message.role !== 'assistant') {
+          if (event.type === 'message_end') this.currentMessage = undefined;
+          break;
+        }
+        this.currentMessage ??= `message-${this.sequence++}`;
+        const streaming = event.type === 'message_update';
+        this.assistant(event.message as AssistantMessage, this.currentMessage, streaming);
+        if (event.type === 'message_end') {
+          const done = event.message as AssistantMessage;
+          for (const block of done.content ?? [])
+            if (block.type === 'toolCall') {
+              const tool = this.tools.get(block.id);
+              if (done.stopReason === 'error' || done.stopReason === 'aborted')
+                tool?.updateResult({
+                  content: [{ type: 'text', text: displayText(done.errorMessage ?? 'Operation aborted', 400) }],
+                  isError: true,
+                });
+              else tool?.setArgsComplete();
+            }
+          this.streaming = undefined;
+          this.currentMessage = undefined;
+        }
+        break;
+      }
+      case 'tool_execution_start':
+        this.toolComponent(event.toolCallId, event.toolName, event.args).markExecutionStarted();
+        break;
       case 'tool_execution_update':
-        this.put({
-          key: `tool-${event.toolCallId}`,
-          label: `tool · ${displayText(event.toolName, 80)} · running`,
-          context: describeValue(event.args),
-          text: displayText(`${describeValue(event.args)}\n${contentText(event.partialResult?.content)}`),
-        });
+        this.toolComponent(event.toolCallId, event.toolName, event.args).updateResult(
+          { ...(event.partialResult as { content: never[] }), isError: false },
+          true,
+        );
         break;
       case 'tool_execution_end': {
-        const previous = this.entries.find((entry) => entry.key === `tool-${event.toolCallId}`);
-        const result = contentText(event.result?.content) || describeValue(event.result);
-        this.put({
-          key: `tool-${event.toolCallId}`,
-          label: `tool · ${displayText(event.toolName, 80)} · ${event.isError ? 'failed' : 'finished'}`,
-          context: previous?.context,
-          text: displayText(`${previous?.context ?? ''}\n${result}`),
+        const result = event.result as { content?: never[]; details?: unknown } | undefined;
+        this.toolComponent(event.toolCallId, event.toolName, undefined).updateResult({
+          content: result?.content ?? [],
+          details: result?.details,
+          isError: event.isError,
+          durationMs: (event as { durationMs?: number }).durationMs,
         });
         break;
       }
     }
+    this.options.requestRender?.();
   }
 
   render(width: number): string[] {
     if (width <= 0) return [];
     const lines: string[] = this.trimmed ? ['[earlier display history omitted; session history is retained]'] : [];
-    for (const entry of this.entries) {
-      lines.push(`\x1b[1m${entry.label}\x1b[0m`);
-      lines.push(...wrapTextWithAnsi(entry.text, width), '');
-    }
+    for (const item of this.items) lines.push(...item.component.render(width));
     return lines.slice(-6000);
   }
 }

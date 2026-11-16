@@ -8,6 +8,7 @@ import {
   createEditToolDefinition,
   createReadToolDefinition,
   createWriteToolDefinition,
+  generateDiffString,
   type BashOperations,
   type ExtensionFactory,
   type ToolDefinition,
@@ -26,6 +27,8 @@ export interface SandboxToolsOptions {
   approvalPolicy?: HostApprovalPolicy;
   /** A chat's trust: where Seatbelt confines commands they run without asking, and YOLO turns the sandbox off. */
   hostTrust?: HostTrust;
+  /** A chat shows what a write changed: the result carries a diff, or says the file is new. Pinned runs keep the plain result. */
+  writeDetails?: boolean;
   protectedPaths?: string[];
   /** `.env` files are neither readable through the file tools nor through commands. */
   denyEnv?: boolean;
@@ -298,6 +301,28 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   });
   write.description =
     'Create or replace a regular UTF-8 task file inside /work, at most 64 KiB, using an atomic save. Host paths, pinned verifier and private/control files are not writable.';
+  if (options.writeDetails) {
+    const plainWrite = write.execute;
+    write.execute = async (callId, input, signal, onUpdate, context) => {
+      let before: string | undefined | null;
+      try {
+        before = (await files.read(input.path, toolSignal.getStore() ?? signal)).bytes.toString('utf8');
+      } catch (error) {
+        before = /ENOENT/.test(String(error)) ? undefined : null;
+      }
+      const result = await plainWrite(callId, input, signal, onUpdate, context);
+      if (before === null) return result;
+      const lines = input.content === '' ? 0 : input.content.replace(/\n$/, '').split('\n').length;
+      return {
+        ...result,
+        details: {
+          created: before === undefined,
+          lines,
+          ...(before === undefined ? {} : generateDiffString(before, input.content)),
+        },
+      } as never;
+    };
+  }
   const bash = createBashToolDefinition(root, { operations: shell, exposeSessionEnvironment: false });
   bash.description =
     'Execute a POSIX /bin/sh command inside the isolated task sandbox. No host shell, credentials or general network access. Bash-specific syntax is unavailable.';

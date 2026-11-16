@@ -284,3 +284,24 @@ test(
     assert.equal(results.split('Blocked by the sandbox (network). /yolo allows it.').length - 1, 1);
   },
 );
+
+test('a write tells the transcript whether the file is new and what changed', { timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('write', { path: 'fresh.txt', content: 'one\ntwo\n' }), {
+      stopReason: 'toolUse',
+    }),
+    fauxAssistantMessage(fauxToolCall('write', { path: 'fresh.txt', content: 'one\n2\n' }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('Done.'),
+  ]);
+  const chat = await f.start();
+  await chat.session.prompt('write twice');
+  const details = chat.session.messages
+    .filter((m) => m.role === 'toolResult')
+    .map((m) => (m as { details?: { created: boolean; lines: number; diff?: string } }).details);
+  assert.equal(details[0]?.created, true);
+  assert.equal(details[0]?.lines, 2);
+  assert.equal(details[1]?.created, false);
+  assert.match(details[1]?.diff ?? '', /-2 two/);
+  assert.match(details[1]?.diff ?? '', /\+2 2/);
+});

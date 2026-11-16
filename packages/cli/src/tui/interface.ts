@@ -40,6 +40,7 @@ import { AccountPane } from './account.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
+import { displayDefinition } from './display-tools.ts';
 import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
 import { nativeChatDisplayHistory } from './claude-chat.ts';
 import type { CommandOutput, Prepared } from './prepared.ts';
@@ -249,8 +250,14 @@ export async function runOmsInterface(
     columns: () => terminal.columns,
     rows: () => Math.max(3, Math.floor(terminal.rows / 3)),
   });
-  const conversation = new Conversation(nativeChatDisplayHistory(harness), (message, provider) =>
-    actionError('agent', message, provider),
+  const conversation = new Conversation(
+    nativeChatDisplayHistory(harness),
+    (message, provider) => actionError('agent', message, provider),
+    {
+      toolDefinition: (name) => displayDefinition(name, harness.session.getToolDefinition?.(name)),
+      cwd: harness.root,
+      requestRender: () => requestRender(),
+    },
   );
   if (options.startNote) conversation.note('scratch folder', options.startNote);
   const art = new StartupArt();
@@ -1293,6 +1300,16 @@ export async function runOmsInterface(
       }
       if (focus === 'editor') {
         workbench.handleInput(data);
+        return { consume: true };
+      }
+      if (matchesKey(data, 'ctrl+o')) {
+        setNotice(conversation.toggleToolOutput() ? 'Tool output expanded. Ctrl+O to collapse.' : '');
+        requestRender();
+        return { consume: true };
+      }
+      if (matchesKey(data, 'ctrl+t')) {
+        setNotice(conversation.toggleThinking() ? 'Thinking hidden. Ctrl+T to show.' : '');
+        requestRender();
         return { consume: true };
       }
       if (matchesKey(data, 'escape')) {

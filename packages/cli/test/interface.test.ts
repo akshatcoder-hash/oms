@@ -1439,7 +1439,7 @@ test('the real SDK default placeholder cannot dispatch, mutate conversation, or 
     terminal.send('\x01');
     terminal.send('/status');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('task status'));
+    await terminal.until((s) => s.includes('Task: rent'));
     terminal.send('/verify R1');
     terminal.send('\r');
     await terminal.until(() => f.verified.length === 1);
@@ -1783,11 +1783,15 @@ test('assistant failure projection stays bounded while preserving body and diagn
     errorMessage: 'FAILURE-CONTEXT ' + 'y'.repeat(24_000),
   };
   const canonical = JSON.stringify(message);
-  const display = new Conversation([message]).render(20_000).join('\n');
+  const display = new Conversation([message])
+    .render(120)
+    .join('\n')
+    .replace(/\x1b\[[0-9;]*m/g, '')
+    .replace(/\s+/g, ' ');
   assert.ok(display.includes('BODY-CONTEXT'));
   assert.ok(display.includes('FAILURE-CONTEXT'));
   assert.ok(display.includes('[display truncated]'));
-  assert.ok(display.length <= 12_100, `one displayed entry must remain bounded, received ${display.length} characters`);
+  assert.ok(display.length <= 12_300, `one displayed entry must remain bounded, received ${display.length} characters`);
   assert.equal(JSON.stringify(message), canonical);
 });
 
