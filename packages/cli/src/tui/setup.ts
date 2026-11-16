@@ -148,8 +148,11 @@ export class SetupPane {
               ? 'Codex models'
               : provider.id === 'claude-code'
                 ? 'Claude Code'
-                : `${line(provider.name)} models`,
+                : provider.id === 'xai'
+                  ? 'Grok models'
+                  : `${line(provider.name)} models`,
           description: provider.id === 'claude-code' ? 'Sonnet, Opus or Haiku' : '',
+          keywords: provider.id,
         });
       }
     }
@@ -164,10 +167,11 @@ export class SetupPane {
       const connected = provider.configured ? 'Connected' : '';
       if (provider.apiKey)
         rows.push({
-          rank: 3,
+          rank: 4,
           choice: {
             value: JSON.stringify([provider.id, 'api_key']),
-            label: line(provider.apiKeyLabel ?? `${provider.name} API key`),
+            label:
+              provider.id === 'xai' ? 'Grok (xAI API key)' : line(provider.apiKeyLabel ?? `${provider.name} API key`),
             description: connected,
             keywords: provider.id,
           },
@@ -176,15 +180,18 @@ export class SetupPane {
       if (provider.oauth) {
         const codex = provider.id === 'openai-codex';
         const claude = provider.id === 'claude-code';
+        const grok = provider.id === 'xai';
         rows.push({
-          rank: codex ? 0 : claude ? 1 : 2,
+          rank: codex ? 0 : claude ? 1 : grok ? 2 : 3,
           choice: {
             value: JSON.stringify([provider.id, 'oauth']),
             label: codex
               ? 'Codex (ChatGPT subscription)'
               : claude
                 ? 'Claude Code (Claude subscription)'
-                : line(provider.oauthName ?? provider.oauthLabel ?? `${provider.name} subscription`),
+                : grok
+                  ? 'Grok (SuperGrok or X Premium)'
+                  : line(provider.oauthName ?? provider.oauthLabel ?? `${provider.name} subscription`),
             description: connected,
             keywords: provider.id,
           },
@@ -192,7 +199,7 @@ export class SetupPane {
       }
       if (!provider.apiKey && !provider.oauth && !provider.oauthUnavailable && provider.configured) {
         rows.push({
-          rank: 3,
+          rank: 4,
           choice: {
             value: JSON.stringify([provider.id, 'configured']),
             label: line(provider.name),
@@ -202,7 +209,7 @@ export class SetupPane {
         });
       }
     }
-    rows.sort((a, b) => a.rank - b.rank || (a.rank >= 2 ? a.choice.label.localeCompare(b.choice.label) : 0));
+    rows.sort((a, b) => a.rank - b.rank || (a.rank >= 3 ? a.choice.label.localeCompare(b.choice.label) : 0));
     this.choices.push(...rows.map((row) => row.choice));
   }
 
