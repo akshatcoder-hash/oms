@@ -15,13 +15,13 @@ OMS now works like the pi and Claude Code CLIs: run `oms` in any folder and it e
 
 - On macOS, commands run inside the sandbox without asking. A command the sandbox blocks says so in one line.
 - `oms --yolo` or `/yolo` runs commands without asking and without the sandbox, with full network. The footer shows YOLO while it is on.
-- On Linux, where there is no sandbox, OMS asks once per command with an option to allow it for the session.
-- `.env` files are not readable in a chat. `.git/hooks` and `.git/config` stay read-only.
+- On Linux, where there is no sandbox, OMS asks once per command with an option to allow it for the session. `--yolo` and `/yolo` skip those prompts there too.
+- The agent can read `.env` files, but their values are masked on screen, in tool output, after Ctrl+O and in restored history. Wallet keypairs and `~/.config/solana` stay blocked. `.git/hooks` and `.git/config` stay read-only.
 
 ### A quieter screen
 
 - The conversation, the input and one footer line (folder, model, context). Thinking is shown; reads are one line; edits show only the changed lines; commands show their last lines. Ctrl+O expands, Ctrl+T hides thinking.
-- `/connect` lists Codex (ChatGPT) and Claude Code first. `/help` lists every command on one screen. `/exit` and Ctrl+D leave.
+- `/connect` lists Codex (ChatGPT), Claude Code and Grok (SuperGrok or X Premium, or an xAI API key) first. `/help` lists every command on one screen. `/exit` and Ctrl+D leave.
 
 ### Fixes
 

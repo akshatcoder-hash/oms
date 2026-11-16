@@ -97,7 +97,9 @@ test('/connect puts Claude Code between Codex and Grok', (t) => {
       listModels: () => [],
       async selectModel() {},
       async loginProvider() {},
-      async importEnvironment() {},
+      async importEnvironment(): Promise<never> {
+        throw new Error('not used');
+      },
     },
     {
       mode: 'connect',

@@ -196,17 +196,7 @@ export function createTaskFileAccess(
   ) => {
     signal?.throwIfAborted();
     const result = await execute(
-      [
-        'node',
-        '-e',
-        FILE_OPERATION,
-        operation,
-        path,
-        content,
-        expected,
-        root,
-        JSON.stringify(protectedPaths),
-      ],
+      ['node', '-e', FILE_OPERATION, operation, path, content, expected, root, JSON.stringify(protectedPaths)],
       signal,
     );
     if (result.cancelled) throw new Error('Task file operation was cancelled');
