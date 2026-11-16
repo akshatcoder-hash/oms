@@ -7,6 +7,8 @@ import {
   createWriteToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import { displayDefinition } from '../src/tui/display-tools.ts';
+import { setKeybindings } from '@earendil-works/pi-tui';
+import { omsKeybindings } from '../src/tui/interface.ts';
 import { Conversation } from '../src/tui/transcript.ts';
 
 const cwd = '/work/project';
@@ -169,4 +171,9 @@ test('an absolute path inside the folder is shown relative to it, and the edit d
   assert.match(screen, /read src\/big\.ts/);
   assert.ok(!screen.includes(cwd), 'the folder prefix is dropped');
   assert.match(screen, /\+1 console\.log\("hi"\);/);
+});
+
+test('collapsed output names the key that expands it', () => {
+  setKeybindings(omsKeybindings({}));
+  assert.match(plain(streamed().render(100)), /ctrl\+o to expand/);
 });

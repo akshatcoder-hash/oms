@@ -123,6 +123,18 @@ class InterfaceRenderer extends TuiAltScreen {
 }
 
 /** One OMS presentation over the live session. Whole-app quit/failure closes its owner; layout never does. */
+/** The interface's key registry. pi's tool renderers print the two app keys in their hints; OMS handles them itself. */
+export function omsKeybindings(owned: KeybindingsConfig): KeybindingsManager {
+  return new KeybindingsManager(
+    {
+      ...TUI_KEYBINDINGS,
+      'app.tools.expand': { defaultKeys: 'ctrl+o', description: 'Toggle tool output' },
+      'app.thinking.toggle': { defaultKeys: 'ctrl+t', description: 'Toggle thinking blocks' },
+    },
+    owned,
+  );
+}
+
 export async function runOmsInterface(
   harness: OmsSession,
   options: {
@@ -1483,7 +1495,7 @@ export async function runOmsInterface(
   try {
     // The fullscreen renderer consults the public registry before dispatching input.
     // Disable its navigation/search defaults so only the currently focused OMS pane owns keys.
-    setKeybindings(new KeybindingsManager(TUI_KEYBINDINGS, ownedBindings));
+    setKeybindings(omsKeybindings(ownedBindings));
     refreshRequirements();
     unsubscribe = harness.session.subscribe((event) => {
       try {
