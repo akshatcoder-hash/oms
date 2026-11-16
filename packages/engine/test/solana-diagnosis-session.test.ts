@@ -22,7 +22,7 @@ const PROGRAM = 'Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS';
 const text = (message: { content: Array<{ type: string; text?: string }> }) =>
   message.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
 
-test('failed bash simulations deliver deployment notes once and a new session delivers them again', async () => {
+test('a deployment note is shown once per conversation and again after the conversation is cleared', async () => {
   const event = {
     type: 'tool_result',
     toolName: 'bash',
@@ -36,23 +36,28 @@ test('failed bash simulations deliver deployment notes once and a new session de
       },
     ],
   } as ToolResultEvent;
-  for (let session = 0; session < 2; session++) {
-    let handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult> | undefined;
-    await createDiagnosisExtension({ codeRoot: '/nonexistent', rpcUrl: 'http://127.0.0.1:0' })({
-      on(name: string, registered: unknown) {
-        if (name === 'tool_result') handler = registered as typeof handler;
-      },
-      registerTool() {},
-    } as unknown as ExtensionAPI);
-    const result = handler;
-    assert.ok(result);
-    const first = await result(event, {} as ExtensionContext);
-    assert.ok(first?.content);
-    assert.match(text({ content: first.content }), /Note for Orca Whirlpools: On existing pools/);
-    const second = await result({ ...event, toolCallId: 'second-simulation' }, {} as ExtensionContext);
-    assert.ok(second?.content);
-    assert.match(text({ content: second.content }), /Solana failure diagnosis/);
-    assert.doesNotMatch(text({ content: second.content }), /Note for /);
+  let handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult> | undefined;
+  await createDiagnosisExtension({ codeRoot: '/nonexistent', rpcUrl: 'http://127.0.0.1:0' })({
+    on(name: string, registered: unknown) {
+      if (name === 'tool_result') handler = registered as typeof handler;
+    },
+    registerTool() {},
+  } as unknown as ExtensionAPI);
+  assert.ok(handler);
+  let branch: unknown[] = [];
+  const ctx = { sessionManager: { getBranch: () => branch } } as unknown as ExtensionContext;
+  const run = async (id: string) => {
+    const result = await handler!({ ...event, toolCallId: id }, ctx);
+    assert.ok(result?.content);
+    branch.push({ type: 'message', message: { role: 'toolResult', content: result.content } });
+    return text({ content: result.content });
+  };
+  for (let conversation = 0; conversation < 2; conversation++) {
+    assert.match(await run(`first-${conversation}`), /Note for Orca Whirlpools: On existing pools/);
+    const second = await run(`second-${conversation}`);
+    assert.match(second, /Solana failure diagnosis/);
+    assert.doesNotMatch(second, /Note for /);
+    branch = [];
   }
 });
 
