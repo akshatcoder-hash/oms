@@ -62,13 +62,12 @@ export function describeRejection(provider: string, status: number, body: string
   return clean ? `${name} rejected the request: ${clean}` : `${name} rejected the request (HTTP ${status}).`;
 }
 
-/** Any other failed request: the provider's reason in one line, and what to do next. */
-export function describeFailure(provider: string, cause: string | undefined): string {
-  const name = providerName(provider);
-  const clean = plain(cause).replace(/\.$/, '');
-  return clean
-    ? `${name} request failed: ${clean}. Send your message again to retry.`
-    : `${name} request failed. Send your message again to retry.`;
+/**
+ * A request that broke off after it was sent. The provider's raw text stays out of the transcript, and the words must not
+ * read as retryable to pi, which would resend a request whose cost is already uncertain.
+ */
+export function describeFailure(provider: string): string {
+  return `${providerName(provider)}'s answer broke off before it finished. It is counted at its maximum cost. Send your message again to continue.`;
 }
 
 function plain(text: string | undefined): string {

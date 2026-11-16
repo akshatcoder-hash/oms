@@ -327,7 +327,7 @@ test('partial provider error preserves the reservation and hides raw diagnostics
   });
   const first = await consume(f.stream);
   assert.equal(first.result.stopReason, 'error');
-  assert.match(first.result.errorMessage!, /unknown/i);
+  assert.match(first.result.errorMessage!, /counted at its maximum cost/);
   assert.ok(!JSON.stringify(first).includes('secret-token-provider-body'));
   assert.equal(f.ledger.snapshot().accounting, 'unknown');
   assert.equal(f.ledger.snapshot().used.tokens, 1050);

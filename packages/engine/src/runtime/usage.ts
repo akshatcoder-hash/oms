@@ -552,7 +552,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           if (next.done) break;
           const event = next.value;
           if (event.type === 'error') {
-            // Operator diagnostics: the raw cause. The transcript gets it cleaned by describeFailure.
+            // Operator diagnostics only (never in the transcript): the raw cause behind the plain user-facing message.
             const errorMessage = (event as { error?: { errorMessage?: string } }).error?.errorMessage;
             if (process.env.OMS_STREAM_DEBUG)
               console.error(
@@ -562,7 +562,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
             if (releaseUnsent() || releaseRejected()) return;
             if (event.reason !== 'aborted' && interrupted(errorMessage)) return;
             uncertain();
-            failed(describeFailure(model.provider, errorMessage), event.reason === 'aborted');
+            failed(describeFailure(model.provider), event.reason === 'aborted');
             return;
           }
           if (event.type === 'done') {

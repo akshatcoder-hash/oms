@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { isRetryableAssistantError, type AssistantMessage } from '@earendil-works/pi-ai';
 import { describeFailure, describeRejection } from '../src/runtime/provider-rejection.ts';
 
-test('a failed request names the provider and its reason, never a key or raw JSON', () => {
+test('a request that broke off names the provider, hides its raw text and does not read as retryable', () => {
+  const text = describeFailure('xai');
   assert.equal(
-    describeFailure('xai', 'xai API error (500): upstream timed out\nfor key xai-ABCDEFGHIJKLMNOP'),
-    'xAI request failed: xai API error (500): upstream timed out for key [key]. Send your message again to retry.',
+    text,
+    "xAI's answer broke off before it finished. It is counted at its maximum cost. Send your message again to continue.",
   );
-  assert.equal(describeFailure('openai', undefined), 'OpenAI request failed. Send your message again to retry.');
+  assert.equal(isRetryableAssistantError({ stopReason: 'error', errorMessage: text } as AssistantMessage), false);
 });
 
 test('a rejected request quotes the provider message from its JSON body', () => {
