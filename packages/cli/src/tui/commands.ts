@@ -110,14 +110,50 @@ const KEYBOARD_HELP =
   'Editor: Ctrl+S save, Ctrl+F find, Ctrl+H replace, Ctrl+W close tab, Ctrl+Tab next tab. Ctrl+\\ changes split side.\n' +
   'Terminal: Ctrl+C interrupts its process; /terminal stop releases it for independent verification.\n' +
   'Agent: Enter sends, Shift/Alt+Enter adds a newline. /cancel requests cancellation. Ctrl+Q quits after cleanup; dirty files need confirmation.\n' +
+  'Transcript: Ctrl+O shows or collapses full tool output. Ctrl+T hides or shows thinking. Ctrl+D on an empty input leaves.\n' +
   'Setup: ↑↓ chooses an authentication method; PgUp/PgDn scrolls disclosures without moving that choice. Ctrl+U clears masked entry. Ctrl+X copies the setup link. Keys and sign-in codes belong only in /connect.';
 
-/** /help lists every command and the keyboard controls. It lives here because it renders the table. */
-const help: CommandHandler = (ctx, _argument, draft) => {
-  ctx.conversation.note('commands', commandHelp(ctx.harness.kind) + KEYBOARD_HELP);
+/** The commands a chat lists in /help, in this order; the rest are still typed or found with /. */
+const CHAT_HELP = [
+  'connect',
+  'model',
+  'yolo',
+  'web',
+  'run',
+  'test',
+  'diff',
+  'status',
+  'usage',
+  'clear',
+  'files',
+  'review',
+  'chain',
+  'airdrop',
+  'tx',
+  'program',
+  'error',
+];
+const CHAT_KEYS =
+  'Enter sends · Shift+Enter adds a line · Esc cancels · Ctrl+O shows full tool output · Ctrl+T hides thinking · Ctrl+D leaves\n' +
+  '/help keys lists every key.';
+
+export function chatHelp(): string {
+  const rows = CHAT_HELP.map((name) => findCommand(name)!).map((command) => [`/${command.name}`, command.description]);
+  rows.push(['/exit (or /quit)', 'Leave']);
+  const width = Math.max(...rows.map(([name]) => name!.length)) + 2;
+  return rows.map(([name, text]) => `${name!.padEnd(width)}${text}`).join('\n') + '\n\n' + CHAT_KEYS;
+}
+
+/** /help lists the commands and a few keys; /help keys lists every key. It lives here because it renders the table. */
+const help: CommandHandler = (ctx, argument, draft) => {
+  const chat = ctx.harness.kind === 'chat';
+  ctx.conversation.note(
+    'commands',
+    argument === 'keys' ? KEYBOARD_HELP.trimStart() : chat ? chatHelp() : commandHelp(ctx.harness.kind) + KEYBOARD_HELP,
+  );
   ctx.clearDraft(draft);
   ctx.switchView('harness');
-  ctx.setFocus('conversation');
+  if (!chat) ctx.setFocus('conversation');
   ctx.scrollToEnd();
 };
 
@@ -126,21 +162,21 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'workbench',
     group: 'Navigate',
-    description: 'Files and terminal · same agent',
+    description: 'Editor, files and terminal',
     whileBusy: 'accepted',
     run: uiCommands.workbench,
   },
   {
     name: 'harness',
     group: 'Navigate',
-    description: 'Return to the agent conversation',
+    description: 'Back to the conversation',
     whileBusy: 'accepted',
     run: uiCommands.harness,
   },
   {
     name: 'files',
     group: 'Navigate',
-    description: 'Browse files · Ctrl+P',
+    description: 'Browse files',
     whileBusy: 'accepted',
     run: uiCommands.files,
   },
@@ -156,14 +192,16 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'help',
     group: 'Navigate',
-    description: 'Keyboard controls and all commands',
+    description: 'Commands and keys',
+    argument: '[keys]',
+    accepts: (argument) => argument === '' || argument === 'keys',
     whileBusy: 'accepted',
     run: help,
   },
   {
     name: 'model',
     group: 'Setup',
-    description: 'Choose a model in this session',
+    description: 'Pick a model',
     argument: '[search]',
     accepts: any,
     whileBusy: 'accepted',
@@ -172,7 +210,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'connect',
     group: 'Setup',
-    description: 'Provider sign-in or confirmed private file import',
+    description: 'Sign in or add an API key',
     argument: '[provider|import <path>]',
     accepts: any,
     whileBusy: 'accepted',
@@ -181,7 +219,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'theme',
     group: 'Setup',
-    description: 'Foreground colors; inherited background',
+    description: 'Colors',
     argument: '[name]',
     accepts: any,
     whileBusy: 'accepted',
@@ -199,7 +237,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'web',
     group: 'Setup',
-    description: 'Web search, fetch and Solana MCP for this session',
+    description: 'Web search on or off',
     argument: '[on|off]',
     accepts: acceptsWeb,
     whileBusy: 'accepted',
@@ -208,7 +246,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'yolo',
     group: 'Setup',
-    description: 'Run commands without asking and without the sandbox',
+    description: 'Run commands without asking or the sandbox',
     availability: 'chat',
     whileBusy: 'accepted',
     run: uiCommands.yolo,
@@ -216,7 +254,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'settings',
     group: 'Setup',
-    description: 'Canonical harness preferences and policy limits',
+    description: 'Preferences and limits',
     accepts: any,
     whileBusy: 'accepted',
     run: uiCommands.settings,
@@ -224,21 +262,21 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'login',
     group: 'Setup',
-    description: 'Sign in to OMS (hosted web search) through browser device authorization',
+    description: 'Sign in to OMS for hosted search',
     whileBusy: 'accepted',
     run: uiCommands.login,
   },
   {
     name: 'logout',
     group: 'Setup',
-    description: 'Revoke OMS access; retain provider credentials and local files',
+    description: 'Sign out of OMS',
     whileBusy: 'accepted',
     run: uiCommands.logout,
   },
   {
     name: 'account',
     group: 'Setup',
-    description: 'OMS account status; with an address, a local-chain account',
+    description: 'OMS account, or a chain account with an address',
     argument: '[address]',
     accepts: any,
     whileBusy: 'always',
@@ -248,7 +286,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'review',
     group: 'Inspect',
-    description: 'Offline Phase A security report · no model',
+    description: 'Security report for a Solana program',
     whileBusy: 'never',
     cancellable: false,
     activity: 'review',
@@ -257,21 +295,21 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'status',
     group: 'Inspect',
-    description: 'Model and full budget; a task adds requirements and proof',
+    description: 'Model and budget',
     whileBusy: 'always',
     run: (ctx) => prepareStatus(ctx),
   },
   {
     name: 'session',
     group: 'Inspect',
-    description: 'Session and folder, or repository and task',
+    description: 'Session details',
     whileBusy: 'always',
     run: (ctx) => prepareSession(ctx.harness),
   },
   {
     name: 'diff',
     group: 'Inspect',
-    description: 'Changes against the base commit; long diffs open in the workbench',
+    description: 'What changed',
     argument: '[path]',
     accepts: any,
     whileBusy: 'always',
@@ -280,7 +318,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'usage',
     group: 'Inspect',
-    description: 'Tokens, spend, time and the budget caps',
+    description: 'Tokens, spend and time',
     accepts: any,
     whileBusy: 'always',
     run: (ctx, argument) => prepareUsage(argument, ctx.harness),
@@ -288,12 +326,12 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'requirements',
     group: 'Inspect',
-    description: 'Toggle requirements beside conversation',
+    description: 'Show requirements beside the conversation',
     availability: 'task',
     whileBusy: 'accepted',
     run: (ctx, argument, draft) =>
       ctx.harness.kind === 'chat'
-        ? refuseWith('A chat has no pinned requirements. oms task create pins them.')
+        ? refuseWith('Requirements come with a task made by oms task create.')
         : uiCommands.requirements(ctx, argument, draft),
   },
   {
@@ -363,7 +401,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'verify',
     group: 'Work',
-    description: 'Independent offline verification',
+    description: 'Check a requirement',
     availability: 'task',
     argument: '[item-id]',
     accepts: singleWord,
@@ -375,7 +413,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'run',
     group: 'Work',
-    description: 'Run a sandbox command',
+    description: 'Run a command in the sandbox',
     argument: '<command>',
     needsArgument: true,
     accepts: nonBlank,
@@ -385,7 +423,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'test',
     group: 'Work',
-    description: 'Run the project tests in the sandbox',
+    description: 'Run the project tests',
     accepts: any,
     whileBusy: 'never',
     run: (ctx, argument) => prepareTest(argument, ctx.harness),
@@ -393,7 +431,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'goal',
     group: 'Work',
-    description: 'Work until an independent check passes',
+    description: 'Keep going until a check passes',
     argument: '[<text> [--check "<command>"] | clear]',
     accepts: any,
     whileBusy: (argument) => !argument.trim(),
@@ -402,7 +440,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'clear',
     group: 'Work',
-    description: 'Fresh conversation; your files stay',
+    description: 'New conversation; files stay',
     accepts: any,
     whileBusy: 'never',
     run: clearConversation,
@@ -410,21 +448,28 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'cancel',
     group: 'Work',
-    description: 'Request cancellation of current work',
+    description: 'Stop the current work',
     whileBusy: 'accepted',
     run: uiCommands.cancel,
   },
   {
+    name: 'exit',
+    group: 'Work',
+    description: 'Leave, after checking unsaved files',
+    whileBusy: 'accepted',
+    run: (ctx) => ctx.quit(),
+  },
+  {
     name: 'quit',
     group: 'Work',
-    description: 'Close after cleanup; protects dirty files',
+    description: 'Same as /exit',
     whileBusy: 'accepted',
     run: (ctx) => ctx.quit(),
   },
   {
     name: 'chain',
     group: 'Solana',
-    description: 'Local Surfpool: RPC, slot, fork state, health',
+    description: 'Local Solana network',
     accepts: any,
     whileBusy: 'always',
     run: (ctx, argument) => prepareChain(argument, ctx.harness),
@@ -432,7 +477,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'rewind',
     group: 'Solana',
-    description: 'Restore the local chain to its starting state',
+    description: 'Reset the local chain',
     argument: '[confirm]',
     accepts: any,
     whileBusy: 'never',
@@ -441,7 +486,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'airdrop',
     group: 'Solana',
-    description: 'Local-chain SOL airdrop, up to 100',
+    description: 'Airdrop SOL on the local chain',
     argument: '<address> [sol]',
     needsArgument: true,
     accepts: any,
@@ -451,7 +496,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'tx',
     group: 'Solana',
-    description: 'Local-chain transaction: status, error, compute, logs',
+    description: 'Local-chain transaction',
     argument: '<signature>',
     needsArgument: true,
     accepts: any,
@@ -471,7 +516,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'error',
     group: 'Solana',
-    description: 'Decode a custom program error code',
+    description: 'Decode a program error code',
     argument: '<code> [program]',
     needsArgument: true,
     accepts: any,
@@ -520,9 +565,11 @@ export function commandHelp(kind: 'task' | 'chat' = 'task'): string {
       (group) =>
         `${group}\n` +
         available(kind)
-          .filter((command) => command.group === group)
-          .map(
-            (command) => `/${command.name}${command.argument ? ' ' + command.argument : ''} — ${command.description}`,
+          .filter((command) => command.group === group && command.name !== 'quit')
+          .map((command) =>
+            command.name === 'exit'
+              ? `/exit (or /quit) — ${command.description}`
+              : `/${command.name}${command.argument ? ' ' + command.argument : ''} — ${command.description}`,
           )
           // /account is one name for two jobs (OMS account, or with an address a chain account), listed once in the menu under Setup.
           .concat(

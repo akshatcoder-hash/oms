@@ -632,7 +632,7 @@ export async function runOmsInterface(
       return;
     }
     closing = true;
-    setNotice('Closing OMS; awaiting authoritative cleanup.');
+    setNotice('Closing...');
     if (!active || active.cancellable) cancel();
     shutdown = Promise.resolve()
       .then(() => harness.close())
@@ -864,7 +864,7 @@ export async function runOmsInterface(
     const composerDraft = fromPalette ? undefined : draft;
     if (!draft.trim()) return;
     const trimmed = draft.trim();
-    if (trimmed === '/quit') {
+    if (trimmed === '/quit' || trimmed === '/exit') {
       quit();
       return;
     }
@@ -872,7 +872,7 @@ export async function runOmsInterface(
       setNotice('Closing; draft retained.');
       return;
     }
-    if (trimmed === '/quit discard') {
+    if (trimmed === '/quit discard' || trimmed === '/exit discard') {
       quit(true);
       return;
     }
@@ -1299,6 +1299,10 @@ export async function runOmsInterface(
         !setup &&
         !paletteInput &&
         ((focus === 'editor' && !workbench.acceptsText) || (focus === 'terminal' && !shell.running));
+      if (matchesKey(data, 'ctrl+d') && focus === 'input' && !setup && !paletteInput && !input.document.text) {
+        quit();
+        return { consume: true };
+      }
       if (matchesKey(data, 'ctrl+k') || matchesKey(data, 'alt+/') || slashNavigation) {
         openPalette();
         return { consume: true };

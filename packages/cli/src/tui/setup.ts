@@ -26,6 +26,8 @@ interface Choice {
   value: string;
   label: string;
   description: string;
+  /** Searchable but not shown: the provider id. */
+  keywords?: string;
 }
 interface SetupOptions {
   mode: SetupMode;
@@ -117,9 +119,8 @@ export class SetupPane {
   }
 
   get label(): string {
-    return this.stage === 'auth'
-      ? `CONNECT · ${line(this.provider ?? '')}`
-      : `SEARCH · ${this.stage === 'providers' ? 'providers / sign-in methods' : this.stage}`;
+    if (this.stage === 'auth' || this.stage === 'models') return line(this.provider ?? '');
+    return this.options.mode === 'model' ? 'Model' : 'Sign in';
   }
   get hint(): string {
     if (this.stage === 'auth') {
@@ -144,17 +145,15 @@ export class SetupPane {
           value: JSON.stringify([provider.id, 'configured']),
           label:
             provider.id === 'openai-codex'
-              ? 'Codex models (ChatGPT)'
+              ? 'Codex models'
               : provider.id === 'claude-code'
                 ? 'Claude Code'
                 : `${line(provider.name)} models`,
-          description:
-            provider.id === 'claude-code'
-              ? 'Installed CLI · subscription · Sonnet, Opus or Haiku'
-              : 'Connected · choose a model explicitly',
+          description: provider.id === 'claude-code' ? 'Sonnet, Opus or Haiku' : '',
         });
       }
     }
+    const rows: { rank: number; choice: Choice }[] = [];
     for (const provider of providers) {
       if (
         this.options.mode === 'model' &&
@@ -162,36 +161,49 @@ export class SetupPane {
         this.harness.listModels().some((model) => model.provider === provider.id)
       )
         continue;
+      const connected = provider.configured ? 'Connected' : '';
       if (provider.apiKey)
-        this.choices.push({
-          value: JSON.stringify([provider.id, 'api_key']),
-          label: line(provider.apiKeyLabel ?? `${provider.name} API key`),
-          description: line(
-            `${provider.id} · ${provider.configured ? 'configured' : 'add API key'} · ${provider.id === 'opencode-go' ? 'subscription limits; optional extra usage billing' : 'usage-based provider billing'}`,
-          ),
+        rows.push({
+          rank: 3,
+          choice: {
+            value: JSON.stringify([provider.id, 'api_key']),
+            label: line(provider.apiKeyLabel ?? `${provider.name} API key`),
+            description: connected,
+            keywords: provider.id,
+          },
         });
-      if (provider.oauth || provider.oauthUnavailable)
-        this.choices.push({
-          value: JSON.stringify([provider.id, 'oauth']),
-          label:
-            this.options.mode === 'model' && provider.id === 'claude-code'
-              ? 'Claude Code'
-              : line(provider.oauthLabel ?? `${provider.name} subscription`),
-          description:
-            provider.id === 'claude-code'
-              ? `Local Claude Code · ${provider.configured ? 'login checked' : 'check installed CLI and login'} · plan limits apply`
-              : provider.oauthUnavailable
-                ? 'Unavailable in direct model access · choose for explanation'
-                : `${provider.id} · ${provider.configured ? 'configured' : 'sign in'} · plan limits apply; not unlimited`,
+      // Anthropic's own plans cannot be used here; the row existed only to say so.
+      if (provider.oauth) {
+        const codex = provider.id === 'openai-codex';
+        const claude = provider.id === 'claude-code';
+        rows.push({
+          rank: codex ? 0 : claude ? 1 : 2,
+          choice: {
+            value: JSON.stringify([provider.id, 'oauth']),
+            label: codex
+              ? 'Codex (ChatGPT subscription)'
+              : claude
+                ? 'Claude Code (Claude subscription)'
+                : line(provider.oauthLabel ?? `${provider.name} subscription`),
+            description: connected,
+            keywords: provider.id,
+          },
         });
+      }
       if (!provider.apiKey && !provider.oauth && !provider.oauthUnavailable && provider.configured) {
-        this.choices.push({
-          value: JSON.stringify([provider.id, 'configured']),
-          label: line(provider.name),
-          description: `${provider.id} · configured externally`,
+        rows.push({
+          rank: 3,
+          choice: {
+            value: JSON.stringify([provider.id, 'configured']),
+            label: line(provider.name),
+            description: 'Connected',
+            keywords: provider.id,
+          },
         });
       }
     }
+    rows.sort((a, b) => a.rank - b.rank || (a.rank >= 2 ? a.choice.label.localeCompare(b.choice.label) : 0));
+    this.choices.push(...rows.map((row) => row.choice));
   }
 
   private setChoices(choices: Choice[]): void {
@@ -234,7 +246,9 @@ export class SetupPane {
     const rows = Math.max(1, Math.min(8, this.bodyHeight() - 4));
     if (!this.list || query !== this.filter || rows !== this.listRows) {
       const items = this.choices
-        .filter((choice) => `${choice.label} ${choice.description}`.toLowerCase().includes(query))
+        .filter((choice) =>
+          `${choice.label} ${choice.description} ${choice.keywords ?? ''}`.toLowerCase().includes(query),
+        )
         .sort(
           (left, right) =>
             Number(right.label.toLowerCase().includes(query)) - Number(left.label.toLowerCase().includes(query)),
@@ -270,13 +284,13 @@ export class SetupPane {
     const palette = this.options.theme();
     const title =
       this.stage === 'theme'
-        ? 'Themes · terminal background is unchanged'
+        ? 'Theme'
         : this.stage === 'providers'
           ? this.options.mode === 'model'
-            ? 'Choose a connected provider'
-            : 'Choose provider and sign-in method'
+            ? 'Choose a provider'
+            : 'Choose how to sign in'
           : this.stage === 'models'
-            ? 'Models · choose explicitly; current selection is unchanged'
+            ? 'Choose a model'
             : `Connect ${line(this.provider ?? '')}`;
     const lines = [colorText(palette, 'accent', truncateToWidth(title, width, ''))];
     if (this.note) lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', line(this.note)), Math.max(1, width)));
@@ -290,53 +304,7 @@ export class SetupPane {
       );
     }
     if (this.message) lines.push(...wrapTextWithAnsi(colorText(palette, 'warning', this.message), Math.max(1, width)));
-    if (this.provider === 'openai-codex') {
-      lines.push(
-        ...wrapTextWithAnsi(
-          'Codex: full catalog output capacity reserved; local output cap is not enforceable. Spend is catalog-equivalent, not your subscription invoice.',
-          Math.max(1, width),
-        ),
-      );
-      lines.push(
-        ...wrapTextWithAnsi(
-          'ChatGPT sign-in does not configure the OpenAI API or other providers. Choose a Codex model below.',
-          Math.max(1, width),
-        ),
-      );
-    }
-    if (this.provider === 'opencode-go') {
-      lines.push(
-        ...wrapTextWithAnsi(
-          'Go: plan limits apply; provider extra-usage settings may allow additional billing. OMS uses catalog-equivalent spend, not your subscription invoice.',
-          Math.max(1, width),
-        ),
-      );
-    }
     if (this.provider === 'claude-code') {
-      lines.push(
-        ...wrapTextWithAnsi(
-          'Claude Code uses its own local subscription login. OMS does not copy its credentials. Plan limits apply.',
-          Math.max(1, width),
-        ),
-      );
-      lines.push(
-        ...wrapTextWithAnsi(
-          'Claude owns a native chat for this OMS conversation. OMS tools keep their approvals, sandbox and independent verification.',
-          Math.max(1, width),
-        ),
-      );
-      lines.push(
-        ...wrapTextWithAnsi(
-          'Returning to Claude resumes its own history. Messages sent to other providers are not imported. /session shows the native session.',
-          Math.max(1, width),
-        ),
-      );
-      lines.push(
-        ...wrapTextWithAnsi(
-          'OMS reserves full catalog context and output capacity; Claude Code cannot enforce the local output cap. Total token and time limits still apply.',
-          Math.max(1, width),
-        ),
-      );
       if (this.stage === 'auth')
         lines.push(
           ...wrapTextWithAnsi(
@@ -348,21 +316,8 @@ export class SetupPane {
     if (this.stage === 'auth') {
       lines.push(
         ...[
-          this.provider === 'claude-code'
-            ? 'Authentication stays in Claude Code; this step checks local access without a model request.'
-            : 'Stored only in private OMS configuration; never in chat or task files.',
-          ...(this.provider === 'claude-code'
-            ? []
-            : [
-                this.method === 'api_key'
-                  ? 'Saving a key does not validate it or send a model request.'
-                  : 'Open the URL yourself. Sign-in contacts the provider; no model request is sent.',
-              ]),
           ...(this.authUrl
-            ? [
-                hyperlink(this.authUrl, this.authUrl),
-                'Ctrl+X copies the complete link; do not reconstruct it from wrapped text.',
-              ]
+            ? ['Open this link to sign in.', hyperlink(this.authUrl, this.authUrl), 'Ctrl+X copies the link.']
             : []),
           ...this.authLines,
           ...(this.prompt && this.prompt.type !== 'select' ? [line(this.prompt.message)] : []),
@@ -621,10 +576,8 @@ export class SetupPane {
         this.showModels(provider);
         this.options.notice(
           provider === 'claude-code'
-            ? 'Local Claude Code login checked; select a model. Plan limits apply.'
-            : method === 'api_key'
-              ? `Provider configuration saved for ${line(provider)}; not validated. Select a model.`
-              : `Sign-in completed for ${line(provider)}. Plan limits still apply; select a model.`,
+            ? 'Claude Code is ready. Select a model.'
+            : `Connected to ${line(provider)}. Select a model.`,
         );
       }
     } catch {

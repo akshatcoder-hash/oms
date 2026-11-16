@@ -54,7 +54,8 @@ export async function createChatSession(options: ChatSessionOptions): Promise<Ch
   const { folder, stateRoot } = options;
   if (backendFor(options.environment).requiresDocker) throw new Error(DOCKER_CHAT_REFUSAL);
   const root = chatRoot(folder, stateRoot);
-  warnAboutBackend(options.environment, stateRoot);
+  // Seatbelt is the protection and needs no warning; the missing sandbox elsewhere is told once.
+  if (backendFor(options.environment).notice()?.key !== 'seatbelt') warnAboutBackend(options.environment, stateRoot);
   const trust: HostTrust = { yolo: options.yolo === true, allowed: new Set() };
   options = { ...options, hostTrust: trust };
   return startSession(await acquireChatLease(root), async (life) => {

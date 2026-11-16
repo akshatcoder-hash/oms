@@ -17,7 +17,7 @@ The first launch installs Surfpool 1.7.0 and verifies its SHA-256; `oms doctor -
 
 `oms --version` prints the version. To run a source checkout instead, use `npm ci --ignore-scripts`, run `node packages/cli/src/bin.ts doctor --install`, then `npm start`. See [quickstart](docs/quickstart.md) for the source setup commands.
 
-In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. Type a request only when you want to send it to the provider. Opening OMS sends no model request. `/help` lists commands; `/quit` closes the session.
+In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. `/help` lists commands; `/exit` (or `/quit`, or Ctrl+D on an empty input) closes the session. `/yolo`, or `oms --yolo`, runs commands without asking and without the sandbox.
 
 `oms` works in the folder you run it in, like any editor: the agent reads and edits your files there, including uncommitted ones, so keep the folder under Git and use `/diff` to review. OMS creates nothing inside the folder; its state for each folder lives under `~/.oms/folders/`. Run `oms` again in the same folder to resume the last conversation. In your home folder, `/`, or a folder that holds keys or OMS's own state, OMS opens a scratch folder instead and says so.
 

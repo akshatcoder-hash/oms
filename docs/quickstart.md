@@ -11,9 +11,9 @@ Run `oms` in any folder: it opens a chat that edits that folder in place, keeps 
 
 In a source checkout, run `npm ci --ignore-scripts`, then `node packages/cli/src/bin.ts doctor --install` and `npm start`.
 
-Docker is not part of the install. `npm start` uses host mode: on macOS commands run under a Seatbelt profile (writes only in the folder, no access to keys or other repos, network only to Surfnet); on Linux v0.1 there is no sandbox and OMS warns at startup. Commands need your approval in both. Optional: `--sandbox docker` selects Docker for untrusted repositories with `oms task create` and `oms run`; plain `oms` does not run in Docker.
+Docker is not part of the install. `npm start` uses host mode: on macOS commands run under a Seatbelt profile without asking (writes only in the folder, no access to keys or other repos, network only to Surfnet); on Linux v0.1 there is no sandbox, OMS tells you once at startup, and each command asks first: allow it once, allow it for the session, or deny. `/yolo` (or `oms --yolo`) turns the asking and the sandbox off, and the footer shows YOLO while it is on. Optional: `--sandbox docker` selects Docker for untrusted repositories with `oms task create` and `oms run`; plain `oms` does not run in Docker.
 
-Enter the slash commands below inside OMS, not in your shell. Arrow keys select a row; Enter confirms; Esc returns. `/connect` configures access and `/model` selects a model. A row marked **Connected** means credentials are configured locally. Saving a key sends no validation request. Only a successful model response proves the live connection works, and that request can consume your plan allowance or paid usage. Never paste credentials into chat, source files or bug reports.
+Enter the slash commands below inside OMS, not in your shell. Arrow keys select a row; Enter confirms; Esc returns. `/connect` configures access and `/model` selects a model. A row marked **Connected** means credentials are configured locally. Never paste credentials into chat, source files or bug reports.
 
 ## Codex / ChatGPT subscription
 
@@ -22,7 +22,7 @@ Enter the slash commands below inside OMS, not in your shell. Arrow keys select 
 /model
 ```
 
-In `/connect`, choose **OpenAI Codex** subscription sign-in. Open the displayed URL yourself and complete the browser flow. In `/model`, choose a direct `openai-codex` model, such as `gpt-6.1-sol` when listed. The row should say **Connected** and the selected provider/model should appear in the interface. A ChatGPT login does not configure OpenAI API billing or OMS routed profiles. Plan limits apply; catalog-equivalent spend is not your subscription invoice.
+In `/connect`, choose **Codex (ChatGPT subscription)**. Open the displayed URL yourself and complete the browser flow. In `/model`, choose a direct `openai-codex` model, such as `gpt-6.1-sol` when listed. The row should say **Connected** and the selected provider/model should appear in the interface. A ChatGPT login does not configure OpenAI API billing or OMS routed profiles. Plan limits apply; catalog-equivalent spend is not your subscription invoice.
 
 ## Claude Code subscription
 
@@ -40,7 +40,7 @@ Choose your Claude subscription when signing in. OMS requires a first-party Clau
 /model
 ```
 
-In `/connect`, choose **Check local Claude Code subscription login**. This checks the installed CLI and its login without sending a model request. In `/model`, choose **Claude Code**, then **Sonnet**, **Opus** or **Haiku** (listed as `claude-code/sonnet`, `claude-code/opus` and `claude-code/haiku`). Selecting it sends no model request; the first message starts the native chat. If you sign in or out in another terminal, reopen `/connect` to refresh the check. Do not copy Claude tokens into OMS; authentication stays with Claude Code.
+In `/connect`, choose **Claude Code (Claude subscription)**. This checks the installed CLI and its login without sending a model request. In `/model`, choose **Claude Code**, then **Sonnet**, **Opus** or **Haiku** (listed as `claude-code/sonnet`, `claude-code/opus` and `claude-code/haiku`). Selecting it sends no model request; the first message starts the native chat. If you sign in or out in another terminal, reopen `/connect` to refresh the check. Do not copy Claude tokens into OMS; authentication stays with Claude Code.
 
 OMS runs the installed, unmodified CLI as a native Claude chat with a durable session ID bound to this OMS conversation. Claude keeps its own history across user messages and resumes that history when OMS restarts. OMS supplies trusted task instructions and tools; native MCP calls receive the actual results from OMS's guarded executors. Claude's built-in tools, project hooks and additional MCP servers are disabled for this chat, so its operations keep OMS's approvals and sandbox. Claude's own final response cannot close a task without the pinned verification checks passing.
 

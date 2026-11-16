@@ -1920,14 +1920,7 @@ test('Codex authentication choices stay visible inside the 40x12 interface viewp
     terminal.send('\r');
     await terminal.until((screen) => screen.includes('Codex'));
     terminal.send('\r');
-    let page = await terminal.until((screen) => screen.includes('Browser sign-in') && screen.includes('Device code'));
-    for (let attempt = 0; attempt < 10 && !page.includes('invoice'); attempt++) {
-      const previous = page;
-      terminal.send('\x1b[6~');
-      page = await terminal.until((screen) => screen !== previous);
-      assert.ok(page.includes('Browser sign-in') && page.includes('Device code'));
-    }
-    assert.ok(page.includes('invoice'), 'billing disclosure remains reachable without hiding authentication choices');
+    await terminal.until((screen) => screen.includes('Browser sign-in') && screen.includes('Device code'));
     terminal.send('\x1b[B');
     terminal.send('\r');
     await terminal.until(() => selected === 'device');
@@ -2665,9 +2658,7 @@ for (const model of ['sonnet', 'opus', 'haiku'])
       await terminal.until((s) => s.includes('Claude Code') && s.includes('Claude API models'));
       terminal.send('Claude Code');
       terminal.send('\r');
-      const screen = await terminal.until(
-        (s) => s.includes('claude-code/sonnet') && s.includes('Claude owns a native chat'),
-      );
+      const screen = await terminal.until((s) => s.includes('claude-code/sonnet'));
       for (const id of ['sonnet', 'opus', 'haiku']) assert.ok(screen.includes(`claude-code/${id}`));
       assert.equal(screen.includes('anthropic/api-sonnet'), false);
       terminal.send(model);
@@ -3063,6 +3054,61 @@ test('with nothing connected the chat says only to run /connect', async () => {
   try {
     const screen = await terminal.until((s) => s.includes('Run /connect to sign in.'));
     assert.doesNotMatch(screen, /\/model to pick/);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('/exit leaves exactly as /quit does, cleanup included', async () => {
+  for (const command of ['/exit', '/quit']) {
+    const f = chatFixture();
+    const terminal = new InterfaceTerminal(100, 30);
+    const run = runOmsInterface(f.harness, { terminal });
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send(command);
+    terminal.send('\r');
+    await run;
+    assert.equal(f.closed(), true, command);
+    assert.equal(terminal.active, false);
+    terminal.vt.dispose();
+  }
+});
+
+test('Ctrl+D leaves from an empty input and does nothing while there is a draft', async () => {
+  const f = chatFixture();
+  const terminal = new InterfaceTerminal(100, 30);
+  const run = runOmsInterface(f.harness, { terminal });
+  await terminal.until((s) => s.includes('/connect to sign in'));
+  terminal.send('draft text');
+  await terminal.until((s) => s.includes('draft text'));
+  terminal.send('\x04');
+  await terminal.screen();
+  assert.equal(f.closed(), false);
+  for (let i = 0; i < 'draft text'.length; i++) terminal.send('\x7f');
+  await terminal.until((s) => !s.includes('draft text'));
+  terminal.send('\x04');
+  await run;
+  assert.equal(f.closed(), true);
+  terminal.vt.dispose();
+});
+
+test('/help is a short list with one entry for leaving, and /help keys has the rest', async () => {
+  const f = chatFixture();
+  const terminal = new InterfaceTerminal(110, 40);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send('/help');
+    terminal.send('\r');
+    const help = await terminal.until((s) => s.includes('/exit (or /quit)'));
+    assert.match(help, /\/connect +Sign in or add an API key/);
+    assert.match(help, /\/yolo +Run commands without asking/);
+    assert.doesNotMatch(help, /\/requirements|\/verify|\/open |Keyboard\n|F6|Toolbar/);
+    assert.ok(help.split('\n').filter((row) => row.trim()).length <= 26, 'a short list');
+    terminal.send('/help keys');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Toolbar: F10'));
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();

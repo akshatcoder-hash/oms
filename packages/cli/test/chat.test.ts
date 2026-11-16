@@ -133,7 +133,30 @@ test('the chat opens the given folder, names it in the header, and tells the use
   assert.equal(opened[0]!.stateRoot, f.stateRoot);
   assert.equal(opened[0]!.sessionId, saved.id);
   assert.deepEqual(log, ['run chat', 'close']);
-  assert.equal(out, 'OMS ready | my-project\nRun oms in this folder to continue.\n');
+  assert.equal(out, 'Run oms in this folder to continue.\n');
+});
+
+test('--yolo reaches the session, and without it YOLO is off', async (t) => {
+  const f = setup(t);
+  const opened: Array<Record<string, unknown>> = [];
+  for (const yolo of [true, undefined]) {
+    await capture(() =>
+      runInteractiveChat({
+        folder: f.project,
+        stateRoot: f.stateRoot,
+        environment: defaultHarnessEnvironment(),
+        launch,
+        yolo,
+        start: async (options) => {
+          opened.push(options as unknown as Record<string, unknown>);
+          return fakeChat(options.folder, []);
+        },
+        run: async () => {},
+      }),
+    );
+  }
+  assert.equal(opened[0]!.yolo, true);
+  assert.equal(opened[1]!.yolo, undefined);
 });
 
 test('a folder that holds personal files opens a scratch folder and says so in the interface', async (t) => {

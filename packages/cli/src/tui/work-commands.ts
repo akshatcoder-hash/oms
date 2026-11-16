@@ -71,9 +71,7 @@ export function prepareRun(argument: string, harness: OmsSession): Prepared {
 export function prepareVerify(ctx: CommandContext, argument: string): Prepared {
   const { harness } = ctx;
   if (harness.kind === 'chat')
-    return refuseWith(
-      'No verifier in a chat. /verify checks a pinned task requirement and this folder has none. Use /goal <text> --check "<command>" or /test.',
-    );
+    return refuseWith('Nothing to verify here. Use /test, or /goal <text> --check "<command>".');
   const id = argument || ctx.selectedRequirement();
   return {
     ok: true,

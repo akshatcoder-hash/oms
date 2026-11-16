@@ -11,7 +11,6 @@ import { webSetting } from './interactive.ts';
 import type { LaunchOptions } from './harness.ts';
 import { chooseLocalAction } from './ownership.ts';
 import { runOmsInterface } from './tui/interface.ts';
-import { sessionLabel } from './tui/inspect-commands.ts';
 import { DEFAULT_THEME_ID } from './tui/theme.ts';
 
 export interface ChatLaunch {
@@ -67,7 +66,6 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
     ...(o.yolo ? { yolo: true } : {}),
     ...selected,
   });
-  process.stdout.write(`OMS ready | ${sessionLabel(chat)}\n`);
   try {
     await (o.run ?? runOmsInterface)(chat, {
       theme: DEFAULT_THEME_ID,

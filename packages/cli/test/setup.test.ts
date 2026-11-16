@@ -89,7 +89,7 @@ const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 test('model setup starts with connected direct providers before showing their model catalog', async () => {
   const f = fixture();
   assert.match(f.screen(), /OpenAI models/);
-  assert.match(f.screen(), /Codex subscription/);
+  assert.match(f.screen(), /Codex \(ChatGPT subscription\)/);
   assert.doesNotMatch(f.screen(), /api-model/);
   f.pane.handleInput('\r');
   assert.match(f.screen(), /openai\/api-model/);
@@ -158,11 +158,11 @@ test('closing setup aborts in-flight auth and clears sensitive prompt state', as
   assert.doesNotMatch(f.screen(), /private-value/);
 });
 
-test('Claude subscription explains the provider restriction and never starts login', () => {
+test('the unavailable Anthropic subscription is not listed, and Anthropic keeps its API key row', () => {
   const f = fixture('connect');
-  f.pane.handleInput('Pro-Max');
-  f.pane.handleInput('\r');
-  assert.match(f.screen(), /Third-party subscription login unavailable/);
+  assert.doesNotMatch(f.screen(), /Pro\/Max|Unavailable|choose for explanation/);
+  f.pane.handleInput('anthropic');
+  assert.match(f.screen(), /Anthropic API key/);
   assert.deepEqual(f.starts, []);
 });
 
@@ -222,17 +222,15 @@ for (const available of [false, true]) {
       },
     );
     const screen = () => pane.body.render(160).map(stripVTControlCharacters).join('\n');
-    assert.match(screen(), /Local Claude Code/);
+    assert.match(screen(), /Claude Code \(Claude subscription\)/);
     pane.handleInput('\r');
     await flush();
     assert.equal(checks, 1);
-    assert.doesNotMatch(screen(), /Stored only in private OMS configuration|synthetic-private-account-identifier/);
+    assert.doesNotMatch(screen(), /synthetic-private-account-identifier/);
     assert.deepEqual(selections, []);
     if (available) {
       assert.match(screen(), /claude-code\/sonnet/);
-      assert.match(screen(), /Claude owns a native chat for this OMS conversation/);
-      assert.match(screen(), /approvals, sandbox and independent verification/);
-      assert.match(notices.join(' '), /Local Claude Code login checked/);
+      assert.match(notices.join(' '), /Claude Code is ready/);
       pane.handleInput('\r');
       await flush();
       assert.deepEqual(selections, ['claude-code/sonnet']);
@@ -299,13 +297,11 @@ test('unconfigured Claude Code is visible in /model and checks installed CLI log
   );
   const screen = () => pane.body.render(160).map(stripVTControlCharacters).join('\n');
   assert.match(screen(), /Claude Code/);
-  assert.match(screen(), /check installed CLI and login/);
   assert.deepEqual(selected, []);
   pane.handleInput('\r');
   await flush();
   assert.equal(checks, 1);
   for (const id of ['sonnet', 'opus', 'haiku']) assert.ok(screen().includes(`claude-code/${id}`));
-  assert.match(screen(), /\/session shows the native session/);
   assert.doesNotMatch(screen(), /\/claude/);
   assert.deepEqual(selected, []);
   pane.handleInput('opus');
@@ -641,7 +637,6 @@ test('Codex-only setup exposes a Codex action and selects a model only on explic
   await flush();
   screen = stripVTControlCharacters(pane.body.render(160).join('\n'));
   assert.match(screen, /openai-codex\/controlled/);
-  assert.match(screen, /does not configure/i);
   assert.deepEqual(selected, []);
   pane.handleInput('\r');
   await flush();

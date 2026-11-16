@@ -102,7 +102,7 @@ export async function runGoalCheck(
       };
     }
   }
-  if (harness.kind === 'chat') return { status: 'unavailable', output: '', summary: 'a chat has no pinned verifier' };
+  if (harness.kind === 'chat') return { status: 'unavailable', output: '', summary: 'no check given' };
   try {
     const state = harness.evaluator.read();
     if (!state.ok) return { status: 'unavailable', output: '', summary: 'task state is unreadable' };
