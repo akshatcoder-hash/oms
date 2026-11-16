@@ -21,8 +21,7 @@ test('a secret-named assignment is hidden in any output, other assignments are n
     assert.equal(maskSecrets(`${name}=value`), `${name}=${MASK}`, name);
 });
 
-test('provider keys, long base58 strings and keypair arrays are hidden wherever they appear', () => {
-  const base58 = 'zQ7'.repeat(30);
+test('provider keys and keypair arrays are hidden wherever they appear', () => {
   const keypair = `[${Array.from({ length: 64 }, (_, i) => i * 3).join(',')}]`;
   const text = [
     'sk-test-1234567890abcdef',
@@ -30,10 +29,15 @@ test('provider keys, long base58 strings and keypair arrays are hidden wherever 
     `ghp_${'a'.repeat(36)}`,
     `gsk_${'b'.repeat(40)}`,
     'AKIAIOSFODNN7EXAMPLE',
-    base58,
     keypair,
   ].join('\n');
-  assert.equal(maskSecrets(text), Array(7).fill(MASK).join('\n'));
+  assert.equal(maskSecrets(text), Array(6).fill(MASK).join('\n'));
+});
+
+test('transaction signatures and program ids stay visible: they have the length of a secret key but are public', () => {
+  const signature = ('5' + 'xY9kTqLmN3pR7sVbW2cZ8hJdFgE6aU1oK4'.repeat(3)).slice(0, 88);
+  const text = `Signature: ${signature}\nProgram Id: TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`;
+  assert.equal(maskSecrets(text), text);
 });
 
 test('ordinary code, short arrays, hashes and comparisons stay as they are', () => {

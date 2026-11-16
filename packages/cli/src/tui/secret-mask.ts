@@ -14,8 +14,6 @@ const PROVIDER_KEYS: RegExp[] = [
   /\bghp_[A-Za-z0-9]{20,}/g,
   /\bgsk_[A-Za-z0-9]{20,}/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
-  // A Solana secret key in base58 is 87 to 88 characters; pure hex digests are not keys.
-  /\b(?![0-9a-fA-F]+\b)[1-9A-HJ-NP-Za-km-z]{64,}\b/g,
   // A keypair file: 64 bytes as a JSON array.
   /\[\s*(?:\d{1,3}\s*,\s*){63,}\d{1,3}\s*\]/g,
 ];
