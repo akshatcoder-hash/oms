@@ -3,7 +3,6 @@ import { hostSandbox } from '@oms/sandbox';
 import { Type } from 'typebox';
 import type { HostTrust } from '../host-approval.ts';
 import type { SessionApiParts } from '../session-api.ts';
-import { modelReadiness } from '../usage.ts';
 import { AGENT_TOOL, loadAgents, writeAgent, type AgentDefinition, type AgentDirs, type AgentDraft } from './agents.ts';
 import { ClaimTable } from './claims.ts';
 import { delegationSection } from './prompt.ts';
@@ -15,7 +14,7 @@ import {
   type HelperRecord,
   type HelperStatus,
 } from './records.ts';
-import { helperInputCap, RequestGate, runHelper } from './runner.ts';
+import { helperReadiness, RequestGate, runHelper } from './runner.ts';
 
 export { AGENT_TOOL } from './agents.ts';
 export { SUBAGENT_PROMPT } from './prompt.ts';
@@ -90,13 +89,13 @@ export function createHelpers(config: { dirs: AgentDirs; trust: HostTrust }): {
   const records = new Map<string, HelperRecord>();
   const waiting = new Map<string, string>();
   const live = new Map<string, Live>();
-  const claims = new ClaimTable();
+  let claims: ClaimTable;
   const gate = new RequestGate();
-  const perRequest = new WeakMap<object, number>();
+  let requestStarted = 0;
   const slots: Array<() => void> = [];
   let running = 0;
   let sequence = 0;
-  let noticed = false;
+  const noticed = new Set<'read' | 'edit'>();
 
   const parts = (): SessionApiParts => {
     if (!bound) throw new Error('Helpers are not ready yet');
@@ -157,11 +156,8 @@ export function createHelpers(config: { dirs: AgentDirs; trust: HostTrust }): {
     if (!def)
       throw new Error(`No agent named "${params.agent}". Available: ${agents.map((agent) => agent.name).join(', ')}.`);
     if (!params.task?.trim()) throw new Error('Give the helper a task.');
-    const request = p.life.executionController ?? p;
-    const started = perRequest.get(request) ?? 0;
-    if (started >= HELPER_CAPS.perRequest)
+    if (requestStarted >= HELPER_CAPS.perRequest)
       throw new Error(`At most ${HELPER_CAPS.perRequest} helpers can start for one request. Do the rest yourself.`);
-    perRequest.set(request, started + 1);
 
     const chat = p.model.session.model!;
     const model = def.model
@@ -169,18 +165,10 @@ export function createHelpers(config: { dirs: AgentDirs; trust: HostTrust }): {
       : chat;
     if (!model) throw new Error(`The model ${def.model} of agent ${def.name} is not available.`);
     if (model.provider === 'claude-code') throw new Error(CLAUDE_CODE_REASON);
-    const readiness = modelReadiness(
-      model,
-      p.env.budget,
-      p.options.maxOutputTokens,
-      p.env.executionMode,
-      helperInputCap(p.options.maxInputTokens, model),
-      p.options.subscriptionSpendExempt,
-      p.model.modelRuntime.isUsingSubscription(model.provider),
-      true,
-    );
+    const readiness = helperReadiness(p, model);
     if (!readiness.ready) throw new Error(readiness.detail);
 
+    requestStarted++;
     const id = `${def.name}#${++sequence}`;
     const ac = new AbortController();
     const outer = AbortSignal.any([ac.signal, ...(signal ? [signal] : [])]);
@@ -270,13 +258,13 @@ export function createHelpers(config: { dirs: AgentDirs; trust: HostTrust }): {
         notes.push(
           `${def.tools === 'edit' ? 'touched outside claim' : 'changed files (read-only agent)'}: ${outcome.outside.slice(0, 10).join(', ')}${outcome.outside.length > 10 ? ', ...' : ''}`,
         );
-      if (def.tools === 'read' && !noticed && (hostSandbox() !== 'seatbelt' || config.trust.yolo)) {
-        noticed = true;
+      if (!noticed.has(def.tools) && (hostSandbox() !== 'seatbelt' || config.trust.yolo)) {
+        noticed.add(def.tools);
         notes.push(
-          `read-only is not enforced for commands here (${hostSandbox() !== 'seatbelt' ? 'no sandbox on this system' : 'YOLO is on'})`,
+          `${def.tools === 'read' ? 'read-only is' : 'claims are'} not enforced for commands here (${hostSandbox() !== 'seatbelt' ? 'no sandbox on this system' : 'YOLO is on'})`,
         );
       }
-      const text = [outcome.report, footer, ...notes].filter(Boolean).join('\n');
+      const text = [footer, ...notes, `Helper report:\n${outcome.report}`].filter(Boolean).join('\n');
       if (outcome.status === 'failed')
         throw new Error(
           `${def.name} failed after ${formatElapsed(ended.endedAt! - startedAt)}: ${outcome.reason}\n${text}`,
@@ -310,18 +298,28 @@ export function createHelpers(config: { dirs: AgentDirs; trust: HostTrust }): {
 
   const extension: ExtensionFactory = (pi) => {
     let applied = '';
-    pi.registerTool({
-      name: AGENT_TOOL,
-      label: 'Helper',
-      description:
-        'Hand a self-contained task to a helper agent and get its report. Built in: explore (read-only search), build (edits the files you list), review (read-only review). Call it several times in one turn to run helpers together.',
-      parameters,
-      executionMode: 'parallel',
-      async execute(_callId, params, signal, onUpdate) {
-        return execute(params, signal, onUpdate as never) as never;
-      },
-    });
+    const register = () =>
+      pi.registerTool({
+        name: AGENT_TOOL,
+        label: 'Helper',
+        description: `Hand a self-contained task to a helper agent and get its report. Available: ${loadAgents(
+          config.dirs,
+        )
+          .agents.map(
+            (agent) =>
+              `${agent.name} (${agent.tools === 'read' ? 'read-only' : 'edits the files you list'}: ${agent.description})`,
+          )
+          .join(', ')}. Call it several times in one turn to run helpers together.`,
+        parameters,
+        executionMode: 'parallel',
+        async execute(_callId, params, signal, onUpdate) {
+          return execute(params, signal, onUpdate as never) as never;
+        },
+      });
+    register();
     pi.on('before_agent_start', (event, ctx) => {
+      if (event.messageType === 'user') requestStarted = 0;
+      register();
       const offered = ctx.model?.provider !== 'claude-code';
       const active = pi.getActiveTools();
       const listed = active.includes(AGENT_TOOL);
@@ -376,6 +374,7 @@ export function createHelpers(config: { dirs: AgentDirs; trust: HostTrust }): {
     abortAll,
     bind(next) {
       bound = next;
+      claims = new ClaimTable(next.tools?.taskRoot);
       for (const item of foldHelperEntries(next.env.manager.getEntries())) records.set(item.id, item);
       sequence = Math.max(0, ...[...records.keys()].map((key) => Number(key.split('#')[1]) || 0));
     },

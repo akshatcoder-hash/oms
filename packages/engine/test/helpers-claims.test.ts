@@ -96,9 +96,30 @@ test('a write by another helper that held a claim during the run is not blamed o
   const mine = await table.acquire('mine', ['a.ts'], live());
   const since = Date.now() - 1;
   const other = await table.acquire('other', ['b.ts'], live());
+  table.recordWrite(other, 'b.ts');
   other.release();
-  assert.ok(table.coveredByOthers(mine, 'b.ts', since));
-  assert.ok(!table.coveredByOthers(mine, 'c.ts', since));
-  assert.ok(!table.coveredByOthers(mine, 'a.ts', since));
+  assert.ok(table.writtenByOthers(mine, 'b.ts', since));
+  assert.ok(!table.writtenByOthers(mine, 'c.ts', since));
+  assert.ok(!table.writtenByOthers(mine, 'a.ts', since));
+  mine.release();
+});
+
+test('S1: @-prefixed claims name the same files as the file tools', async () => {
+  const table = new ClaimTable();
+  const first = await table.acquire('first', ['@b.ts'], live());
+  const second = table.acquire('second', ['b.ts'], live());
+  assert.equal(await settled(second), false);
+  first.release();
+  (await second).release();
+});
+
+test('M1: only other live claims contribute protected command prefixes', async () => {
+  const table = new ClaimTable();
+  const mine = await table.acquire('mine', ['a.ts'], live());
+  const peer = await table.acquire('peer', ['src/**/*.ts', 'Cargo.lock'], live());
+  assert.deepEqual(table.protectedPrefixes(mine), ['src', 'Cargo.lock']);
+  assert.deepEqual(table.protectedPrefixes(peer), ['a.ts']);
+  peer.release();
+  assert.deepEqual(table.protectedPrefixes(mine), []);
   mine.release();
 });

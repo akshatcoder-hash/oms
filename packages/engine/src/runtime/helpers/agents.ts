@@ -85,9 +85,11 @@ function parseAgent(stem: string, text: string, source: AgentSource): Parsed {
   if (name !== stem) return { problem: `${stem}.md: name "${name}" must match the file name` };
   const description = fields.get('description') ?? '';
   if (!description) return { problem: `${stem}.md: description is required` };
+  if ([...description].length > 120 || /[\p{Cc}\p{Cf}]/u.test(description))
+    return { problem: `${stem}.md: description must be at most 120 printable characters` };
   const tools = fields.get('tools') ?? 'read';
   if (tools !== 'read' && tools !== 'edit') return { problem: `${stem}.md: tools must be read or edit` };
-  const model = fields.get('model');
+  const model = source === 'project' ? undefined : fields.get('model');
   if (model !== undefined && !/^[\w.-]+\/\S+$/.test(model))
     return { problem: `${stem}.md: model must look like provider/id` };
   if (!body) return { problem: `${stem}.md: write the instructions below the header` };
@@ -125,7 +127,7 @@ function readDirectory(dir: string, source: AgentSource): { agents: AgentDefinit
   return { agents, problems };
 }
 
-/** Project beats personal beats built-in, by name. A file that fails to parse is listed in `problems` and never half-applied. */
+/** Project overrides personal custom agents; built-in names are reserved against project overrides. */
 export function loadAgents(dirs: AgentDirs): { agents: AgentDefinition[]; problems: string[] } {
   const byName = new Map(BUILT_IN_AGENTS.map((agent) => [agent.name, agent]));
   const problems: string[] = [];
@@ -135,7 +137,13 @@ export function loadAgents(dirs: AgentDirs): { agents: AgentDefinition[]; proble
   ] as const) {
     const found = readDirectory(dir, source);
     problems.push(...found.problems.map((problem) => `${source}: ${problem}`));
-    for (const agent of found.agents) byName.set(agent.name, agent);
+    for (const agent of found.agents) {
+      if (source === 'project' && BUILT_IN_AGENTS.some((builtin) => builtin.name === agent.name)) {
+        problems.push(`project: ${agent.name}.md: cannot override a built-in agent`);
+        continue;
+      }
+      byName.set(agent.name, agent);
+    }
   }
   return { agents: [...byName.values()], problems };
 }

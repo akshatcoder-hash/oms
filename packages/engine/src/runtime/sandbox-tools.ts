@@ -30,6 +30,8 @@ export interface SandboxToolsOptions {
   /** A chat shows what a write changed: the result carries a diff, or says the file is new. Pinned runs keep the plain result. */
   writeDetails?: boolean;
   protectedPaths?: string[];
+  /** Chat lanes share one process-owned source lease; pinned runs remain exclusive. */
+  sharedSource?: boolean;
   onSpawn?: (pid: number, cwd: string) => void;
   taskName: string;
   mounts: MountPlan;
@@ -74,7 +76,12 @@ export interface SandboxTools {
    * The file and shell tools for one helper, on a queue of its own. A read-only helper's commands run with the folder
    * unwritable (Seatbelt on macOS) and it gets no edit or write tool.
    */
-  helperTools(helper: { label: string; readOnly: boolean }): { extension: ExtensionFactory; close(): void };
+  helperTools(helper: {
+    label: string;
+    readOnly: boolean;
+    onWrite?: (path: string) => void;
+    protectedPaths?: () => readonly string[];
+  }): { extension: ExtensionFactory; close(): void };
   /** Untrusted (id, offset, maxBytes); validated by the session log store. */
   readLog(...request: readonly unknown[]): LogPage;
   files: TaskFileAccess;
@@ -119,6 +126,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     /** Helper lanes only: commands cannot write the folder. */
     readOnly: boolean;
     label?: string;
+    onWrite?: (path: string) => void;
+    protectedPaths?: () => readonly string[];
   }
   const mainLane: Lane = { tail: Promise.resolve(), queued: 0, readOnly: false };
   const helperLanes = new Set<Lane>();
@@ -150,6 +159,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   const rpcUrl = backend.rpcUrl(options.surfnetPort);
   const runSpec: ToolRunSpec = {
     onSpawn: options.onSpawn,
+    ...(options.sharedSource ? { sharedSource: true } : {}),
     taskName: options.taskName,
     mounts: options.mounts,
     sourceControlDir: options.sourceControlDir,
@@ -174,7 +184,10 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
         : {
             ...runSpec,
             sharedSource: true,
-            protectedPaths: [...(runSpec.protectedPaths ?? []), ...(lane.readOnly ? [root] : [])],
+            protectedPaths: [
+              ...(runSpec.protectedPaths ?? []),
+              ...(lane.readOnly ? [root] : (lane.protectedPaths?.() ?? [])),
+            ],
           };
     return backend.runOptions(spec, { argv, signal, timeoutMs });
   };
@@ -187,9 +200,9 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       const remaining = Math.floor(options.remainingWallClockMs?.() ?? Infinity);
       if (remaining <= 0) throw new Error('Task wall-clock budget exhausted');
       const timeout = Math.min(timeoutMs, remaining, options.buildProfile ? BUILD_TIMEOUT_MS : Infinity);
-      const log = capture ? logs.start() : undefined;
       if (currentLane() !== mainLane && (terminal || terminalStarting))
         throw new Error('The interactive terminal is open; helpers cannot run commands until it is closed');
+      const log = capture ? logs.start() : undefined;
       try {
         const result = terminal
           ? await terminal.execute(argv, operationSignal, timeout, log?.push)
@@ -311,6 +324,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
         if (!expected) throw new Error('An edit requires its current file revision');
         try {
           await files.write(path, Buffer.from(content, 'utf8'), expected, toolSignal.getStore());
+          currentLane().onWrite?.(relative(root, path));
         } finally {
           edits.delete(key);
         }
@@ -324,6 +338,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     operations: {
       async writeFile(path, content) {
         await files.write(path, Buffer.from(content, 'utf8'), undefined, toolSignal.getStore());
+        currentLane().onWrite?.(relative(root, path));
       },
       mkdir: (path) => files.makeDirectory(path, toolSignal.getStore()),
     },
@@ -443,8 +458,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       pi.on('user_bash', () => ({ operations: shell }));
     },
     execute,
-    helperTools({ label, readOnly }) {
-      const lane: Lane = { tail: Promise.resolve(), queued: 0, readOnly, label };
+    helperTools({ label, readOnly, onWrite, protectedPaths }) {
+      const lane: Lane = { tail: Promise.resolve(), queued: 0, readOnly, label, onWrite, protectedPaths };
       helperLanes.add(lane);
       const inLane = <P extends TSchema, D, S>(tool: ToolDefinition<P, D, S>): ToolDefinition<P, D, S> => {
         const wrapped = withCancellation(tool);

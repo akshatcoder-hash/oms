@@ -272,3 +272,102 @@ test('host approval prompt shows the shell string, not JSON argv', async () => {
     rmSync(control, { recursive: true, force: true });
   }
 });
+
+test('M3: all chat lanes share source ownership, including the main file view', async (t) => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'oms-chat-lanes-')));
+  const root = join(base, 'project');
+  mkdirSync(root);
+  writeFileSync(join(root, 'a.ts'), 'readable');
+  let spawned!: () => void;
+  const running = new Promise<void>((resolve) => {
+    spawned = resolve;
+  });
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    hostTrust: { yolo: true, allowed: new Set() },
+    sharedSource: true,
+    taskName: 'chat-lanes',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: root, mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: join(base, 'leases'),
+    sourceControlDir: join(base, 'control'),
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    onSpawn: () => spawned(),
+  });
+  t.after(async () => {
+    await tools.dispose();
+    rmSync(base, { recursive: true, force: true });
+  });
+  const lane = tools.helperTools({ label: 'helper', readOnly: false });
+  const registered: import('@earendil-works/pi-coding-agent').ToolDefinition[] = [];
+  lane.extension({ registerTool: (tool: never) => registered.push(tool) } as never);
+  const bash = registered.find((tool) => tool.name === 'bash')!;
+  const command = bash.execute('sleep', { command: 'sleep 1' }, undefined, undefined, {} as never);
+  await running;
+  const read = await tools.files.read('a.ts');
+  assert.equal(read.bytes.toString(), 'readable');
+  await command;
+  lane.close();
+});
+
+test('S7: a helper refused during terminal startup never opens a command log', async (t) => {
+  const { CommandLogs } = await import('../src/runtime/command-logs.ts');
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'oms-terminal-log-')));
+  const root = join(base, 'project');
+  mkdirSync(root);
+  let logs = 0;
+  const start = CommandLogs.prototype.start;
+  t.mock.method(CommandLogs.prototype, 'start', function (this: InstanceType<typeof CommandLogs>) {
+    logs++;
+    return start.call(this);
+  });
+  let blocked: Promise<void> | undefined;
+  let bash!: import('@earendil-works/pi-coding-agent').ToolDefinition;
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    hostTrust: { yolo: true, allowed: new Set() },
+    sharedSource: true,
+    taskName: 'terminal-log',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: root, mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: join(base, 'leases'),
+    sourceControlDir: join(base, 'control'),
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    outputMode: 'head-tail',
+    onSpawn: () => {
+      blocked = assert.rejects(
+        bash.execute('blocked', { command: 'echo blocked' }, undefined, undefined, {} as never),
+        /interactive terminal is open/,
+      );
+    },
+  });
+  const lane = tools.helperTools({ label: 'helper', readOnly: false });
+  lane.extension({
+    registerTool: (tool: import('@earendil-works/pi-coding-agent').ToolDefinition) => {
+      if (tool.name === 'bash') bash = tool;
+    },
+  } as never);
+  try {
+    const terminal = await tools.startTerminal(80, 24).catch(() => undefined);
+    await blocked;
+    assert.ok(blocked, 'the helper tried its command while terminal startup owned the source');
+    assert.equal(logs, 0);
+    await terminal?.close();
+  } finally {
+    lane.close();
+    await tools.dispose();
+    rmSync(base, { recursive: true, force: true });
+  }
+});

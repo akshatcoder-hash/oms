@@ -75,6 +75,8 @@ export interface MeteredStreamOptions {
   readonly subscribed?: (provider: string) => boolean;
   /** Helpers: other requests are in flight. Each one's reservation already counts against the caps, so an open one does not pause the rest. */
   readonly concurrent?: boolean;
+  /** Helpers leave enough budget for the chat to consume their reports. */
+  readonly headroom?: () => { tokens: number; spendMicroUsd: number };
   /** Called when the provider rejects a request with a bare 400 that gives no reason, before the turn is retried. */
   readonly onBareBadRequest?: () => void;
 }
@@ -105,7 +107,7 @@ function subscriptionUsage(
   );
 }
 
-function requestBound(
+export function requestBound(
   model: Model<Api>,
   maxOutputTokens: number,
   mode: ExecutionMode | undefined,
@@ -167,6 +169,7 @@ function readinessForBound(
   exempt = false,
   subscribed = false,
   concurrent = false,
+  headroom?: { tokens: number; spendMicroUsd: number },
 ): { ready: boolean; detail: string } {
   if (!bound)
     return { ready: false, detail: 'This model has unsupported usage limits. Choose a supported model in /model.' };
@@ -189,14 +192,14 @@ function readinessForBound(
           ? 'This turn reached its execution time limit. Start a new prompt when it has stopped.'
           : 'This bounded run reached its time limit. Reopen without --bounded for normal chat, or start a new bounded run.',
     };
-  if (bound.tokens > snapshot.remaining.tokens || snapshot.remaining.tokens === 0)
+  if (bound.tokens + (headroom?.tokens ?? 0) > snapshot.remaining.tokens || snapshot.remaining.tokens === 0)
     return {
       ready: false,
       detail:
         'This model exceeds the remaining request-size limit. Choose a smaller model in /model or start a new run.',
     };
   if (
-    bound.spendMicroUsd > snapshot.remaining.spendMicroUsd ||
+    bound.spendMicroUsd + (headroom?.spendMicroUsd ?? 0) > snapshot.remaining.spendMicroUsd ||
     (executionMode === 'bounded' && snapshot.remaining.spendMicroUsd === 0)
   )
     return {
@@ -221,6 +224,7 @@ export function modelReadiness(
   subscriptionExempt = false,
   subscribed = false,
   concurrent = false,
+  headroom?: { tokens: number; spendMicroUsd: number },
 ): { ready: boolean; detail: string } {
   if (isClaudeCodeModel(model) && maxInputTokens !== undefined)
     return {
@@ -235,6 +239,7 @@ export function modelReadiness(
     subscriptionExempt,
     subscribed,
     concurrent,
+    headroom,
   );
 }
 
@@ -383,6 +388,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           config.subscriptionExempt,
           subscribed,
           config.concurrent,
+          config.headroom?.(),
         );
         if (!bound || !readiness.ready) {
           failed(`${readiness.detail} No provider request sent.`);

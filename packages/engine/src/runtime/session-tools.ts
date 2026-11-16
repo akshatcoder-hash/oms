@@ -53,6 +53,7 @@ export function createSessionTools(
     approvalPolicy: options.hostApprovalPolicy,
     hostTrust: options.hostTrust,
     writeDetails: options.hostTrust !== undefined,
+    sharedSource: options.hostTrust !== undefined,
     protectedPaths: env.protectedFiles.map((file) => join(taskRoot, file)),
     taskName: root.taskName,
     mounts: env.mounts,

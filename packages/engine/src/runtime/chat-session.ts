@@ -76,7 +76,7 @@ export async function createChatSession(options: ChatSessionOptions): Promise<Ch
       ...conversation,
       surfnetPort,
       ...planMounts(options, root, execution, protectedFiles),
-      protectedFiles,
+      protectedFiles: [...protectedFiles, '.oms-agents'],
     };
     const helpers = createHelpers({
       dirs: { personal: join(stateRoot, 'agents'), project: join(folder.path, '.oms-agents') },

@@ -1,5 +1,5 @@
-import { readdirSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { realpathSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -20,9 +20,10 @@ import { sessionToolNames } from '../session-model.ts';
 import { harnessPolicySettings } from '../settings-controls.ts';
 import { KEY_SAFETY, omsChatPrompt } from '../system-prompt.ts';
 import { withToolExecutionModes } from '../tool-execution.ts';
-import { createMeteredStream, modelReadiness } from '../usage.ts';
+import { createMeteredStream, modelReadiness, requestBound } from '../usage.ts';
+import { hostSandbox } from '@oms/sandbox';
 import type { AgentDefinition } from './agents.ts';
-import type { Claim, ClaimTable } from './claims.ts';
+import { fileToolPath, type Claim, type ClaimTable } from './claims.ts';
 import { usageOf } from './records.ts';
 
 export const HELPER_LIMITS = { turns: 40, tokens: 300_000, ms: 10 * 60_000, report: 4000, input: 200_000 } as const;
@@ -69,6 +70,34 @@ export class RequestGate {
 /** A helper's context stays small, so its requests reserve far less than the model's whole window. */
 export const helperInputCap = (configured: number | undefined, model: Model<Api>): number =>
   Math.min(configured ?? HELPER_LIMITS.input, HELPER_LIMITS.input, model.contextWindow);
+
+function chatHeadroom(parts: SessionApiParts) {
+  const model = parts.model.session.model!;
+  return (
+    requestBound(
+      model,
+      parts.options.maxOutputTokens,
+      parts.env.executionMode,
+      parts.options.maxInputTokens,
+      parts.options.subscriptionSpendExempt,
+      parts.model.modelRuntime.isUsingSubscription(model.provider),
+    ) ?? { tokens: Infinity, spendMicroUsd: Infinity }
+  );
+}
+
+export function helperReadiness(parts: SessionApiParts, model: Model<Api>) {
+  return modelReadiness(
+    model,
+    parts.env.budget,
+    parts.options.maxOutputTokens,
+    parts.env.executionMode,
+    helperInputCap(parts.options.maxInputTokens, model),
+    parts.options.subscriptionSpendExempt,
+    parts.model.modelRuntime.isUsingSubscription(model.provider),
+    true,
+    chatHeadroom(parts),
+  );
+}
 
 /** Folders whose files change for reasons that are nobody's edit. */
 const SKIPPED = new Set(['.git', 'node_modules', 'target', '.oms-cargo']);
@@ -132,8 +161,26 @@ function claimGuard(folder: string, claim: Claim, claims: ClaimTable): Extension
     pi.on('tool_call', (event) => {
       if (event.toolName !== 'edit' && event.toolName !== 'write') return undefined;
       const path = (event.input as { path?: unknown }).path;
-      const relativePath = typeof path === 'string' ? relative(folder, resolve(folder, path)) : '..';
-      if (!relativePath.startsWith('..') && claims.covers(claim, relativePath)) return undefined;
+      if (typeof path === 'string') {
+        const lexical = resolve(folder, fileToolPath(path));
+        let ancestor = lexical;
+        try {
+          let canonical: string;
+          while (true) {
+            try {
+              canonical = resolve(realpathSync.native(ancestor), relative(ancestor, lexical));
+              break;
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(ancestor) === ancestor) throw error;
+              ancestor = dirname(ancestor);
+            }
+          }
+          const rel = relative(folder, lexical);
+          if (canonical === lexical && !rel.startsWith('..') && claims.covers(claim, rel)) return undefined;
+        } catch {
+          // An unresolved destination cannot be authorized against a lexical claim.
+        }
+      }
       return {
         block: true,
         reason: `blocked: ${typeof path === 'string' ? path : 'that path'} is outside the files you may change (${claim.patterns.join(', ')}). Say in your report that it needs a change.`,
@@ -157,141 +204,165 @@ export async function runHelper(parts: SessionApiParts, run: HelperRun): Promise
   const { def } = run;
   const readOnly = def.tools === 'read';
   const folder = tools.taskRoot;
-  const lane = tools.sandboxTools.helperTools({ label: run.label, readOnly });
-  const hooks = createSessionHooks(options, life, env, tools);
-  hooks.turn.id = run.turnId;
-  const extensions: ExtensionFactory[] = createChatExtensions({
-    guards: { approveHostCommands: tools.backend.approvesCommands },
-    cwd: folder,
-    trace: life.trace!,
-    protectedPaths: env.protectedFiles.map((file) => join(folder, file)),
-    extra: [
-      lane.extension,
-      hooks.policy,
-      ...readingExtensions(env, tools),
-      ...(run.claim ? [claimGuard(folder, run.claim, run.claims)] : []),
-    ],
+  const lane = tools.sandboxTools.helperTools({
+    label: run.label,
+    readOnly,
+    ...(run.claim
+      ? {
+          onWrite: (path) => run.claims.recordWrite(run.claim!, path),
+          protectedPaths: () => run.claims.protectedPrefixes(run.claim!).map((path) => join(folder, path)),
+        }
+      : {}),
   });
-  const known = tools.knowledgeSource() !== undefined;
-  const toolNames = [
-    ...sessionToolNames(false, options.outputMode, 'chat').filter(
-      (name) => !(readOnly && (name === 'edit' || name === 'write')),
-    ),
-    ...(known ? KNOWLEDGE_TOOL_NAMES : []),
-  ];
-  const settingsManager = SettingsManager.inMemory(harnessPolicySettings());
-  const resourceLoader = new DefaultResourceLoader({
-    cwd: env.root.codeRoot,
-    agentDir: env.root.agentRoot,
-    settingsManager,
-    noExtensions: true,
-    noSkills: true,
-    noContextFiles: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    appendSystemPrompt: [],
-    extensionFactories: extensions.map(withToolExecutionModes),
-    systemPrompt: helperPrompt(parts, def),
-  });
-  await resourceLoader.reload();
-  const helperDir = join(env.root.stateDir, 'helpers', env.sessionId);
-  const sessionManager = SessionManager.create(env.root.codeRoot, helperDir);
-  const { session } = await createAgentSession({
-    cwd: env.root.codeRoot,
-    agentDir: env.root.agentRoot,
-    modelRuntime: chat.modelRuntime,
-    model: run.model,
-    thinkingLevel: chat.session.thinkingLevel,
-    settingsManager,
-    sessionManager,
-    resourceLoader,
-    noTools: 'builtin',
-    tools: toolNames,
-  });
-  run.attach(session);
-  session.agent.toolExecution = 'parallel';
-  const original: StreamFn = session.agent.streamFunction;
-  const metered = createMeteredStream({
-    streamFunction: original,
-    ledger: env.budget,
-    allocate: env.allocate,
-    executionMode: env.executionMode,
-    maxOutputTokens: options.maxOutputTokens,
-    maxInputTokens: helperInputCap(options.maxInputTokens, run.model),
-    subscriptionExempt: options.subscriptionSpendExempt,
-    subscribed: (provider) => chat.modelRuntime.isUsingSubscription(provider),
-    logicalTurnId: () => run.turnId,
-    concurrent: true,
-    onBareBadRequest: () => hooks.trim.forgetReasoning(),
-  });
-  session.agent.streamFunction = (model, context, streamOptions) => {
-    const signal = life.executionController
-      ? AbortSignal.any([life.executionController.signal, ...(streamOptions?.signal ? [streamOptions.signal] : [])])
-      : streamOptions?.signal;
-    const ready = () =>
-      modelReadiness(
-        model,
-        env.budget,
-        options.maxOutputTokens,
-        env.executionMode,
-        helperInputCap(options.maxInputTokens, run.model),
-        options.subscriptionSpendExempt,
-        chat.modelRuntime.isUsingSubscription(model.provider),
-        true,
-      ).ready;
-    return run.gate.admit(ready, () => metered(model, context, { ...streamOptions, signal }), signal);
-  };
-  await session.bindExtensions({});
-
-  const startedAt = Date.now();
-  const stop = new AbortController();
-  let limit: string | undefined;
-  const halt = (why: string) => {
-    if (limit) return;
-    limit = why;
-    stop.abort();
-    void session.abort().catch(() => {});
-  };
-  const onAbort = () => {
-    stop.abort();
-    void session.abort().catch(() => {});
-  };
-  run.signal.addEventListener('abort', onAbort, { once: true });
-  if (run.signal.aborted) onAbort();
-  const timer = setTimeout(() => halt(`stopped after ${HELPER_LIMITS.ms / 60_000} minutes`), HELPER_LIMITS.ms);
-  let turns = 0;
-  const unsubscribe = session.subscribe((event) => {
-    if (event.type !== 'turn_end') return;
-    turns++;
-    if (turns >= HELPER_LIMITS.turns) halt(`stopped after ${HELPER_LIMITS.turns} turns`);
-    else if (usageOf(env.budget, run.turnId).tokens >= HELPER_LIMITS.tokens)
-      halt(`stopped after ${HELPER_LIMITS.tokens / 1000}k tokens`);
-  });
+  let child: AgentSession | undefined;
   try {
-    const note = run.claim ? `\n\nFiles you may change: ${run.claim.patterns.join(', ')}` : '';
-    if (!stop.signal.aborted) await session.prompt(`${run.task}${note}`);
-    const usage = usageOf(env.budget, run.turnId);
-    const last = [...session.messages].reverse().find((message) => message.role === 'assistant') as
-      { stopReason?: string; errorMessage?: string } | undefined;
-    const report = (session.getLastAssistantText() ?? '').trim().slice(0, HELPER_LIMITS.report);
-    const outside = outsideClaim(folder, startedAt, run);
-    if (limit) return { status: 'failed', report, reason: limit, ...usage, outside };
-    if (run.signal.aborted || last?.stopReason === 'aborted') return { status: 'cancelled', report, ...usage, outside };
-    if (last?.stopReason === 'error')
-      return { status: 'failed', report, reason: last.errorMessage ?? 'the model request failed', ...usage, outside };
-    return { status: 'done', report: report || '(no report)', ...usage, outside };
+    const hooks = createSessionHooks(
+      { ...options, maxInputTokens: helperInputCap(options.maxInputTokens, run.model) },
+      life,
+      env,
+      tools,
+    );
+    hooks.turn.id = run.turnId;
+    const extensions: ExtensionFactory[] = createChatExtensions({
+      guards: { approveHostCommands: tools.backend.approvesCommands },
+      cwd: folder,
+      trace: life.trace!,
+      protectedPaths: env.protectedFiles.map((file) => join(folder, file)),
+      extra: [
+        lane.extension,
+        hooks.policy,
+        ...readingExtensions(env, tools),
+        ...(run.claim ? [claimGuard(folder, run.claim, run.claims)] : []),
+      ],
+    });
+    const known = tools.knowledgeSource() !== undefined;
+    const toolNames = [
+      ...sessionToolNames(false, options.outputMode, 'chat').filter(
+        (name) => !(readOnly && (name === 'edit' || name === 'write')),
+      ),
+      ...(known ? KNOWLEDGE_TOOL_NAMES : []),
+    ];
+    const settingsManager = SettingsManager.inMemory(harnessPolicySettings());
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: env.root.codeRoot,
+      agentDir: env.root.agentRoot,
+      settingsManager,
+      noExtensions: true,
+      noSkills: true,
+      noContextFiles: true,
+      noPromptTemplates: true,
+      noThemes: true,
+      appendSystemPrompt: [],
+      extensionFactories: extensions.map(withToolExecutionModes),
+      systemPrompt: helperPrompt(parts, def),
+    });
+    await resourceLoader.reload();
+    const helperDir = join(env.root.stateDir, 'helpers', env.sessionId);
+    const sessionManager = SessionManager.create(env.root.codeRoot, helperDir);
+    const { session } = await createAgentSession({
+      cwd: env.root.codeRoot,
+      agentDir: env.root.agentRoot,
+      modelRuntime: chat.modelRuntime,
+      model: run.model,
+      thinkingLevel: chat.session.thinkingLevel,
+      settingsManager,
+      sessionManager,
+      resourceLoader,
+      noTools: 'builtin',
+      tools: toolNames,
+    });
+    child = session;
+    run.attach(session);
+    session.agent.toolExecution = 'parallel';
+    const original: StreamFn = session.agent.streamFunction;
+    const metered = createMeteredStream({
+      streamFunction: original,
+      ledger: env.budget,
+      allocate: env.allocate,
+      executionMode: env.executionMode,
+      maxOutputTokens: options.maxOutputTokens,
+      maxInputTokens: helperInputCap(options.maxInputTokens, run.model),
+      subscriptionExempt: options.subscriptionSpendExempt,
+      subscribed: (provider) => chat.modelRuntime.isUsingSubscription(provider),
+      logicalTurnId: () => run.turnId,
+      concurrent: true,
+      headroom: () => chatHeadroom(parts),
+      onBareBadRequest: () => hooks.trim.forgetReasoning(),
+    });
+    const stop = new AbortController();
+    session.agent.streamFunction = (model, context, streamOptions) => {
+      const signal = AbortSignal.any([
+        stop.signal,
+        ...(life.executionController ? [life.executionController.signal] : []),
+        ...(streamOptions?.signal ? [streamOptions.signal] : []),
+      ]);
+      const ready = () => helperReadiness(parts, model).ready;
+      return run.gate.admit(ready, () => metered(model, context, { ...streamOptions, signal }), signal);
+    };
+    await session.bindExtensions({});
+
+    const startedAt = Date.now();
+    let limit: string | undefined;
+    let grace: NodeJS.Timeout | undefined;
+    const hardStop = () => {
+      stop.abort();
+      void session.abort().catch(() => {});
+    };
+    const halt = (why: string) => {
+      if (limit) return;
+      limit = why;
+      // Let the current request settle its usage before stopping at turn_end.
+      grace = setTimeout(hardStop, 30_000);
+    };
+    const onAbort = () => {
+      stop.abort();
+      void session.abort().catch(() => {});
+    };
+    run.signal.addEventListener('abort', onAbort, { once: true });
+    if (run.signal.aborted) onAbort();
+    const timer = setTimeout(() => halt(`stopped after ${HELPER_LIMITS.ms / 60_000} minutes`), HELPER_LIMITS.ms);
+    let turns = 0;
+    const unsubscribe = session.subscribe((event) => {
+      if (event.type === 'agent_start' && stop.signal.aborted) hardStop();
+      if (event.type !== 'turn_end') return;
+      turns++;
+      if (turns >= HELPER_LIMITS.turns) halt(`stopped after ${HELPER_LIMITS.turns} turns`);
+      else if (usageOf(env.budget, run.turnId).tokens >= HELPER_LIMITS.tokens)
+        halt(`stopped after ${HELPER_LIMITS.tokens / 1000}k tokens`);
+      if (limit) hardStop();
+    });
+    try {
+      const note = run.claim ? `\n\nFiles you may change: ${run.claim.patterns.join(', ')}` : '';
+      if (!stop.signal.aborted) await session.prompt(`${run.task}${note}`);
+      const usage = usageOf(env.budget, run.turnId);
+      const last = [...session.messages].reverse().find((message) => message.role === 'assistant') as
+        { stopReason?: string; errorMessage?: string } | undefined;
+      const report = (session.getLastAssistantText() ?? '').trim().slice(0, HELPER_LIMITS.report);
+      const outside =
+        readOnly && hostSandbox() === 'seatbelt' && !options.hostTrust?.yolo
+          ? []
+          : outsideClaim(folder, startedAt, run);
+      if (limit) return { status: 'failed', report, reason: limit, ...usage, outside };
+      if (run.signal.aborted || last?.stopReason === 'aborted')
+        return { status: 'cancelled', report, ...usage, outside };
+      if (last?.stopReason === 'error')
+        return { status: 'failed', report, reason: last.errorMessage ?? 'the model request failed', ...usage, outside };
+      return { status: 'done', report: report || '(no report)', ...usage, outside };
+    } finally {
+      clearTimeout(timer);
+      clearTimeout(grace);
+      unsubscribe();
+      run.signal.removeEventListener('abort', onAbort);
+    }
   } finally {
-    clearTimeout(timer);
-    unsubscribe();
-    run.signal.removeEventListener('abort', onAbort);
     lane.close();
-    session.dispose();
+    child?.dispose();
   }
 }
 
 /** Files that changed during the run and belong to nobody who was running: bash wrote them, or a read-only agent wrote at all. */
 function outsideClaim(folder: string, since: number, run: HelperRun): string[] {
   return changedSince(folder, since - 10).filter(
-    (path) => !(run.claim && run.claims.covers(run.claim, path)) && !run.claims.coveredByOthers(run.claim, path, since),
+    (path) => !(run.claim && run.claims.covers(run.claim, path)) && !run.claims.writtenByOthers(run.claim, path, since),
   );
 }

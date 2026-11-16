@@ -1,3 +1,7 @@
+import { homedir } from 'node:os';
+import { isAbsolute, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /**
  * Exclusive write claims over path globs, relative to the folder. A helper that edits holds one for its whole life.
  * Acquisition is all-or-nothing and in arrival order, so two helpers can never each hold half of what the other needs.
@@ -10,9 +14,17 @@ export interface Claim {
 
 const GLOB_CHARS = /[*?[\]{}]/;
 
-/** Patterns as written by a model: "./a/b", "a/", "a/**". Absolute paths and ".." are refused. */
-export function normalizePattern(raw: string): string {
-  let pattern = raw.trim().replaceAll('\\', '/').replace(/^\.\//, '');
+/** Match pi's file-tool spelling before comparing a claim with its destination. */
+export function fileToolPath(raw: string): string {
+  let path = raw.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, ' ').replace(/^@/, '');
+  if (path === '~' || path.startsWith('~/')) path = homedir() + path.slice(1);
+  return path.startsWith('file://') ? fileURLToPath(path) : path;
+}
+
+/** Claims are folder-relative; absolute spellings are accepted only inside the supplied folder. */
+export function normalizePattern(raw: string, folder?: string): string {
+  let pattern = fileToolPath(raw.trim()).replaceAll('\\', '/').replace(/^\.\//, '');
+  if (folder && isAbsolute(pattern)) pattern = relative(folder, resolve(pattern));
   if (!pattern || pattern.startsWith('/') || /(^|\/)\.\.(\/|$)/.test(pattern))
     throw new Error(`"${raw}" is not a path inside the folder`);
   if (pattern.endsWith('/')) pattern += '**';
@@ -70,12 +82,19 @@ interface Held {
   claim: Claim;
   from: number;
   to?: number;
+  writes: Map<string, number>;
 }
 
 export class ClaimTable {
   private readonly held = new Set<Held>();
   private readonly history: Held[] = [];
   private waiting: Waiter[] = [];
+
+  private readonly folder?: string;
+
+  constructor(folder?: string) {
+    this.folder = folder;
+  }
 
   /** Waits for a claim. `onWait` is told once which holder it is waiting for. Rejects when `signal` aborts. */
   async acquire(
@@ -84,7 +103,7 @@ export class ClaimTable {
     signal: AbortSignal,
     onWait: (holder: string) => void = () => {},
   ): Promise<Claim> {
-    const normal = patterns.length ? patterns.map(normalizePattern) : ['**'];
+    const normal = patterns.length ? patterns.map((pattern) => normalizePattern(pattern, this.folder)) : ['**'];
     signal.throwIfAborted();
     const conflict = (before: readonly Waiter[]) =>
       [...this.held].find((entry) => patternsOverlap(entry.claim.patterns, normal))?.claim.id ??
@@ -115,19 +134,27 @@ export class ClaimTable {
     return patternsCover(claim.patterns, relPath);
   }
 
-  /** Whether another claim that was held at some point since `since` covers the path: its writes are not this helper's. */
-  coveredByOthers(claim: Claim | undefined, relPath: string, since: number): boolean {
+  recordWrite(claim: Claim, relPath: string): void {
+    [...this.held].find((entry) => entry.claim === claim)?.writes.set(relPath, Date.now());
+  }
+
+  /** Suppress only observed file-tool writes, never a claim that merely covers the changed path. */
+  writtenByOthers(claim: Claim | undefined, relPath: string, since: number): boolean {
     return [...this.history, ...this.held].some(
-      (entry) =>
-        entry.claim !== claim &&
-        (entry.to === undefined || entry.to >= since) &&
-        patternsCover(entry.claim.patterns, relPath),
+      (entry) => entry.claim !== claim && (entry.writes.get(relPath) ?? -Infinity) >= since,
+    );
+  }
+
+  protectedPrefixes(claim: Claim): string[] {
+    return [...this.held].flatMap((entry) =>
+      entry.claim === claim ? [] : entry.claim.patterns.map((pattern) => staticPrefix(pattern).join('/')),
     );
   }
 
   private grant(id: string, patterns: string[]): Claim {
     const entry: Held = {
       from: Date.now(),
+      writes: new Map(),
       claim: {
         id,
         patterns,

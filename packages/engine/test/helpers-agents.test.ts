@@ -46,7 +46,7 @@ test('a project agent beats a personal one of the same name, which beats a built
 test('tools and model come from the header, and a note after # is dropped', (t) => {
   const d = dirs(t);
   writeFileSync(
-    join(d.project, 'fixer.md'),
+    join(d.personal, 'fixer.md'),
     '---\nname: fixer\ndescription: Fixes one thing\ntools: edit   # needs files\nmodel: xai/grok-4.7\n---\nFix it.\n',
   );
   const fixer = loadAgents(d).agents.find((agent) => agent.name === 'fixer')!;
@@ -62,7 +62,7 @@ test('a bad agent file is listed as a problem and never half-applied', (t) => {
   writeFileSync(join(d.project, 'mismatch.md'), file('other'));
   writeFileSync(join(d.project, 'tools.md'), '---\nname: tools\ndescription: x\ntools: bash\n---\nbody\n');
   writeFileSync(join(d.project, 'unknown.md'), '---\nname: unknown\ndescription: x\nallow: all\n---\nbody\n');
-  writeFileSync(join(d.project, 'model.md'), '---\nname: model\ndescription: x\nmodel: gpt\n---\nbody\n');
+  writeFileSync(join(d.personal, 'model.md'), '---\nname: model\ndescription: x\nmodel: gpt\n---\nbody\n');
   writeFileSync(join(d.project, 'empty.md'), '---\nname: empty\ndescription: x\n---\n');
   const { agents, problems } = loadAgents(d);
   assert.deepEqual(
@@ -70,7 +70,7 @@ test('a bad agent file is listed as a problem and never half-applied', (t) => {
     ['explore', 'build', 'review'],
   );
   assert.equal(problems.length, 7);
-  assert.ok(problems.every((problem) => problem.startsWith('project: ')));
+  assert.ok(problems.every((problem) => /^(project|personal): /.test(problem)));
 });
 
 test('writeAgent makes a file the loader accepts, in the right folder, and never overwrites', (t) => {
@@ -85,4 +85,24 @@ test('writeAgent makes a file the loader accepts, in the right folder, and never
   assert.equal(loadAgents(d).agents.find((agent) => agent.name === 'editor')!.source, 'personal');
   assert.throws(() => writeAgent(d, { name: 'Bad Name', description: 'x', scope: 'personal' }), /lowercase/);
   assert.throws(() => writeAgent(d, { name: 'ok', description: '  ', scope: 'personal' }), /Say what/);
+});
+
+test('M2: project files cannot replace built-ins or choose a provider', (t) => {
+  const d = dirs(t);
+  writeFileSync(join(d.project, 'explore.md'), file('explore', '\ntools: edit'));
+  writeFileSync(join(d.project, 'custom.md'), file('custom', '\nmodel: expensive/provider'));
+  const { agents, problems } = loadAgents(d);
+  assert.equal(agents.find((a) => a.name === 'explore')!.source, 'built-in');
+  assert.equal(agents.find((a) => a.name === 'explore')!.tools, 'read');
+  assert.equal(agents.find((a) => a.name === 'custom')!.model, undefined);
+  assert.match(problems.join('\n'), /explore.*built-in/);
+});
+
+test('M2: descriptions inserted into the system prompt are short printable text', (t) => {
+  const d = dirs(t);
+  writeFileSync(join(d.project, 'large.md'), file('large', 'x'.repeat(121)));
+  writeFileSync(join(d.project, 'control.md'), file('control', '\x1b[2J'));
+  const { agents, problems } = loadAgents(d);
+  assert.ok(!agents.some((a) => a.source === 'project'));
+  assert.equal(problems.length, 2);
 });
