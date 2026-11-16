@@ -26,6 +26,7 @@ OMS now works like the pi and Claude Code CLIs: run `oms` in any folder and it e
 ### Fixes
 
 - Every Grok (xAI) request failed: OMS sent a `background` field that xAI rejects. It is now sent to OpenAI only.
+- A Grok subscription (SuperGrok or X Premium) counts as plan usage, like Codex and Claude Code. It was charged as API dollars against the $5 limit, which blocked larger models.
 - One failed request no longer locks the chat. A request the provider rejects is not charged and its reason is shown; a request that breaks off midway is counted at its maximum cost and the chat goes on.
 - `/files` works on macOS, `git init` works in a new folder, and opening OMS without sending anything leaves no files behind.
 
