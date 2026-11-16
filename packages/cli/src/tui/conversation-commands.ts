@@ -22,7 +22,9 @@ export function clearConversation(ctx: CommandContext, argument: string, draft: 
         return {
           title: 'new native Claude conversation',
           inPlace: true,
-          text: 'Fresh native chat boundary. Previous chat history is not replayed. Files, worktree and verification are retained.',
+          text: `Fresh native chat boundary. Previous chat history is not replayed. ${
+            ctx.harness.kind === 'chat' ? 'Your files are unchanged.' : 'Files, worktree and verification are retained.'
+          }`,
         };
       },
     };
@@ -40,7 +42,9 @@ export function clearConversation(ctx: CommandContext, argument: string, draft: 
   ctx.conversation.clear();
   ctx.show(
     'new conversation',
-    'Fresh conversation in the same task. Files, worktree and task state are unchanged.',
+    ctx.harness.kind === 'chat'
+      ? 'Fresh conversation. Your files are unchanged.'
+      : 'Fresh conversation in the same task. Files, worktree and task state are unchanged.',
     draft,
   );
 }
@@ -56,5 +60,5 @@ export function goalCommand(ctx: CommandContext, argument: string, draft: string
   if (request.kind === 'clear') {
     ctx.goal.set(undefined);
     ctx.show('goal', 'Goal cleared.', draft);
-  } else ctx.show('goal', goalSummary(ctx.goal.get(), budgetLine(ctx.harness)), draft);
+  } else ctx.show('goal', goalSummary(ctx.goal.get(), budgetLine(ctx.harness), ctx.harness.kind === 'chat'), draft);
 }

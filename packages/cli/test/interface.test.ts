@@ -83,6 +83,8 @@ function fixture() {
     },
   };
   const harness = {
+    kind: 'task',
+    root: '/fixtures/task',
     workspace: { root: '/fixtures/rental-ledger' },
     task: { id: 'rent', codeRoot: '/fixtures/task', branch: 'oms/rent' },
     session,
@@ -2915,6 +2917,40 @@ test('/help lists the new commands under Solana; a bare /account still opens the
     terminal.send('\r');
     const screen = await terminal.until((s) => s.includes('Solana') && s.includes('/airdrop'));
     assert.ok(screen.includes('/goal') && screen.includes('/diff') && screen.includes('/usage'));
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('a folder chat names its folder in the header, shows no requirements, and hides the task commands', async () => {
+  const f = fixture();
+  const chat = f.harness as unknown as Record<string, unknown>;
+  for (const field of ['workspace', 'task', 'evaluator', 'verify']) delete chat[field];
+  Object.assign(chat, {
+    kind: 'chat',
+    root: '/projects/solana-vault',
+    folder: {
+      path: '/projects/solana-vault',
+      requested: '/projects/solana-vault',
+      key: 'k',
+      scratch: false,
+      git: false,
+    },
+  });
+  const terminal = new InterfaceTerminal(120, 36);
+  const run = runOmsInterface(f.harness, {
+    terminal,
+    startNote: 'No project here, so this chat uses a scratch folder.',
+  });
+  try {
+    const header = await terminal.until((screen) => screen.includes('solana-vault'));
+    assert.match(header, /oms · Harness · solana-vault/);
+    assert.doesNotMatch(header, /Requirements|task/i);
+    assert.match(header, /No project here, so this chat uses a scratch folder\./);
+    terminal.send('/re');
+    const menu = await terminal.until((screen) => screen.includes('/review'));
+    assert.doesNotMatch(menu, /\/requirements/);
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();

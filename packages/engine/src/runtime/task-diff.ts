@@ -27,7 +27,7 @@ export function taskDiffPath(path: string): string {
     clean.startsWith('../') ||
     clean.split('/').includes('.git')
   ) {
-    throw new Error('Choose a path inside the task worktree');
+    throw new Error('Choose a path inside the project folder');
   }
   return clean;
 }

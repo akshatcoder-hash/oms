@@ -13,13 +13,13 @@ import {
 } from '@earendil-works/pi-tui';
 import { copyToClipboard } from '@earendil-works/pi-coding-agent';
 import type { AuthEvent, AuthInteraction, AuthPrompt } from '@earendil-works/pi-ai';
-import type { HarnessSession, ProviderModelChoice } from '@oms/engine';
+import type { OmsSession, ProviderModelChoice } from '@oms/engine';
 import { colorText, getTheme, THEME_IDS, type OmsTheme } from './theme.ts';
 import { displayText } from './transcript.ts';
 
 type SetupMode = 'model' | 'connect' | 'theme';
 type SetupHarness = Pick<
-  HarnessSession,
+  OmsSession,
   'listModels' | 'listProviders' | 'selectModel' | 'loginProvider' | 'importEnvironment'
 >;
 interface Choice {

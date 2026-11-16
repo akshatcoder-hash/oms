@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import { formatDuration, formatInteger, formatMicroUsd } from '@oms/core';
-import { taskDiff, type HarnessSession } from '@oms/engine';
+import { taskDiff, type OmsSession } from '@oms/engine';
 import { claudeChatStatus } from './claude-chat.ts';
 import { previewBytes, refuse, REPORT_BYTES, type Prepared } from './prepared.ts';
 import { singleLine } from './transcript.ts';
@@ -8,8 +10,17 @@ import type { CommandContext } from './commands.ts';
 /** Diff text shown in the conversation; a longer one opens in the workbench. */
 const DIFF_SHOWN_CHARS = 8_000;
 
+/** What the header and the terminal title call this session: the repository of a task, or the folder of a chat. */
+export function sessionLabel(harness: OmsSession): string {
+  return harness.kind === 'chat'
+    ? harness.folder.scratch
+      ? 'scratch'
+      : basename(harness.folder.path)
+    : basename(harness.workspace.root);
+}
+
 /** What is left of the token, spend and time allowance, on one line. */
-export function budgetLine(harness: HarnessSession): string {
+export function budgetLine(harness: OmsSession): string {
   const budget = harness.budget.snapshot();
   const microUsd = budget.remaining.spendMicroUsd;
   const dollars = `${Math.trunc(microUsd / 1_000_000)}.${String(microUsd % 1_000_000).padStart(6, '0')}`;
@@ -18,7 +29,7 @@ export function budgetLine(harness: HarnessSession): string {
 }
 
 /** Calls, tokens and spend recorded against the worker role. */
-function roleLines(harness: HarnessSession): string {
+function roleLines(harness: OmsSession): string {
   const reservations = harness.budget.reservations();
   const receipts = new Map(harness.budget.receipts().map((receipt) => [receipt.dispatchId, receipt]));
   return (['worker'] as const)
@@ -51,14 +62,26 @@ function roleLines(harness: HarnessSession): string {
     .join('\n');
 }
 
-export function prepareDiff(argument: string, harness: HarnessSession): Prepared {
+export function prepareDiff(argument: string, harness: OmsSession): Prepared {
   const path = argument.trim() || undefined;
   return {
     ok: true,
     async run() {
-      const { codeRoot, baseOid, branch } = harness.task;
-      const diff = await taskDiff(codeRoot, baseOid, path);
-      const head = `Against base ${baseOid.slice(0, 12)} · ${branch}${path ? ` · ${path}` : ''}`;
+      if (harness.kind === 'chat' && !harness.folder.git)
+        return { title: 'diff', text: 'This folder is not a git repository, so there is no diff to show.' };
+      const [codeRoot, baseOid, branch] =
+        harness.kind === 'chat'
+          ? [harness.root, 'HEAD', gitBranch(harness.root)]
+          : [harness.task.codeRoot, harness.task.baseOid, harness.task.branch];
+      let diff;
+      try {
+        diff = await taskDiff(codeRoot, baseOid, path);
+      } catch (error) {
+        if (harness.kind === 'chat' && /unknown revision|ambiguous argument/.test(String(error)))
+          return { title: 'diff', text: 'This repository has no commits yet, so there is no diff to show.' };
+        throw error;
+      }
+      const head = `Against ${harness.kind === 'chat' ? 'HEAD' : `base ${baseOid.slice(0, 12)}`} · ${branch}${path ? ` · ${path}` : ''}`;
       const untracked = diff.untracked.length
         ? `Untracked (${diff.untracked.length}):\n${diff.untracked
             .slice(0, 30)
@@ -85,7 +108,7 @@ export function prepareDiff(argument: string, harness: HarnessSession): Prepared
 }
 
 /** Tokens, spend and time from the budget ledger, then what is left. */
-export function prepareUsage(argument: string, harness: HarnessSession): Prepared {
+export function prepareUsage(argument: string, harness: OmsSession): Prepared {
   if (argument) return refuse('Usage: /usage');
   return {
     ok: true,
@@ -124,12 +147,28 @@ export function prepareUsage(argument: string, harness: HarnessSession): Prepare
   };
 }
 
+/** The checked-out branch, read from the repository's HEAD without running git. */
+function gitBranch(folder: string): string {
+  try {
+    const head = readFileSync(join(folder, '.git', 'HEAD'), 'utf8').trim();
+    return /^ref: refs\/heads\/(.+)$/.exec(head)?.[1] ?? 'detached HEAD';
+  } catch {
+    return 'branch unknown';
+  }
+}
+
 /** Requirements, proof state, model and the full budget. The requirements are re-read when the command runs. */
 export function prepareStatus(ctx: CommandContext): Prepared {
   return {
     ok: true,
     async run() {
       const { harness } = ctx;
+      if (harness.kind === 'chat')
+        return {
+          title: 'status',
+          clearNotice: true,
+          text: `Model: ${ctx.modelDetail() ?? 'Use /model to review connected providers and selection.'}\nToken allowance / spend / time: ${budgetLine(harness)}\n${roleLines(harness)}`,
+        };
       const requirements = ctx.checkRequirements();
       return {
         title: 'task status',
@@ -146,15 +185,20 @@ export function prepareStatus(ctx: CommandContext): Prepared {
   };
 }
 
-export function prepareSession(harness: HarnessSession): Prepared {
+export function prepareSession(harness: OmsSession): Prepared {
   return {
     ok: true,
     async run() {
+      const id = harness.session.sessionManager.getSessionId();
+      const place =
+        harness.kind === 'chat'
+          ? `Folder: ${harness.folder.requested}${harness.folder.scratch ? ` (this chat works in the scratch folder ${harness.folder.path})` : ''}\nGit: ${harness.folder.git ? gitBranch(harness.root) : 'not a git repository'}`
+          : `Repository: ${harness.workspace.root}\nTask: ${harness.task.id}\nWorktree: ${harness.task.codeRoot}\nBranch: ${harness.task.branch}`;
       return {
         title: 'session',
         clearNotice: true,
         text:
-          `OMS session: ${harness.session.sessionManager.getSessionId()}\nRepository: ${harness.workspace.root}\nTask: ${harness.task.id}\nWorktree: ${harness.task.codeRoot}\nBranch: ${harness.task.branch}\nChanging focus does not dispatch work.` +
+          `OMS session: ${id}\n${place}\nChanging focus does not dispatch work.` +
           (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''),
       };
     },

@@ -7,7 +7,7 @@ import {
   programReference,
   readLocalIdls,
   type ErrorDecoding,
-  type HarnessSession,
+  type OmsSession,
   type Idl,
 } from '@oms/engine';
 import { refuse, type Prepared } from './prepared.ts';
@@ -64,7 +64,7 @@ const named = (id: string): string => {
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /** The task's own Surfpool, or a refusal. Anything that is not its loopback RPC is never used. */
-function localChain(harness: HarnessSession) {
+function localChain(harness: OmsSession) {
   const chain = harness.chain;
   if (!chain) throw new Error('This session has no local chain.');
   const url = chain.rpcUrl();
@@ -77,7 +77,7 @@ function localChain(harness: HarnessSession) {
   }
   if (parsed.protocol !== 'http:' || !LOOPBACK.has(parsed.hostname) || parsed.username || parsed.password) {
     throw new Error(
-      `Refusing: ${parsed.host} is not this task's local Surfpool. Chain commands never touch devnet or mainnet.`,
+      `Refusing: ${parsed.host} is not this session's local Surfpool. Chain commands never touch devnet or mainnet.`,
     );
   }
   return { chain, url };
@@ -86,7 +86,7 @@ function localChain(harness: HarnessSession) {
 const value = (result: unknown): unknown =>
   result && typeof result === 'object' && 'value' in result ? (result as { value: unknown }).value : result;
 
-export function prepareChain(argument: string, harness: HarnessSession): Prepared {
+export function prepareChain(argument: string, harness: OmsSession): Prepared {
   if (argument) return refuse('Usage: /chain');
   return {
     ok: true,
@@ -113,7 +113,7 @@ export function prepareChain(argument: string, harness: HarnessSession): Prepare
   };
 }
 
-export function prepareRewind(argument: string, harness: HarnessSession): Prepared {
+export function prepareRewind(argument: string, harness: OmsSession): Prepared {
   if (argument && argument !== 'confirm') return refuse('Usage: /rewind confirm');
   return {
     ok: true,
@@ -122,7 +122,7 @@ export function prepareRewind(argument: string, harness: HarnessSession): Prepar
       if (argument !== 'confirm') {
         return {
           title: 'rewind',
-          text: 'This restarts the local chain from its starting state. Accounts, deployed programs and transactions made since the task started are lost; files in the worktree stay.\nRun /rewind confirm to do it.',
+          text: 'This restarts the local chain from its starting state. Accounts, deployed programs and transactions made since this session started are lost; your files stay.\nRun /rewind confirm to do it.',
         };
       }
       await chain.rewind();
@@ -134,7 +134,7 @@ export function prepareRewind(argument: string, harness: HarnessSession): Prepar
 
 const AIRDROP_CAP_SOL = 100;
 
-export function prepareAirdrop(argument: string, harness: HarnessSession): Prepared {
+export function prepareAirdrop(argument: string, harness: OmsSession): Prepared {
   const [address, amount = '1', ...extra] = argument.split(/\s+/).filter(Boolean);
   if (!address || extra.length) return refuse('Usage: /airdrop <address> [sol]');
   if (!isBase58Bytes(address, 32)) return refuse('That is not a valid Solana address (base58, 32 bytes).');
@@ -215,7 +215,7 @@ const TOKEN_PROGRAMS = new Set([
   'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
 ]);
 
-export function prepareAccount(argument: string, harness: HarnessSession): Prepared {
+export function prepareAccount(argument: string, harness: OmsSession): Prepared {
   if (!isBase58Bytes(argument.trim(), 32))
     return refuse('Usage: /account <address> — a valid Solana address (base58, 32 bytes).');
   const address = argument.trim();
@@ -252,9 +252,9 @@ export function prepareAccount(argument: string, harness: HarnessSession): Prepa
 const LOG_LINES = 40;
 const LOG_LINE_CHARS = 300;
 
-function localIdls(harness: HarnessSession): Idl[] {
+function localIdls(harness: OmsSession): Idl[] {
   try {
-    return readLocalIdls(harness.task.codeRoot);
+    return readLocalIdls(harness.root);
   } catch {
     return [];
   }
@@ -292,7 +292,7 @@ export function describeTransactionError(
   return `${raw}\n  instruction ${failure[0]}${program ? ` in ${named(program)}` : ''}, custom error ${custom} (0x${custom.toString(16)})${lines.length ? '\n  ' + lines.join('\n  ') : ''}`;
 }
 
-export function prepareTransaction(argument: string, harness: HarnessSession): Prepared {
+export function prepareTransaction(argument: string, harness: OmsSession): Prepared {
   const signature = argument.trim();
   if (!isBase58Bytes(signature, 64))
     return refuse('Usage: /tx <signature> — a valid transaction signature (base58, 64 bytes).');
@@ -359,7 +359,7 @@ export function prepareProgram(argument: string): Prepared {
   };
 }
 
-export function prepareError(argument: string, harness: HarnessSession): Prepared {
+export function prepareError(argument: string, harness: OmsSession): Prepared {
   const [code, program, ...extra] = argument
     .replace(/^\s*custom program error:\s*/i, '')
     .trim()

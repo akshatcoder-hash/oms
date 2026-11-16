@@ -1,5 +1,4 @@
 import { runReviewCommand } from '../review.ts';
-import { basename } from 'node:path';
 import {
   HStack,
   VStack,
@@ -21,7 +20,7 @@ import {
   type KeybindingsConfig,
 } from '@earendil-works/pi-tui';
 import { LAYOUT_NODE } from '@earendil-works/pi-tui/dist/layout-node.js';
-import type { HarnessSession } from '@oms/engine';
+import type { OmsSession } from '@oms/engine';
 import { createFileEditorPane } from './file-editor.ts';
 import {
   acceptsArgument,
@@ -44,6 +43,7 @@ import { TerminalPane } from './terminal-pane.ts';
 import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
 import { nativeChatDisplayHistory } from './claude-chat.ts';
 import type { CommandOutput, Prepared } from './prepared.ts';
+import { sessionLabel } from './inspect-commands.ts';
 import { newGoal, runGoalCheck, runGoalLoop, taskVerifierItem, type Goal } from './goal.ts';
 import { StartupArt, artShow, settleKittyGraphics, type StartupArtMode } from './startup-art.ts';
 import {
@@ -122,7 +122,7 @@ class InterfaceRenderer extends TuiAltScreen {
 
 /** One OMS presentation over the live session. Whole-app quit/failure closes its owner; layout never does. */
 export async function runOmsInterface(
-  harness: HarnessSession,
+  harness: OmsSession,
   options: {
     review?: typeof runReviewCommand;
     terminal?: Terminal;
@@ -132,6 +132,8 @@ export async function runOmsInterface(
     onStartupArtChange?: (mode: StartupArtMode) => void;
     view?: 'harness' | 'workbench';
     onViewChange?: (view: 'harness' | 'workbench') => void;
+    /** A note shown in the conversation when the interface opens. */
+    startNote?: string;
   } = {},
 ): Promise<void> {
   const terminal = options.terminal ?? new ProcessTerminal();
@@ -250,6 +252,7 @@ export async function runOmsInterface(
   const conversation = new Conversation(nativeChatDisplayHistory(harness), (message, provider) =>
     actionError('agent', message, provider),
   );
+  if (options.startNote) conversation.note('scratch folder', options.startNote);
   const art = new StartupArt();
   let artMode = options.startupArt ?? 'auto';
   // Chosen from the environment (after the one Kitty graphics query over SSH) and again when /art changes the setting.
@@ -264,7 +267,7 @@ export async function runOmsInterface(
       ? [
           colorText(theme!, 'accent', 'What are we building?'),
           '',
-          'Describe a change below. Your agent works in this task.',
+          `Describe a change below. Your agent works in this ${harness.kind === 'chat' ? 'folder' : 'task'}.`,
           '',
           '/workbench  Files and terminal',
           '/help       Commands and keyboard controls',
@@ -323,6 +326,7 @@ export async function runOmsInterface(
   );
 
   function refreshRequirements(): void {
+    if (harness.kind === 'chat') return;
     try {
       const state = harness.evaluator.read();
       proofAvailable = state.ok;
@@ -412,7 +416,7 @@ export async function runOmsInterface(
   function currentCommands(): readonly OmsCommand[] | undefined {
     const draft = paletteInput?.getValue() ?? input.document.text;
     if (setup || closing || (!paletteInput && (focus !== 'input' || draft === dismissedCommands))) return undefined;
-    const choices = commandMatches(draft);
+    const choices = commandMatches(draft, harness.kind);
     if (draft !== commandDraft) {
       commandDraft = draft;
       commandIndex = 0;
@@ -603,7 +607,7 @@ export async function runOmsInterface(
       return;
     }
     closing = true;
-    setNotice('Closing the task controller; awaiting authoritative cleanup.');
+    setNotice('Closing OMS; awaiting authoritative cleanup.');
     if (!active || active.cancellable) cancel();
     shutdown = Promise.resolve()
       .then(() => harness.close())
@@ -740,7 +744,9 @@ export async function runOmsInterface(
     }
     if (check === undefined && !taskVerifierItem(harness)) {
       setNotice(
-        'This task has no open requirement for its verifier to decide. Add a check: /goal <text> --check "<command>"',
+        harness.kind === 'chat'
+          ? 'No verifier here. Use /goal <text> --check "<command>".'
+          : 'This task has no open requirement for its verifier to decide. Add a check: /goal <text> --check "<command>"',
       );
       return;
     }
@@ -953,7 +959,7 @@ export async function runOmsInterface(
         : externalBusy
           ? 'agent running'
           : 'idle';
-    const workspace = `${colorText(theme!, 'warning', 'oms')} · ${view === 'harness' ? 'Harness' : 'Workbench'} · ${singleLine(basename(harness.workspace.root), 160)}`;
+    const workspace = `${colorText(theme!, 'warning', 'oms')} · ${view === 'harness' ? 'Harness' : 'Workbench'} · ${singleLine(sessionLabel(harness), 160)}`;
     const activity = `${state}${shell.cleanupUncertain ? ' · shell cleanup unknown' : shell.running ? ' · shell running' : ''}`;
     return [paintThemeRow(theme!, alignEnds(workspace, activity, width), width)];
   });
@@ -1433,7 +1439,9 @@ export async function runOmsInterface(
     terminal.write('\x1b[22;0t');
     titleSaved = true;
     terminal.setTitle(
-      `oms · ${singleLine(basename(harness.workspace.root), 120)} / ${singleLine(harness.task.id, 80)}`,
+      harness.kind === 'chat'
+        ? `oms · ${singleLine(sessionLabel(harness), 120)}`
+        : `oms · ${singleLine(sessionLabel(harness), 120)} / ${singleLine(harness.task.id, 80)}`,
     );
     clock = setInterval(requestRender, 1000);
     await finished;

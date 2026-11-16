@@ -1,7 +1,7 @@
-import type { HarnessSession } from '@oms/engine';
+import type { OmsSession } from '@oms/engine';
 
 /** Restore display-only native boundaries without inserting them into model context. */
-export function nativeChatDisplayHistory(harness: Pick<HarnessSession, 'session'>): readonly unknown[] {
+export function nativeChatDisplayHistory(harness: Pick<OmsSession, 'session'>): readonly unknown[] {
   const branch = harness.session.sessionManager.getBranch?.();
   if (!branch?.some((entry) => entry.type === 'custom' && entry.customType === 'oms.claude.native-boundary'))
     return harness.session.messages;
@@ -21,7 +21,7 @@ export function nativeChatDisplayHistory(harness: Pick<HarnessSession, 'session'
 }
 
 /** Report observed transport state; selecting a model or checking login is not a live chat. */
-export function claudeChatStatus(harness: HarnessSession): string {
+export function claudeChatStatus(harness: OmsSession): string {
   const chat = harness.nativeChat;
   if (!chat) return 'Native Claude chat controls are unavailable in this runtime.';
   const status = chat.status();
@@ -33,6 +33,6 @@ export function claudeChatStatus(harness: HarnessSession): string {
       ? 'Claude owns this chat history; OMS executes its guarded tools.'
       : 'Claude is not selected. Its chat history is separate from other providers.',
     'Select Claude Code in /model; the next message resumes its saved native history.',
-    'With Claude Code selected, /clear starts a fresh native chat and clears the OMS conversation view; task files and verification are retained.',
+    'With Claude Code selected, /clear starts a fresh native chat and clears the OMS conversation view; your files are retained.',
   ].join('\n');
 }

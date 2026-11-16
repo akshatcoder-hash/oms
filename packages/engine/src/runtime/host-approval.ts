@@ -21,12 +21,12 @@ export function hostCommandRisks(command: string, root: string, home = homedir()
     return rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
   };
   for (const match of expanded.matchAll(/(?:^|[\s'"=<>])((?:\/|\.\.\/)[^\s'";&|<>]*)/g)) {
-    if (outside(match[1]!)) reasons.add('path outside task worktree');
+    if (outside(match[1]!)) reasons.add('path outside project folder');
   }
   if (/\brm\s+[^\n;]*-[a-zA-Z]*r[a-zA-Z]*f|\brm\s+[^\n;]*-[a-zA-Z]*f[a-zA-Z]*r|\brm\s+[^\n;]*--recursive/.test(command))
     reasons.add('recursive removal');
-  if (/(?:>|\b(?:tee|cp|mv|install|mkdir|touch)\b)/.test(command) && reasons.has('path outside task worktree'))
-    reasons.add('write outside task worktree');
+  if (/(?:>|\b(?:tee|cp|mv|install|mkdir|touch)\b)/.test(command) && reasons.has('path outside project folder'))
+    reasons.add('write outside project folder');
   // Shell syntax and arbitrary programs can conceal reads/writes. Approval is
   // required for all model shell invocations, even when no pattern is visible.
   if (!reasons.size) reasons.add('unsandboxed command can access host files and network');

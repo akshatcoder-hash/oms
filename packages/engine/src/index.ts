@@ -27,7 +27,13 @@ export { type HarnessSettingsControls, type HarnessSettingsSnapshot } from './ru
 export type { OmsAccountControls, OmsAccountSnapshot, AccountInteraction } from './runtime/oms-account.ts';
 export { recoverHarnessWorkspace } from './runtime/recovery.ts';
 export { resolveChatFolder, scratchNotice, type ChatFolder } from './runtime/chat-folder.ts';
-export { ChatBusyError, createChatSession, latestChatSession, savedBudgetUsable } from './runtime/chat-session.ts';
+export {
+  ChatBusyError,
+  createChatSession,
+  DOCKER_CHAT_REFUSAL,
+  latestChatSession,
+  savedBudgetUsable,
+} from './runtime/chat-session.ts';
 export {
   createKnowledgeExtension,
   callKnowledgeTool,

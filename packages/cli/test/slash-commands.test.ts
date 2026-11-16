@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { HarnessSession } from '@oms/engine';
+import type { ChatSession, HarnessSession, OmsSession } from '@oms/engine';
 import { OMS_COMMANDS, commandHelp, commandMatches } from '../src/tui/commands.ts';
 import {
   acceptsArgument,
@@ -75,8 +75,11 @@ function chainFake(url = 'http://127.0.0.1:20000') {
 }
 
 function harnessFake(extra: Record<string, unknown> = {}): HarnessSession {
+  const task = { id: 't', codeRoot: '/nonexistent', baseOid: 'a'.repeat(40), branch: 'oms/t' };
   return {
-    task: { id: 't', codeRoot: '/nonexistent', baseOid: 'a'.repeat(40), branch: 'oms/t' },
+    kind: 'task',
+    root: (extra.task as typeof task | undefined)?.codeRoot ?? task.codeRoot,
+    task,
     budget: {
       snapshot: () => ({
         caps: { tokens: 1000, spendMicroUsd: 5_000_000, wallClockMs: 600_000 },
@@ -96,7 +99,7 @@ function harnessFake(extra: Record<string, unknown> = {}): HarnessSession {
 }
 
 /** The work or refusal a command prepares for an argument, as the interface's table hands it over. Undefined for a name it does not own. */
-function prepareSlash(name: string, argument: string, harness: HarnessSession): Prepared | undefined {
+function prepareSlash(name: string, argument: string, harness: OmsSession): Prepared | undefined {
   return findCommand(name)?.run({ harness } as unknown as CommandContext, argument, undefined) as Prepared | undefined;
 }
 
@@ -633,7 +636,7 @@ test('/diff shows staged, unstaged and untracked changes against the base, scope
     assert.match(scoped, /\+more/);
     assert.equal(scoped.includes('+changed'), false);
     for (const bad of ['../outside', '/etc/passwd', '.git/config', 'a\nb']) {
-      await assert.rejects(run(prepareSlash('diff', bad, harness)), /inside the task worktree/, bad);
+      await assert.rejects(run(prepareSlash('diff', bad, harness)), /inside the project folder/, bad);
     }
     writeFileSync(join(repo.root, 'big.txt'), 'line\n'.repeat(20_000));
     repo.git('add', 'big.txt');
@@ -751,4 +754,113 @@ test('the command table is one registry: unique names, review and verification a
     assert.equal(typeof command.run, 'function', command.name);
     assert.ok(command.description && command.group, command.name);
   }
+});
+
+// ------------------------------------------------------------------ a folder chat has no pinned task
+
+function chatFake(root: string, git: boolean): ChatSession {
+  return {
+    kind: 'chat',
+    root,
+    folder: { path: root, requested: root, key: 'k', scratch: false, git },
+    budget: { ...harnessFake().budget, reservations: () => [] },
+    session: { sessionManager: { getSessionId: () => 'chat-session-id' } },
+  } as unknown as ChatSession;
+}
+
+test('a chat hides the task-only commands from the menu and /help, and a task keeps them', () => {
+  assert.deepEqual(commandMatches('/verify', 'chat'), []);
+  assert.deepEqual(commandMatches('/requirements', 'chat'), []);
+  assert.ok(commandMatches('/di', 'chat')?.some((command) => command.name === 'diff'));
+  const help = commandHelp('chat');
+  assert.doesNotMatch(help, /\/verify|\/requirements/);
+  assert.match(help, /\/goal|\/diff|\/test/);
+  assert.match(commandHelp(), /\/verify/);
+  assert.match(commandHelp(), /\/requirements/);
+  assert.ok(commandMatches('/verify')?.some((command) => command.name === 'verify'));
+  assert.doesNotMatch(commandHelp('chat'), /task worktree|worktree/);
+});
+
+test('typing a task-only command in a chat says what to use instead', () => {
+  const chat = chatFake('/nonexistent', false);
+  assert.equal(
+    refusal(prepareSlash('verify', '', chat)),
+    'No verifier in a chat. /verify checks a pinned task requirement and this folder has none. Use /goal <text> --check "<command>" or /test.',
+  );
+  assert.equal(
+    refusal(prepareSlash('requirements', '', chat)),
+    'A chat has no pinned requirements. oms task create pins them.',
+  );
+});
+
+test('/status in a chat shows the model and budget without a task or proof line', async () => {
+  const chat = chatFake('/nonexistent', false);
+  const text = (
+    await run(
+      findCommand('status')?.run(
+        { harness: chat, modelDetail: () => 'local/test-model' } as unknown as CommandContext,
+        '',
+        undefined,
+      ) as Prepared,
+    )
+  ).text;
+  assert.match(text, /Model: local\/test-model/);
+  assert.match(text, /Token allowance \/ spend \/ time:/);
+  assert.doesNotMatch(text, /Task:|Proof:/);
+});
+
+test('/session in a chat shows the folder and its git state, never a task or worktree', async () => {
+  const repo = gitRepo();
+  try {
+    const inRepo = (await run(prepareSlash('session', '', chatFake(repo.root, true)))).text;
+    assert.match(inRepo, new RegExp(`OMS session: chat-session-id\\nFolder: ${repo.root}`));
+    assert.match(inRepo, /Git: (main|master)/);
+    const plain = (await run(prepareSlash('session', '', chatFake(repo.root, false)))).text;
+    assert.match(plain, /Git: not a git repository/);
+    assert.doesNotMatch(inRepo + plain, /Task:|Worktree:|Repository:/);
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test('/diff in a chat compares the folder with HEAD, or says why there is nothing to compare', async () => {
+  const repo = gitRepo();
+  try {
+    const chat = chatFake(repo.root, true);
+    assert.match((await run(prepareSlash('diff', '', chat))).text, /Against HEAD · (main|master)\nNo changes\./);
+    writeFileSync(join(repo.root, 'a.txt'), 'one\nuncommitted\n');
+    writeFileSync(join(repo.root, 'new.txt'), 'fresh\n');
+    const text = (await run(prepareSlash('diff', '', chat))).text;
+    assert.match(text, /\+uncommitted/);
+    assert.match(text, /Untracked \(1\):\n  new\.txt/);
+    const plain = mkdtempSync(join(tmpdir(), 'oms-nogit-'));
+    try {
+      assert.equal(
+        (await run(prepareSlash('diff', '', chatFake(plain, false)))).text,
+        'This folder is not a git repository, so there is no diff to show.',
+      );
+      execFileSync('git', ['-C', plain, 'init', '-q']);
+      assert.equal(
+        (await run(prepareSlash('diff', '', chatFake(plain, true)))).text,
+        'This repository has no commits yet, so there is no diff to show.',
+      );
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test('/clear and /goal in a chat never mention a task or its verifier', async () => {
+  const chat = chatFake('/nonexistent', false);
+  const shown: string[] = [];
+  const ctx = {
+    harness: chat,
+    goal: { get: () => undefined, set() {} },
+    show: (_title: string, text: string) => shown.push(text),
+  } as unknown as CommandContext;
+  findCommand('goal')?.run(ctx, '', undefined);
+  assert.match(shown[0]!, /^No goal set\. Start one with \/goal <text> --check "<command>"\.\nBudget:/);
+  assert.doesNotMatch(shown[0]!, /verifier/);
 });

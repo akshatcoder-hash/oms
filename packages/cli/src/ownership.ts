@@ -31,7 +31,6 @@ interface OwnershipDependencies {
   stop?: typeof stopMutationLeaseOwner;
   recover?: typeof recoverHarnessWorkspace;
   prompt?: OwnershipPrompt;
-  beforeOpen?: (options: HarnessSessionOptions) => Promise<HarnessSessionOptions | undefined>;
 }
 
 const safeLine = (value: string): string => displayText(value, 300).replace(/\s+/g, ' ').trim();
@@ -202,11 +201,6 @@ export async function openHarnessWithOwnership(
     for (;;) {
       if (inspect(options.task.leaseFile).status === 'absent') {
         try {
-          if (dependencies.beforeOpen) {
-            const prepared = await dependencies.beforeOpen(options);
-            if (!prepared) return undefined;
-            options = prepared;
-          }
           return await start(options);
         } catch (error) {
           if (

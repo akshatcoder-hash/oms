@@ -69,7 +69,7 @@ export type LaunchOptions = Pick<HarnessSessionOptions, 'caps' | 'maxOutputToken
   executionMode: NonNullable<HarnessSessionOptions['executionMode']>;
 };
 
-/** Both local starter and repository launches use the same explicit limits. */
+/** Chat and task launches use the same explicit limits. */
 export function parseLaunchOptions(
   args: string[],
   extraOptions: readonly string[] = [],

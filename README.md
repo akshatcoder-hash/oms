@@ -1,21 +1,25 @@
 # OMS (oh my sol)
 
 OMS is a Solana coding harness that runs on your machine with the model access you already have.
-The model edits a task worktree and proposes completion; an independent offline verifier decides whether the pinned checks pass.
-Use the terminal chat or Workbench editor, with Solana references, toolchain repair, and saved task history.
+Run `oms` in any folder to chat with a Solana coding agent that edits that folder in place. For work with pinned requirements, the model edits a task worktree and proposes completion, and an independent offline verifier decides whether the pinned checks pass.
+Use the terminal chat or Workbench editor, with Solana references, toolchain repair, and saved history.
 
 ## Install and first run
 
 Use Node **22.19.0 or newer** and Git. Then:
 
 ```sh
-npx @barestate/oms doctor --install   # one time: downloads Surfpool 1.7.0 and verifies its SHA-256
+cd path/to/your/project
 npx @barestate/oms
 ```
 
+The first launch installs Surfpool 1.7.0 and verifies its SHA-256; `oms doctor --install` does the same on its own.
+
 `oms --version` prints the version. To run a source checkout instead, use `npm ci --ignore-scripts`, run `node packages/cli/src/bin.ts doctor --install`, then `npm start`. See [quickstart](docs/quickstart.md) for the source setup commands.
 
-In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. Type a request only when you want to send it to the provider. Opening OMS sends no model request. `/help` lists commands; `/quit` closes the session. The starter keeps your files and conversation across launches.
+In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. Type a request only when you want to send it to the provider. Opening OMS sends no model request. `/help` lists commands; `/quit` closes the session.
+
+`oms` works in the folder you run it in, like any editor: the agent reads and edits your files there, including uncommitted ones, so keep the folder under Git and use `/diff` to review. OMS creates nothing inside the folder; its state for each folder lives under `~/.oms/folders/`. Run `oms` again in the same folder to resume the last conversation. In your home folder, `/`, or a folder that holds keys or OMS's own state, OMS opens a scratch folder instead and says so.
 
 See [quickstart](docs/quickstart.md) for each access path and [release checklist](docs/release.md) for the installable archive and clean-machine smoke test.
 
@@ -33,7 +37,7 @@ OMS uses the model access you already have. Provider credentials stay in private
 
 OMS makes no claim of a higher pass rate than any single model.
 
-Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. The starter and standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining task files and verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription).
+Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. Running `oms` again in the folder and the standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining your files and, in a task, its verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription).
 
 ## What “done” means
 
@@ -43,9 +47,9 @@ A task pins its requirements and trusted verifier files before work begins. The 
 
 ## Host mode and sandboxing
 
-Docker is not needed to install or run OMS. Host mode is the default: tools run on your machine, in the task worktree.
+Docker is not needed to install or run OMS. Host mode is the default: tools run on your machine, in the folder you opened (or the task worktree).
 
-- **macOS:** every command runs under a per-run Seatbelt (`sandbox-exec`) profile. Writes are limited to the worktree, a private HOME, temp and Cargo's download caches (`~/.cargo/registry`, `~/.cargo/git`). Pinned verifier files and `.git` stay read-only. `~/.ssh`, `~/.config/solana`, `~/.aws`, `~/Library`, `~/.config/gh`, `~/.docker`, `~/.netrc`, `~/.npmrc`, keypair files and other directories under your home are unreadable, and the keychain service is blocked. The only network destination is the local Surfnet port. Seatbelt is not a VM; it confines file and network access only.
+- **macOS:** every command runs under a per-run Seatbelt (`sandbox-exec`) profile. Writes are limited to the worktree, a private HOME, temp and Cargo's download caches (`~/.cargo/registry`, `~/.cargo/git`). Pinned verifier files and `.git` stay read-only in a task; in a folder chat only `.git/hooks` and `.git/config` do, so the agent can `git add` and `git commit` but cannot plant a hook, and `.env` and `.env.*` files (except `.env.example`, `.env.sample` and `.env.template`) are unreadable. `~/.ssh`, `~/.config/solana`, `~/.aws`, `~/Library`, `~/.config/gh`, `~/.docker`, `~/.netrc`, `~/.npmrc`, keypair files and other directories under your home are unreadable, and the keychain service is blocked. The only network destination is the local Surfnet port. Seatbelt is not a VM; it confines file and network access only.
 - **Linux:** v0.1 has no sandbox. OMS prints a warning at startup. Network access is unrestricted and an approved command can read anything your user can. Use it only with code and commands you trust.
 
 On both, agent shell, terminal and verifier processes start from an empty environment plus an allowlist (PATH, locale, temp dir, shell, terminal, Cargo/Rustup homes, RPC URLs) with a private per-run HOME. API keys such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `AWS_*` never reach them. File tools refuse writes to pinned verifier files and `.git`. Every model shell command needs approval in the TUI, with extra warnings for credential or wallet paths, recursive removal, paths outside the worktree, downloads piped to a shell and sudo. Headless runs default to `--host-approval deny`; a trusted operator can pass `--host-approval allow`.
@@ -75,7 +79,7 @@ The system prompt tells the model to use the built-in Solana reference first, th
 To turn web access off, use one of these:
 - for the current session: `/web off`, and `/web on` to turn it back on;
 - for one launch: `--no-web`;
-- for every launch: `{"web": "off"}` in `config.json` in the OMS state root. This is `~/.oms/config.json` for `oms run`, or `~/.oms/starter/state/config.json` for the bare `oms` starter.
+- for every launch: `{"web": "off"}` in `config.json` in the OMS state root. This is `~/.oms/config.json`.
 
 Headless runs have no web tools unless you pass `--web`. Run records count `web_search`, `web_fetch` and Solana MCP calls, and name the backend that answered each search and fetch (an oms-search answer as the backends it reports, such as `oms:searxng+tinyfish`).
 
@@ -89,7 +93,7 @@ node packages/cli/src/bin.ts task create --workspace /path/to/repo --requirement
 node packages/cli/src/bin.ts run --workspace /path/to/repo --task first
 ```
 
-Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeoutMs`. Pin verifier dependencies and controlling package scripts as trusted paths. See [engine notes](packages/engine/NOTES.md) for the format and storage model. Task code lives in a managed worktree; trusted state lives separately under `~/.oms`. The starter lives in `~/.oms/starter`.
+Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeoutMs`. Pin verifier dependencies and controlling package scripts as trusted paths. See [engine notes](packages/engine/NOTES.md) for the format and storage model. Task code lives in a managed worktree; trusted state lives separately under `~/.oms`.
 
 ## Limits
 

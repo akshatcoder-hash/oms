@@ -295,39 +295,6 @@ test('ownership changing during confirmation is revalidated by the real stop bou
   assert.equal(f.starts(), 0);
 });
 
-test('preopen session decisions run only after ownership has been released', async (t) => {
-  const f = fixture(t);
-  let preparations = 0;
-  const result = await openHarnessWithOwnership(f.options, {
-    start: f.start,
-    beforeOpen: async (options) => {
-      preparations++;
-      assert.equal(inspectMutationLease(f.file).status, 'absent');
-      return options;
-    },
-    prompt: prompt(async () => {
-      assert.equal(preparations, 0);
-      f.lease.release();
-      return 'retry';
-    }),
-  });
-  assert.equal(result, f.opened);
-  assert.equal(preparations, 1);
-});
-
-test('a cancelled preopen session decision does not create a runtime', async (t) => {
-  const f = fixture(t);
-  f.lease.release();
-  assert.equal(
-    await openHarnessWithOwnership(f.options, {
-      start: f.start,
-      beforeOpen: async () => undefined,
-    }),
-    undefined,
-  );
-  assert.equal(f.starts(), 0);
-});
-
 test('acquisition races still enter ownership choices after an absent preflight', async (t) => {
   const f = fixture(t);
   f.lease.release();

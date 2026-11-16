@@ -56,8 +56,6 @@ export function webSetting(stateRoot: string): 'on' | 'off' {
 export async function runInteractiveHarness(
   options: HarnessSessionOptions,
   launch: {
-    beforeOpen?: (options: HarnessSessionOptions) => Promise<HarnessSessionOptions | undefined>;
-    localStarter?: boolean;
     /** false for --no-web. Web tools are still registered so /web on can turn them on later. */
     web?: boolean;
   } = {},
@@ -67,7 +65,7 @@ export async function runInteractiveHarness(
   process.env.PI_OFFLINE = '1';
   const stateRoot = dirname(dirname(options.workspace.stateDir));
   options = { ...options, web: { enabled: launch.web !== false && webSetting(stateRoot) === 'on' } };
-  const harness = await openHarnessWithOwnership(options, launch.beforeOpen ? { beforeOpen: launch.beforeOpen } : {});
+  const harness = await openHarnessWithOwnership(options);
   if (!harness) return;
   const sessionId = harness.session.sessionManager.getSessionId();
   process.stdout.write(`OMS ready | task ${harness.task.id} | Harness\n`);
@@ -90,10 +88,6 @@ export async function runInteractiveHarness(
   ];
   if (options.executionMode !== 'interactive') capArgs.push('--bounded');
   if (harness.web?.enabled() === false) capArgs.push('--no-web');
-  if (launch.localStarter) {
-    process.stdout.write(`Continue your local starter with the same limits:\noms ${capArgs.join(' ')}\n`);
-    return;
-  }
 
   const conversation = harness.session.sessionManager.getSessionFile();
   if (conversation && existsSync(conversation)) {

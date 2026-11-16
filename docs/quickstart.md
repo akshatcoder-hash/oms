@@ -3,13 +3,15 @@
 Install Node 22.19.0 or newer and Git, then:
 
 ```sh
-npx @barestate/oms doctor --install   # downloads Surfpool 1.7.0 and checks its SHA-256
+cd path/to/your/project
 npx @barestate/oms
 ```
 
+Run `oms` in any folder: it opens a chat that edits that folder in place, keeps its own state under `~/.oms/folders/`, and resumes the last conversation when you run `oms` there again. The first launch installs Surfpool 1.7.0 and checks its SHA-256; `oms doctor --install` does the same on its own.
+
 In a source checkout, run `npm ci --ignore-scripts`, then `node packages/cli/src/bin.ts doctor --install` and `npm start`.
 
-Docker is not part of the install. `npm start` uses host mode: on macOS commands run under a Seatbelt profile (worktree-only writes, no access to keys or other repos, network only to Surfnet); on Linux v0.1 there is no sandbox and OMS warns at startup. Commands need your approval in both. Optional: `npm start -- --sandbox docker` selects Docker for untrusted repositories; it needs the daemon and the pinned cached image.
+Docker is not part of the install. `npm start` uses host mode: on macOS commands run under a Seatbelt profile (writes only in the folder, no access to keys or other repos, network only to Surfnet); on Linux v0.1 there is no sandbox and OMS warns at startup. Commands need your approval in both. Optional: `--sandbox docker` selects Docker for untrusted repositories with `oms task create` and `oms run`; plain `oms` does not run in Docker.
 
 Enter the slash commands below inside OMS, not in your shell. Arrow keys select a row; Enter confirms; Esc returns. `/connect` configures access and `/model` selects a model. A row marked **Connected** means credentials are configured locally. Saving a key sends no validation request. Only a successful model response proves the live connection works, and that request can consume your plan allowance or paid usage. Never paste credentials into chat, source files or bug reports.
 
@@ -45,7 +47,7 @@ OMS runs the installed, unmodified CLI as a native Claude chat with a durable se
 Use the existing session and conversation actions:
 
 - `/session` shows the OMS owner, observed native session ID and state: `new` before initialization, `ready` after the native process initializes, or `disconnected` after it stops. A successful login check alone does not mean the chat is ready.
-- The starter and standard OMS resume command restore the saved native identity. With Claude Code selected in `/model`, the next message resumes that history. If the history cannot be resumed, OMS reports the failure without silently creating a replacement chat.
+- Running `oms` again in the folder and the standard OMS resume command restore the saved native identity. With Claude Code selected in `/model`, the next message resumes that history. If the history cannot be resumed, OMS reports the failure without silently creating a replacement chat.
 - With Claude Code selected, `/clear` starts a fresh native chat with trusted current task context and clears the OMS conversation view. Previous chat messages are not replayed into the new thread. Task files, requirement status and verification remain intact. If the native reset fails, OMS retains the conversation. Wait for the current turn to finish or use `/cancel` first.
 
 If a native tool batch was interrupted or the native protocol failed verification, review the OMS transcript and tool results before proceeding. Select **Claude Code** in `/model`, then use `/clear` to start a fresh native chat and clear the conversation view, retaining task files and verification. Interrupted tools are never replayed automatically; restarting OMS or reselecting the model does not bypass this guard.
@@ -58,7 +60,7 @@ For a repository task, launch a native chat explicitly:
 oms run --workspace /path/to/repo --task first --provider claude-code --model sonnet
 ```
 
-After quitting, use the printed resume command, or add `--session <OMS-session-id>` to that launch. `--session` takes the OMS identity from `/session`, which selects the bound native Claude history; it does not take an arbitrary Claude session ID. The bare `oms` starter reopens its saved OMS conversation and native binding on the next launch.
+After quitting, use the printed resume command, or add `--session <OMS-session-id>` to that launch. `--session` takes the OMS identity from `/session`, which selects the bound native Claude history; it does not take an arbitrary Claude session ID. Plain `oms` reopens the folder's saved OMS conversation and native binding on the next launch.
 
 OMS reserves the model's full catalog context and output capacity because Claude Code cannot enforce OMS's local per-request output cap. Total token and time limits remain active. Headless runs can select `--provider claude-code --model sonnet`; they omit the input cap that other headless providers use by default. An explicit `--input-tokens` is refused before opening the workspace because the native CLI adds its own request overhead.
 
@@ -110,7 +112,7 @@ Hosted search: `/login` signs in to your OMS account through browser device auth
 Turn web access off:
 - with `/web off` in a session (`/web` alone shows the state and the call counts);
 - with `npm start -- --no-web` for one launch;
-- with `{"web": "off"}` in `~/.oms/starter/state/config.json` (or `~/.oms/config.json` for `oms run`).
+- with `{"web": "off"}` in `~/.oms/config.json`.
 
 Headless runs have no web access unless you pass `--web`.
 

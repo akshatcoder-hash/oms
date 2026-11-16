@@ -286,7 +286,7 @@ export class WorkbenchPane {
     const generation = ++this.openGeneration;
     try {
       const absolute = posix.resolve('/work', path);
-      if (!absolute.startsWith('/work/')) throw new Error('Choose a file inside the task');
+      if (!absolute.startsWith('/work/')) throw new Error('Choose a file inside the project');
       const key = absolute.slice('/work/'.length);
       const existing = this.buffers.get(key);
       if (existing) {
@@ -367,7 +367,7 @@ export class WorkbenchPane {
         !absolute.startsWith('/work/') ||
         absolute.split('/').some((part) => ['.git', '.oms', '.keys', '.env.agent'].includes(part))
       ) {
-        throw new Error('Choose a single-line file path inside the task, outside private directories');
+        throw new Error('Choose a single-line file path inside the project, outside private directories');
       }
       const key = absolute.slice('/work/'.length);
       if (this.buffers.has(key)) throw new Error(`${key} is already open; use its tab instead`);
@@ -644,7 +644,7 @@ export class WorkbenchPane {
   }
 
   private browserRows(width: number): string[] {
-    if (this.loading) return [truncateToWidth('Loading task files…', width, '')];
+    if (this.loading) return [truncateToWidth('Loading files…', width, '')];
     if (!this.entries.length) return [truncateToWidth(this.message || 'Empty directory · Ctrl+N new file', width, '')];
     return this.entries.map((entry, index) => {
       const parent = this.directory !== '.' && index === 0;
@@ -828,7 +828,7 @@ export class WorkbenchPane {
         render: (width) =>
           [
             'No file open',
-            'Ctrl+P  Browse task files',
+            'Ctrl+P  Browse files',
             'Ctrl+N  Create a file',
             '/ or Ctrl+K  Commands and help',
             'Ctrl+L  Return to your agent draft',
@@ -854,7 +854,7 @@ export class WorkbenchPane {
           render: (width) => [
             truncateToWidth(
               this.mode === 'new'
-                ? 'New file path (task-relative):'
+                ? 'New file path (relative to the project):'
                 : this.mode === 'close'
                   ? 'Confirm discard'
                   : this.mode === 'replace-with'

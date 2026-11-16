@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { decideSettle, type BudgetSnapshot } from '@oms/core';
-import { DEFAULT_MAX_ATTEMPTS, type HarnessSession } from '@oms/engine';
+import { DEFAULT_MAX_ATTEMPTS, type OmsSession } from '@oms/engine';
 
 /** `/goal`: the agent keeps working until an independent check passes, within the settle gate's retry and budget caps. */
 const GOAL_TEXT_LIMIT = 4_000;
@@ -64,7 +64,8 @@ export interface CheckResult {
 }
 
 /** An item the task's pinned verifier can still decide. */
-export function taskVerifierItem(harness: HarnessSession): string | undefined {
+export function taskVerifierItem(harness: OmsSession): string | undefined {
+  if (harness.kind === 'chat') return undefined;
   try {
     const state = harness.evaluator.read();
     return state.ok
@@ -80,7 +81,7 @@ const tail = (text: string, limit: number): string =>
 
 /** The goal's decider. A command runs in the sandbox like /run; otherwise the pinned task verifier answers, never the model. */
 export async function runGoalCheck(
-  harness: HarnessSession,
+  harness: OmsSession,
   goal: Pick<Goal, 'check'>,
   signal: AbortSignal,
 ): Promise<CheckResult> {
@@ -101,6 +102,7 @@ export async function runGoalCheck(
       };
     }
   }
+  if (harness.kind === 'chat') return { status: 'unavailable', output: '', summary: 'a chat has no pinned verifier' };
   try {
     const state = harness.evaluator.read();
     if (!state.ok) return { status: 'unavailable', output: '', summary: 'task state is unreadable' };
@@ -149,9 +151,9 @@ export function failurePrompt(goal: Goal, result: CheckResult): string {
   );
 }
 
-export function goalSummary(goal: Goal | undefined, budget: string): string {
+export function goalSummary(goal: Goal | undefined, budget: string, chat = false): string {
   if (!goal)
-    return `No goal set. Start one with /goal <text> --check "<command>", or /goal <text> to use the task's verifier.\nBudget: ${budget}`;
+    return `No goal set. Start one with /goal <text> --check "<command>"${chat ? '.' : ", or /goal <text> to use the task's verifier."}\nBudget: ${budget}`;
   return (
     `Goal: ${goal.text}\nCheck: ${goal.check === undefined ? "the task's pinned verifier" : goal.check}\n` +
     `Status: ${goal.status} · checks used ${goal.attempts}/${goal.maxAttempts}${goal.summary ? ` · ${goal.summary}` : ''}\nBudget: ${budget}`

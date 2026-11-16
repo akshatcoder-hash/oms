@@ -1,4 +1,4 @@
-import { readWorktreeText, type HarnessSession } from '@oms/engine';
+import { readWorktreeText, type OmsSession } from '@oms/engine';
 import { REVIEW_DISCLAIMER } from '@oms/review';
 import { previewBytes, refuse, refuseWith, REPORT_BYTES, type Prepared } from './prepared.ts';
 import { singleLine } from './transcript.ts';
@@ -26,11 +26,13 @@ export function testCommand(codeRoot: string): string | undefined {
   return undefined;
 }
 
-export function prepareTest(argument: string, harness: HarnessSession): Prepared {
+export function prepareTest(argument: string, harness: OmsSession): Prepared {
   if (argument) return refuse('Usage: /test (no arguments; use /run for another command)');
-  const command = testCommand(harness.task.codeRoot);
+  const command = testCommand(harness.root);
   if (!command)
-    return refuse('No tests found: expected Anchor.toml, a package.json "test" script or Cargo.toml in the task.');
+    return refuse(
+      'No tests found: expected Anchor.toml, a package.json "test" script or Cargo.toml in the project folder.',
+    );
   return {
     ok: true,
     async run(signal) {
@@ -48,7 +50,7 @@ export function prepareTest(argument: string, harness: HarnessSession): Prepared
 }
 
 /** /run <command>: a sandbox command whose output is the note; a command that did not succeed fails the action. */
-export function prepareRun(argument: string, harness: HarnessSession): Prepared {
+export function prepareRun(argument: string, harness: OmsSession): Prepared {
   return {
     ok: true,
     async run(signal) {
@@ -67,11 +69,16 @@ export function prepareRun(argument: string, harness: HarnessSession): Prepared 
 
 /** /verify [item]: independent verification of one requirement; it runs to its backend timeout. */
 export function prepareVerify(ctx: CommandContext, argument: string): Prepared {
+  const { harness } = ctx;
+  if (harness.kind === 'chat')
+    return refuseWith(
+      'No verifier in a chat. /verify checks a pinned task requirement and this folder has none. Use /goal <text> --check "<command>" or /test.',
+    );
   const id = argument || ctx.selectedRequirement();
   return {
     ok: true,
     async run() {
-      const verification = await ctx.harness.verify(id);
+      const verification = await harness.verify(id);
       const result = verification.result;
       return {
         title: 'verification',
@@ -91,7 +98,7 @@ export function prepareReview(ctx: CommandContext): Prepared {
     async run() {
       ctx.conversation.note('security review', REVIEW_DISCLAIMER + '\nRunning offline Phase A static tools.');
       let report: ReviewPresentation | undefined;
-      const code = await ctx.review([ctx.harness.task.codeRoot, '--phase', 'A'], {
+      const code = await ctx.review([ctx.harness.root, '--phase', 'A'], {
         stdout() {},
         stderr: (text) => {
           ctx.setNotice(singleLine(text, 500));

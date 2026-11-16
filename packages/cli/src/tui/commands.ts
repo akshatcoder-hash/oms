@@ -1,4 +1,4 @@
-import type { HarnessSession } from '@oms/engine';
+import type { OmsSession } from '@oms/engine';
 import type { runReviewCommand } from '../review.ts';
 import {
   prepareAccount,
@@ -13,7 +13,7 @@ import { prepareDiff, prepareSession, prepareStatus, prepareUsage } from './insp
 import { prepareReview, prepareRun, prepareTest, prepareVerify } from './work-commands.ts';
 import { clearConversation, goalCommand } from './conversation-commands.ts';
 import { acceptsArt, acceptsLayout, acceptsWeb, uiCommands } from './ui-commands.ts';
-import type { Prepared } from './prepared.ts';
+import { refuseWith, type Prepared } from './prepared.ts';
 import type { Goal } from './goal.ts';
 import type { StartupArtMode } from './startup-art.ts';
 import type { Conversation } from './transcript.ts';
@@ -30,7 +30,7 @@ export interface Requirement {
 
 /** What a command may do to the interface. interface.ts builds one over its live state; handlers touch nothing else. */
 export interface CommandContext {
-  readonly harness: HarnessSession;
+  readonly harness: OmsSession;
   readonly workbench: WorkbenchPane;
   readonly shell: TerminalPane;
   readonly conversation: Conversation;
@@ -88,6 +88,8 @@ export interface CommandSpec {
   whileBusy: WhileBusy;
   /** False for work that must finish within its backend timeout: the Cancel control stays off and /cancel refuses. */
   cancellable?: false;
+  /** 'task' commands need a pinned task: a chat hides them from the menu and /help and refuses them when typed. */
+  availability?: 'task';
   /** What the header and a failure note call this work when it runs as an action. Default: command. */
   activity?: 'verification' | 'review';
   run: CommandHandler;
@@ -112,7 +114,7 @@ const KEYBOARD_HELP =
 
 /** /help lists every command and the keyboard controls. It lives here because it renders the table. */
 const help: CommandHandler = (ctx, _argument, draft) => {
-  ctx.conversation.note('commands', commandHelp() + KEYBOARD_HELP);
+  ctx.conversation.note('commands', commandHelp(ctx.harness.kind) + KEYBOARD_HELP);
   ctx.clearDraft(draft);
   ctx.switchView('harness');
   ctx.setFocus('conversation');
@@ -138,7 +140,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'files',
     group: 'Navigate',
-    description: 'Browse task files · Ctrl+P',
+    description: 'Browse files · Ctrl+P',
     whileBusy: 'accepted',
     run: uiCommands.files,
   },
@@ -247,21 +249,21 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'status',
     group: 'Inspect',
-    description: 'Requirements, proof and full budget',
+    description: 'Model and full budget; a task adds requirements and proof',
     whileBusy: 'always',
     run: (ctx) => prepareStatus(ctx),
   },
   {
     name: 'session',
     group: 'Inspect',
-    description: 'Repository, worktree and session',
+    description: 'Session and folder, or repository and task',
     whileBusy: 'always',
     run: (ctx) => prepareSession(ctx.harness),
   },
   {
     name: 'diff',
     group: 'Inspect',
-    description: 'Task changes against its base; long diffs open in the workbench',
+    description: 'Changes against the base commit; long diffs open in the workbench',
     argument: '[path]',
     accepts: any,
     whileBusy: 'always',
@@ -279,13 +281,17 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     name: 'requirements',
     group: 'Inspect',
     description: 'Toggle requirements beside conversation',
+    availability: 'task',
     whileBusy: 'accepted',
-    run: uiCommands.requirements,
+    run: (ctx, argument, draft) =>
+      ctx.harness.kind === 'chat'
+        ? refuseWith('A chat has no pinned requirements. oms task create pins them.')
+        : uiCommands.requirements(ctx, argument, draft),
   },
   {
     name: 'open',
     group: 'Edit',
-    description: 'Open a task file',
+    description: 'Open a file',
     argument: '<path>',
     needsArgument: true,
     accepts: present,
@@ -350,6 +356,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     name: 'verify',
     group: 'Work',
     description: 'Independent offline verification',
+    availability: 'task',
     argument: '[item-id]',
     accepts: singleWord,
     whileBusy: 'never',
@@ -387,7 +394,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'clear',
     group: 'Work',
-    description: 'Fresh conversation; task, files and worktree stay',
+    description: 'Fresh conversation; your files stay',
     accepts: any,
     whileBusy: 'never',
     run: clearConversation,
@@ -489,19 +496,23 @@ export function canRunWhileBusy(command: CommandSpec, argument: string): boolean
 }
 
 /** Only an unfinished command name opens completion; arguments remain normal input. */
-export function commandMatches(draft: string): readonly CommandSpec[] | undefined {
+export function commandMatches(draft: string, kind: 'task' | 'chat' = 'task'): readonly CommandSpec[] | undefined {
   const match = /^\/([a-z]*)$/i.exec(draft.trimStart());
   if (!match) return undefined;
   const query = match[1]!.toLowerCase();
-  return OMS_COMMANDS.filter((command) => command.name.startsWith(query));
+  return available(kind).filter((command) => command.name.startsWith(query));
 }
 
-export function commandHelp(): string {
+const available = (kind: 'task' | 'chat'): readonly CommandSpec[] =>
+  kind === 'chat' ? OMS_COMMANDS.filter((command) => command.availability !== 'task') : OMS_COMMANDS;
+
+export function commandHelp(kind: 'task' | 'chat' = 'task'): string {
   return ['Navigate', 'Setup', 'Edit', 'Inspect', 'Work', 'Solana']
     .map(
       (group) =>
         `${group}\n` +
-        OMS_COMMANDS.filter((command) => command.group === group)
+        available(kind)
+          .filter((command) => command.group === group)
           .map(
             (command) => `/${command.name}${command.argument ? ' ' + command.argument : ''} — ${command.description}`,
           )

@@ -20,6 +20,8 @@ import {
 import { chatRoot, chatStateDir, type SessionRoot } from './session-root.ts';
 import type { ChatSession, ChatSessionOptions } from './session-types.ts';
 
+export const DOCKER_CHAT_REFUSAL = 'Docker chats need a pinned task: use oms task create and oms run.';
+
 /** Another window already has this folder open. */
 export class ChatBusyError extends Error {
   readonly pid: number;
@@ -49,8 +51,7 @@ async function acquireChatLease(root: SessionRoot): Promise<MutationLease> {
 
 export async function createChatSession(options: ChatSessionOptions): Promise<ChatSession> {
   const { folder, stateRoot } = options;
-  if (backendFor(options.environment).requiresDocker)
-    throw new Error('Docker chats need a pinned task: use oms task create and oms run.');
+  if (backendFor(options.environment).requiresDocker) throw new Error(DOCKER_CHAT_REFUSAL);
   const root = chatRoot(folder, stateRoot);
   warnAboutBackend(options.environment, stateRoot);
   return startSession(await acquireChatLease(root), async (life) => {

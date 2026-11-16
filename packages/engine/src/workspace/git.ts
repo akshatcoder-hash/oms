@@ -40,21 +40,6 @@ function command(root: string, args: string[], extra: string[] = []): string {
   });
 }
 
-/** Fixed host-only operations for the owned local starter; never accepts executable Git arguments. */
-export function initializeStarterRepository(root: string): void {
-  command(root, ['init', '-q', '--template=']);
-}
-
-export function commitStarterRepository(root: string): string {
-  command(root, ['add', '--', 'package.json', 'src/cart.mjs', 'verify.mjs']);
-  command(
-    root,
-    ['commit', '-qm', 'Create persistent OMS local starter'],
-    ['-c', 'user.name=OMS Local Starter', '-c', 'user.email=starter@invalid.test', '-c', 'commit.gpgsign=false'],
-  );
-  return command(root, ['rev-parse', 'HEAD']).trim();
-}
-
 export function repositoryPaths(path: string): { root: string; gitCommonDir: string; worktrees: string[] } {
   const cwd = realpathSync(path);
   if (command(cwd, ['rev-parse', '--is-bare-repository']).trim() !== 'false') {
