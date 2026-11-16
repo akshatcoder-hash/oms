@@ -651,16 +651,14 @@ export async function runOmsInterface(
           error,
           kind === 'agent' && !action.accepted ? harness.session.model?.provider : undefined,
         );
-        // Refusal before agent_start leaves the original text untouched. If an admitted prompt
-        // failed after clearing, restore it only when no newer draft would be overwritten.
-        if (action.accepted && draft !== undefined && !input.document.text) {
-          input.document.insert(draft);
-          input.focus.invalidate();
-        }
+        // A refusal before agent_start leaves the text untouched. Once the message is in the conversation the failure is
+        // too, so the input stays empty and the next message starts clean.
         // An SDK assistant error is already represented by its contextual message.
         if (!action.errorDisplayed) conversation.note(`${kind} failed`, message);
         setNotice(
-          message.endsWith(MODEL_CONFIGURATION) ? message : `${kind} failed; details in conversation. Draft retained.`,
+          message.endsWith(MODEL_CONFIGURATION)
+            ? message
+            : `${kind} failed; details in conversation.${action.accepted ? '' : ' Draft retained.'}`,
         );
       } finally {
         if (action.cancellation) {

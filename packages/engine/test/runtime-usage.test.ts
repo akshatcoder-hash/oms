@@ -1287,3 +1287,71 @@ test('only OpenAI itself is asked for background: false; xAI rejects the field',
   assert.equal(sent.openai?.background, false);
   assert.ok(sent.xai && !('background' in sent.xai), 'xAI request carries no background field');
 });
+
+async function rejectedWith(status: number, body: string, provider = 'xai') {
+  const f = fixture((selected, context, options) =>
+    openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+  );
+  const selected = { ...model, api: 'openai-responses' as const, provider };
+  const send = async () => {
+    const stream = await f.stream(
+      selected,
+      normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
+      {
+        apiKey: 'synthetic-offline',
+        fetch: async () => new Response(body, { status, headers: { 'content-type': 'application/json' } }),
+      },
+    );
+    return stream.result();
+  };
+  return { f, send };
+}
+
+test('a 4xx rejection before any output is shown in the provider words and releases the reservation', async () => {
+  const { f, send } = await rejectedWith(
+    400,
+    JSON.stringify({ code: 'Client specified an invalid argument', error: 'Argument not supported: background' }),
+  );
+  const result = await send();
+  assert.equal(result.stopReason, 'error');
+  assert.equal(result.errorMessage, 'xAI rejected the request: Argument not supported: background');
+  assert.ok(!isRetryableAssistantError(result));
+  const snapshot = f.ledger.snapshot();
+  assert.equal(snapshot.accounting, 'known');
+  assert.equal(snapshot.used.tokens, 0);
+  assert.equal(snapshot.used.spendMicroUsd, 0);
+  assert.ok(
+    !/unknown|No provider request sent/.test((await send()).errorMessage ?? ''),
+    'the next message is admitted',
+  );
+});
+
+test('a rejected key reads as an invalid key and points at /connect', async () => {
+  const { f, send } = await rejectedWith(
+    401,
+    '{"error":{"message":"Incorrect API key provided: xai-abcdefghijklmnop"}}',
+  );
+  const result = await send();
+  assert.equal(result.errorMessage, 'xAI says the API key is invalid. /connect to fix it.');
+  assert.equal(f.ledger.snapshot().accounting, 'known');
+});
+
+test('a 4xx message never carries raw JSON or a key', async () => {
+  const { send } = await rejectedWith(
+    404,
+    '{"error":{"message":"model sk-abcdefghijklmnopqrstu not found"}}',
+    'openai',
+  );
+  const text = (await send()).errorMessage!;
+  assert.match(text, /^OpenAI rejected the request: /);
+  assert.ok(!text.includes('{') && !text.includes('sk-abcdefghijklmnopqrstu'), text);
+});
+
+test('a rate limit or a server error keeps its existing accounting', async () => {
+  const limited = await rejectedWith(429, 'slow down');
+  await limited.send();
+  assert.ok(limited.f.ledger.snapshot().used.tokens > 0, 'a 429 stays charged at the reserved bound');
+  const broken = await rejectedWith(500, 'boom');
+  await broken.send();
+  assert.ok(broken.f.ledger.snapshot().used.tokens > 0, 'a 5xx stays charged at the reserved bound');
+});

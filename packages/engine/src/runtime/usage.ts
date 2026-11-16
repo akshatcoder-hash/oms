@@ -35,6 +35,7 @@ import {
 } from '@oms/core';
 
 import { BYTES_PER_TOKEN } from './context-trim.ts';
+import { describeRejection, isRejectionStatus } from './provider-rejection.ts';
 import {
   modelOutputCap,
   modelReservationBound,
@@ -289,6 +290,22 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
     };
     let httpRequests = 0;
     let capRefused = false;
+    // The provider answered 4xx before streaming anything: it did no work, so nothing was charged.
+    let rejection: string | undefined;
+    const releaseRejected = (): boolean => {
+      if (!rejection || !dispatchId || settled) return false;
+      const released = config.ledger.settle({
+        dispatchId,
+        receiptId: randomUUID(),
+        outcome: 'not_dispatched',
+        tokens: 0,
+        spendMicroUsd: 0,
+      });
+      if (!released.ok) return false;
+      settled = true;
+      failed(rejection);
+      return true;
+    };
     // The input cap refuses the payload before any HTTP request exists: nothing was sent, so the reservation is released
     // rather than retained as unknown usage.
     const releaseUnsent = (): boolean => {
@@ -438,12 +455,23 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           // saved zero/disabled semantics). The independent wall deadline above always applies.
           ...(options?.timeoutMs === 0 ? { timeoutMs: remaining } : {}),
           // Real provider adapters accept this fetch. It also refuses hidden SDK fallback/retry HTTP calls.
-          fetch: ((input, init) => {
+          fetch: (async (input, init) => {
             if (!payloadAccepted) throw new Error('metered transport refused before the input cap was checked');
             if (controller.signal.aborted || ++httpRequests !== 1)
               throw new Error('metered transport refused another request');
             const signal = init?.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal;
-            return fetchRequest(input, { ...init, signal, redirect: 'error' });
+            const response = await fetchRequest(input, { ...init, signal, redirect: 'error' });
+            if (isRejectionStatus(response.status)) {
+              const text = await Promise.race([
+                response
+                  .clone()
+                  .text()
+                  .catch(() => ''),
+                new Promise<string>((resolve) => setTimeout(resolve, 3_000, '')),
+              ]);
+              rejection = describeRejection(model.provider, response.status, text);
+            }
+            return response;
           }) as typeof globalThis.fetch,
           onPayload: async (payload: unknown, payloadModel: Model<Api>): Promise<unknown> => {
             if (controller.signal.aborted || ++payloads !== 1 || payloadModel.id !== model.id)
@@ -530,7 +558,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                 'oms stream error',
                 JSON.stringify({ reason: event.reason, message: errorMessage }).slice(0, 600),
               );
-            if (releaseUnsent()) return;
+            if (releaseUnsent() || releaseRejected()) return;
             if (event.reason !== 'aborted' && interrupted(errorMessage)) return;
             uncertain();
             failed(
@@ -586,7 +614,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           'Provider stream ended without a final receipt; budget usage is unknown and its reservation is retained.',
         );
       } catch (error) {
-        if (releaseUnsent()) return;
+        if (releaseUnsent() || releaseRejected()) return;
         if (dispatched && interrupted(error instanceof Error ? error.message : undefined)) return;
         uncertain();
         failed(

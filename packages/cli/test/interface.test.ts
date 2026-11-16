@@ -1037,7 +1037,7 @@ test('quit during verification awaits the backend outcome rather than pretending
   }
 });
 
-test('an admitted provider error restores the submitted draft after the prompt settles', async () => {
+test('an admitted provider error leaves the input empty so the next message starts clean', async () => {
   const f = fixture();
   const terminal = new InterfaceTerminal();
   const run = runOmsInterface(f.harness, { terminal });
@@ -1051,9 +1051,13 @@ test('an admitted provider error restores the submitted draft after the prompt s
       message: { role: 'assistant', content: [], stopReason: 'error', errorMessage: 'Provider interrupted' },
     });
     f.promptGate.resolve();
-    await terminal.until(
-      (s) => s.includes('idle') && s.includes('retry the precise request') && s.includes('Provider interrupted'),
-    );
+    await terminal.until((s) => s.includes('idle') && s.includes('Provider interrupted'));
+    terminal.send('next');
+    const screen = await terminal.until((s) => s.includes('next'));
+    assert.ok(!screen.includes('retry the precise requestnext'));
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 2);
+    assert.equal(f.prompts[1], 'next');
   } finally {
     f.abortGate.resolve();
     f.promptGate.resolve();
@@ -1820,7 +1824,8 @@ for (const diagnostic of [
         if (restored) assert.deepEqual(f.messages, [message]);
         else assert.deepEqual(f.messages, [{ role: 'user', content: 'current provider draft' }]);
         terminal.send('!');
-        await terminal.until((s) => s.includes(restored ? '!' : 'current provider draft!'));
+        const typed = await terminal.until((s) => s.includes('!'));
+        assert.ok(!typed.includes('current provider draft!'), 'a failed send leaves an empty input');
       } finally {
         f.abortGate.resolve();
         f.promptGate.resolve();
