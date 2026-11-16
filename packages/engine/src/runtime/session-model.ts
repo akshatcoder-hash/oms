@@ -12,7 +12,7 @@ import type { StreamFn } from '@earendil-works/pi-agent-core';
 import { normalizeContext } from '@earendil-works/pi-ai';
 import { assertPrivate, isMissing } from '../workspace/storage.ts';
 import { registerOmsCatalog } from './catalog.ts';
-import { createClaudeCodeProvider, type NativeChatControls } from './claude-code.ts';
+import { claudeCodeEffort, createClaudeCodeProvider, type NativeChatControls } from './claude-code.ts';
 import { AGENT_TOOL } from './helpers/agents.ts';
 import { KNOWLEDGE_TOOL_NAMES } from './knowledge-service.ts';
 import { PROGRAM_REFERENCE_TOOL } from './program-reference.ts';
@@ -91,6 +91,7 @@ export async function createSessionModel(
     (await ModelRuntime.create({ authPath, modelsPath: null, allowModelNetwork: false, refreshOnCreate: true }));
   registerOmsCatalog(modelRuntime);
   const native = (life.nativeSession = await createClaudeCodeProvider(modelRuntime, {
+    effort: claudeCodeEffort(),
     statePath: join(sessionsDir, `${env.sessionId}.claude.json`),
     signal: controller.signal,
     onSpawn: life.processes!.onSpawn,

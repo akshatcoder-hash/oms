@@ -80,11 +80,35 @@ test('known tags come back from the lookup tool', () => {
   assert.match(lookupProgramReference('SPL Token', 'TransferChecked'), /starts with 0c \(bytes \[12\]\)/);
   assert.match(
     lookupProgramReference('System', 'Transfer'),
-    /System 1{32} \/ transferSol\nInstruction data starts with 02000000 \(bytes \[2,0,0,0\]\)/,
+    /System 1{32} \/ transferSol\nCreate accounts, transfer SOL, allocate and assign account data, durable nonces\nInstruction data starts with 02000000 \(bytes \[2,0,0,0\]\)/,
   );
   assert.match(lookupProgramReference('Associated Token Account', 'CreateIdempotent'), /starts with 01 /);
   assert.match(lookupProgramReference('Compute Budget', 'SetComputeUnitLimit'), /starts with 02 /);
   assert.match(lookupProgramReference('Jupiter Aggregator v6', 'route'), /e517cb977ae3ad2a/);
+});
+
+test('single-instruction lookups retain the program purpose and governance deployment discovery facts', () => {
+  const text = lookupProgramReference('Governance', 'createRealm');
+  assert.ok(text.includes(`\n${program('Governance').purpose}\n`));
+  assert.match(text, /public Realms registry \(governance-ui public\/realms\/mainnet-beta.json, field programId\)/);
+});
+
+test('deployment notes appear in program and instruction lookups but never in the prompt index', () => {
+  const orca = program('Orca Whirlpools');
+  const previous = Object.getOwnPropertyDescriptor(orca, 'deploymentNote');
+  const index = programReferenceIndex();
+  const note = 'Fixture deployment guidance for the selected SDK version.';
+  Object.assign(orca, { deploymentNote: note });
+  try {
+    for (const instruction of [undefined, '*', 'swap']) {
+      assert.ok(lookupProgramReference('Orca Whirlpools', instruction).includes(`\nDeployment: ${note}\n`));
+    }
+    assert.equal(programReferenceIndex(), index);
+    assert.doesNotMatch(index, /Fixture deployment guidance/);
+  } finally {
+    if (previous) Object.defineProperty(orca, 'deploymentNote', previous);
+    else Reflect.deleteProperty(orca, 'deploymentNote');
+  }
 });
 
 test('an instruction lists accounts in order with flags, and arguments with types', () => {
