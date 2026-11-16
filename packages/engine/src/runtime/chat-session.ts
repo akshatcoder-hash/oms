@@ -131,9 +131,10 @@ export function savedBudgetUsable(
       },
     });
     const snapshot = ledger.snapshot();
+    // Resuming charges an uncertain or interrupted request at its reservation, so an interactive chat goes on.
+    if (executionMode === 'interactive') return true;
     if (snapshot.accounting !== 'known' || snapshot.pendingDispatchIds.length !== 0) return false;
-    // Runtime migrates known legacy journals; paid dispatch admission still checks retained spend.
-    return executionMode === 'interactive' || !snapshot.admissionBlocked;
+    return !snapshot.admissionBlocked;
   } catch {
     return false;
   }

@@ -41,7 +41,7 @@ test('missing, truncated or unreadable accounting is not usable and is left unto
   assert.equal(readFileSync(path, 'utf8'), '{"type":"budget_open"');
 });
 
-test('a pending dispatch is unknown after a restart', (t) => {
+test('a request left open by a closed chat does not lock it: interactive resumes, bounded does not', (t) => {
   const path = journalPath(t);
   const journal = openBudgetJournal({ path, caps, clock: Date.now });
   assert.equal(journal.ledger.beginOperation('turn').ok, true);
@@ -52,11 +52,12 @@ test('a pending dispatch is unknown after a restart', (t) => {
   );
   journal.close();
   const before = readFileSync(path, 'utf8');
-  assert.equal(savedBudgetUsable(path, caps, 'interactive'), false);
+  assert.equal(savedBudgetUsable(path, caps, 'interactive'), true);
+  assert.equal(savedBudgetUsable(path, caps, 'bounded'), false);
   assert.equal(readFileSync(path, 'utf8'), before);
 });
 
-test('known spend exhaustion stays usable for a subscription chat, unknown usage does not', (t) => {
+test('a subscription chat stays usable after spend exhaustion or an uncertain request', (t) => {
   for (const outcome of ['uncertain', 'known'] as const) {
     const path = journalPath(t);
     const journal = openBudgetJournal({ path, caps, clock: Date.now });
@@ -82,6 +83,6 @@ test('known spend exhaustion stays usable for a subscription chat, unknown usage
       true,
     );
     journal.close();
-    assert.equal(savedBudgetUsable(path, caps, 'interactive'), outcome === 'known');
+    assert.equal(savedBudgetUsable(path, caps, 'interactive'), true);
   }
 });

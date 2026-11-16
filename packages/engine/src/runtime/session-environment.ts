@@ -129,8 +129,23 @@ export function openConversation(
     executionMode,
   }));
   const budget = budgetJournal.ledger;
+  if (executionMode === 'interactive') {
+    // A request left open by a process that is gone is charged at its reservation, so the conversation can go on.
+    const settled = new Set(budget.receipts().map((receipt) => receipt.dispatchId));
+    for (const { dispatchId } of budget.reservations()) {
+      if (settled.has(dispatchId)) continue;
+      const result = budget.settle({
+        dispatchId,
+        receiptId: `interrupted-${dispatchId}`,
+        outcome: 'uncertain',
+        tokens: null,
+        spendMicroUsd: null,
+      });
+      if (!result.ok) throw new Error(result.message);
+    }
+  }
   const restoredBudget = budget.snapshot();
-  if (restoredBudget.accounting !== 'known')
+  if (restoredBudget.accounting !== 'known' && executionMode !== 'interactive')
     throw new Error('Saved usage is pending or unknown; reconcile it before resuming this conversation');
   if (restoredBudget.activeOperationId) {
     const ended = budget.endOperation(restoredBudget.activeOperationId);

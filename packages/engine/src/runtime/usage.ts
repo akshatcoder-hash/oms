@@ -35,7 +35,7 @@ import {
 } from '@oms/core';
 
 import { BYTES_PER_TOKEN } from './context-trim.ts';
-import { describeRejection, describeTransient, isRejectionStatus } from './provider-rejection.ts';
+import { describeFailure, describeRejection, describeTransient, isRejectionStatus } from './provider-rejection.ts';
 import {
   modelOutputCap,
   modelReservationBound,
@@ -149,7 +149,8 @@ function readinessForBound(
   if (!bound)
     return { ready: false, detail: 'This model has unsupported usage limits. Choose a supported model in /model.' };
   const snapshot = ledger.snapshot();
-  if (snapshot.accounting !== 'known')
+  // An interactive chat goes on past an uncertain request, which stays charged at its reservation.
+  if (snapshot.accounting === 'pending' || (snapshot.accounting === 'unknown' && executionMode !== 'interactive'))
     return {
       ready: false,
       detail:
@@ -551,7 +552,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           if (next.done) break;
           const event = next.value;
           if (event.type === 'error') {
-            // Operator diagnostics only (never in the transcript): the real cause behind the generic user-facing message.
+            // Operator diagnostics: the raw cause. The transcript gets it cleaned by describeFailure.
             const errorMessage = (event as { error?: { errorMessage?: string } }).error?.errorMessage;
             if (process.env.OMS_STREAM_DEBUG)
               console.error(
@@ -561,10 +562,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
             if (releaseUnsent() || releaseRejected()) return;
             if (event.reason !== 'aborted' && interrupted(errorMessage)) return;
             uncertain();
-            failed(
-              'Provider request failed; budget usage is unknown and its reservation is retained.',
-              event.reason === 'aborted',
-            );
+            failed(describeFailure(model.provider, errorMessage), event.reason === 'aborted');
             return;
           }
           if (event.type === 'done') {

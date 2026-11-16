@@ -10,6 +10,7 @@ import { hostSandbox } from '@oms/sandbox';
 import { createChatFixture } from '../test-support/chat-fixture.ts';
 import { ChatBusyError, createChatSession, latestChatSession } from '../src/runtime/chat-session.ts';
 import { chatRoot } from '../src/runtime/session-root.ts';
+import { openBudgetJournal } from '../src/runtime/usage.ts';
 import type { ChatSession } from '../src/runtime/session-types.ts';
 
 const seatbelt = { skip: hostSandbox() !== 'seatbelt' && 'needs macOS sandbox-exec' };
@@ -304,4 +305,30 @@ test('a write tells the transcript whether the file is new and what changed', { 
   assert.equal(details[1]?.created, false);
   assert.match(details[1]?.diff ?? '', /-2 two/);
   assert.match(details[1]?.diff ?? '', /\+2 2/);
+});
+
+test('a chat whose window died during a request opens again and answers', { timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  f.faux.setResponses([fauxAssistantMessage('First.')]);
+  const first = await f.start();
+  await first.session.prompt('Hello.');
+  const id = first.session.sessionManager.getSessionId();
+  await first.close();
+  const path = join(chatRoot(f.folder, f.stateRoot).sessionsDir, `${id}.budget.jsonl`);
+  const crashed = openBudgetJournal({ path, caps: f.options.caps, clock: Date.now, executionMode: 'interactive' });
+  assert.equal(crashed.ledger.beginOperation('turn-crashed').ok, true);
+  const open_ = crashed.ledger.reserve({
+    dispatchId: 'crashed',
+    logicalTurnId: 'turn-crashed',
+    attempt: 1,
+    tokens: 10,
+    spendMicroUsd: 10,
+  });
+  assert.equal(open_.ok, true);
+  crashed.close();
+  f.faux.setResponses([fauxAssistantMessage('Still here.')]);
+  const second = await f.start({ sessionId: id });
+  await second.session.prompt('Are you there?');
+  assert.match(JSON.stringify(second.session.messages), /Still here\./);
+  assert.ok(second.budget.snapshot().used.spendMicroUsd >= 10, 'the interrupted request stays charged');
 });

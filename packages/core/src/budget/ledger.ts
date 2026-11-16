@@ -232,6 +232,7 @@ export function createBudgetLedger(options: BudgetLedgerOptions): BudgetLedger {
   const completedOperations = new Set<string>();
   const pending = (): boolean =>
     [...entries.values()].some((entry) => entry.outcome === 'reserved' || entry.outcome === 'uncertain');
+  const inFlight = (): boolean => [...entries.values()].some((entry) => entry.outcome === 'reserved');
   const executionUsage = (at: number): BudgetSnapshot['used'] => ({
     tokens: executionMode === 'interactive' ? (activeOperation?.tokens ?? 0) : tokens,
     spendMicroUsd: spend,
@@ -275,7 +276,7 @@ export function createBudgetLedger(options: BudgetLedgerOptions): BudgetLedger {
       exhausted,
       accounting: unknown ? 'unknown' : pendingDispatchIds.length > 0 ? 'pending' : 'known',
       pendingDispatchIds,
-      admissionBlocked: exhausted || unknown,
+      admissionBlocked: exhausted || persistenceFailed || (unknown && executionMode !== 'interactive'),
     };
   };
 
@@ -306,7 +307,9 @@ export function createBudgetLedger(options: BudgetLedgerOptions): BudgetLedger {
     }
     if (attempts.get(input.logicalTurnId)?.has(input.attempt))
       return failure('E_CONFLICT', 'logical turn attempt already has a dispatch');
-    if (uncertain > 0) return failure('E_UNKNOWN', 'unreconciled usage prevents new admission');
+    // An uncertain dispatch already counts at its reservation, so an interactive chat stays within its caps by going on.
+    if (uncertain > 0 && executionMode !== 'interactive')
+      return failure('E_UNKNOWN', 'unreconciled usage prevents new admission');
     if (executionMode === 'interactive' && !activeOperation)
       return failure('E_CONFLICT', 'begin an execution operation before dispatch');
     const used = executionUsage(at);
@@ -450,7 +453,8 @@ export function createBudgetLedger(options: BudgetLedgerOptions): BudgetLedger {
         },
       };
     }
-    if (pending()) return failure('E_UNKNOWN', 'unreconciled usage prevents a new execution operation');
+    if (executionMode === 'interactive' ? inFlight() : pending())
+      return failure('E_UNKNOWN', 'unreconciled usage prevents a new execution operation');
     if (activeOperation?.id === id) return { duplicate: true, apply() {} };
     if (activeOperation || completedOperations.has(id))
       return failure('E_CONFLICT', 'operation cannot be restarted or overlap');
