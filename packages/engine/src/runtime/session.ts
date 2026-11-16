@@ -7,11 +7,14 @@ import type { HarnessSession, HarnessSessionOptions } from './session-types.ts';
 
 export { sessionToolNames } from './session-model.ts';
 export type {
+  ChatSession,
+  ChatSessionOptions,
   HarnessEnvironment,
   HarnessSession,
   HarnessSessionOptions,
   HarnessTaskDefinition,
   HarnessVerification,
+  OmsSession,
 } from './session-types.ts';
 export { parseHarnessTaskDefinition, prepareHarnessTask } from './task-definition.ts';
 export { knowledgeHint, omsSystemPrompt } from './system-prompt.ts';

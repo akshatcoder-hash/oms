@@ -31,8 +31,9 @@ import {
   writePrivateJson,
 } from '../workspace/storage.ts';
 import type { Task, Workspace } from '../workspace/index.ts';
-import { executionBackend, isBackendName } from './execution-backend.ts';
-import { taskContext, type TaskContext } from './task-context.ts';
+import { executionBackend, isBackendName, type BackendName } from './execution-backend.ts';
+import { taskRoot, type SessionRoot } from './session-root.ts';
+import { taskContext } from './task-context.ts';
 
 /** Proof snapshots are created under the real temp directory; on macOS tmpdir() is a symlinked path (/var -> /private/var). */
 function temporaryRoots(): string[] {
@@ -231,27 +232,23 @@ function runtimeRecords(
 
 /** Only owner-matching exclusion records are removable; persistent data is not a lease. */
 function executionLeases(
-  context: TaskContext,
-  task: Task,
+  root: SessionRoot,
   owner: LeaseOwner,
 ): { files: Array<{ file: string; identity: string }>; gates: string[] } {
   const files: Array<{ file: string; identity: string }> = [];
   const gates: string[] = [];
-  for (const name of readdirSync(context.sourceControlDir)) {
+  for (const name of readdirSync(root.sourceControlDir)) {
     if (name.startsWith('.pending-')) continue;
-    const file = join(context.sourceControlDir, name);
+    const file = join(root.sourceControlDir, name);
     const record = readPrivateJson(file) as { token?: unknown; codeRoot?: unknown; pid?: unknown; kind?: unknown };
     if (typeof record.codeRoot !== 'string')
       throw new WorkspaceError(
         'RECOVERY_SOURCE_UNVERIFIABLE',
         'Source ownership is incomplete; host inspection is required',
       );
-    const owned =
-      contains(task.codeRoot, record.codeRoot) ||
-      contains(context.stateDir, record.codeRoot) ||
-      contains(dirname(task.taskFile), record.codeRoot);
-    if (!owned) {
-      if (contains(record.codeRoot, task.codeRoot))
+    const { codeRoot } = record;
+    if (!root.ownedRoots.some((owned) => contains(owned, codeRoot))) {
+      if (contains(codeRoot, root.codeRoot))
         throw new WorkspaceError(
           'RECOVERY_SOURCE_UNVERIFIABLE',
           'Another source owner overlaps this task; close that task before recovery',
@@ -272,8 +269,8 @@ function executionLeases(
     }
     files.push({ file, identity: JSON.stringify(record) });
   }
-  for (const name of readdirSync(context.leaseDir)) {
-    const directory = join(context.leaseDir, name);
+  for (const name of readdirSync(root.leaseDir)) {
+    const directory = join(root.leaseDir, name);
     assertPrivate(directory, true);
     if (!/^[a-f0-9]{64}$/.test(name))
       throw new WorkspaceError('RECOVERY_VOLUME_UNVERIFIABLE', 'Volume exclusion directory is not recognized');
@@ -292,7 +289,7 @@ function executionLeases(
       const record = readPrivateJson(file) as { taskName?: unknown; volume?: unknown; phase?: unknown; pid?: unknown };
       if (
         !/^[a-f0-9-]{36}\.json$/.test(entry) ||
-        record.taskName !== context.taskName ||
+        record.taskName !== root.taskName ||
         record.pid !== owner.pid ||
         !['install', 'run'].includes(String(record.phase)) ||
         typeof record.volume !== 'string' ||
@@ -311,20 +308,30 @@ function executionLeases(
 
 /** Explicit host action. Reclaim execution only; files, sessions, auth and data volumes survive. */
 export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, expected: LeaseOwner): Promise<void> {
-  const context = taskContext(workspace, task);
-  await recoverStaleLeaseWithCleanup(task.leaseFile, expected, async (assertOwner) => {
-    const backendFile = join(context.stateDir, 'runtime-backend.json');
+  await recoverSession(taskRoot(workspace, task, taskContext(workspace, task)), expected);
+}
+
+/** The same reclaim for any session root; `unrecorded` is the backend assumed when the dead owner never recorded one. */
+export async function recoverSession(
+  root: SessionRoot,
+  expected: LeaseOwner,
+  unrecorded: BackendName = 'docker',
+): Promise<void> {
+  await recoverStaleLeaseWithCleanup(root.leaseFile, expected, async (assertOwner) => {
+    const backendFile = join(root.stateDir, 'runtime-backend.json');
     const savedBackend = existsSync(backendFile)
       ? (readPrivateJson(backendFile) as { backend?: unknown })
-      : { backend: 'docker' };
+      : { backend: unrecorded };
     if (!isBackendName(savedBackend.backend))
       throw new WorkspaceError('RECOVERY_PROCESS_UNVERIFIABLE', 'Recorded execution backend is invalid');
     const backend = executionBackend(savedBackend.backend);
-    const extraRoots = [...backend.runtimeRoots(task.codeRoot), join(workspace.stateDir, 'sessions', task.id)];
-    const withinRuntime = (cwd: string) => [context.workDir, ...extraRoots].some((root) => contains(root, cwd));
-    const directory = join(context.stateDir, 'runtime-processes');
-    const records = runtimeRecords(directory, expected, context.workDir, extraRoots, backend.capturesProofRoots);
-    const exclusion = executionLeases(context, task, expected);
+    const extraRoots = [...backend.runtimeRoots(root.codeRoot), root.sessionsDir];
+    // In a folder the user works in, their own shells and editors also sit there, so only recorded processes are theirs to stop.
+    const scanRoots = root.sharedCodeRoot ? [root.sessionsDir] : extraRoots;
+    const withinRuntime = (cwd: string) => [root.workDir, ...scanRoots].some((dir) => contains(dir, cwd));
+    const directory = join(root.stateDir, 'runtime-processes');
+    const records = runtimeRecords(directory, expected, root.workDir, extraRoots, backend.capturesProofRoots);
+    const exclusion = executionLeases(root, expected);
     const captured = records.map((entry) => entry.record.cwd).filter(capturedRoot);
     const before = processDirectories(expected);
     const known = new Map(records.map((entry) => [entry.record.child.pid, entry.record]));
@@ -347,7 +354,7 @@ export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, 
       }
     }
     try {
-      await backend.recoverResources(context.taskName, assertOwner);
+      await backend.recoverResources(root.taskName, assertOwner);
     } catch (error) {
       if (error instanceof WorkspaceError) throw error;
       throw new WorkspaceError(
@@ -390,10 +397,10 @@ export async function recoverHarnessWorkspace(workspace: Workspace, task: Task, 
       );
     }
     // Re-read every exclusion and child record after asynchronous cleanup, before removing any.
-    const after = executionLeases(context, task, expected);
+    const after = executionLeases(root, expected);
     if (
       JSON.stringify(after) !== JSON.stringify(exclusion) ||
-      JSON.stringify(runtimeRecords(directory, expected, context.workDir, extraRoots, backend.capturesProofRoots)) !==
+      JSON.stringify(runtimeRecords(directory, expected, root.workDir, extraRoots, backend.capturesProofRoots)) !==
         JSON.stringify(records)
     ) {
       throw new WorkspaceError('LEASE_OWNERSHIP_LOST', 'Runtime ownership records changed during recovery');

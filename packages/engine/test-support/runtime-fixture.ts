@@ -9,6 +9,46 @@ import { createTask, openWorkspace } from '../src/workspace/index.ts';
 import { prepareHarnessTask, type HarnessEnvironment } from '../src/runtime/session.ts';
 import { defaultHarnessEnvironment } from '../src/runtime/environment.ts';
 
+/** A scripted provider and its model, registered in a private model runtime under `base`. */
+export async function createFauxModel(base: string) {
+  const faux = createFauxCore({
+    api: 'openai-completions',
+    provider: 'oms-controlled',
+    models: [
+      {
+        id: 'controlled',
+        contextWindow: 4_096,
+        maxTokens: 128,
+        cost: { input: 1, output: 2, cacheRead: 1, cacheWrite: 1 },
+      },
+    ],
+  });
+  const modelRuntime = await ModelRuntime.create({
+    authPath: join(base, 'model-auth.json'),
+    modelsPath: null,
+    refreshOnCreate: false,
+  });
+  modelRuntime.registerProvider('oms-controlled', {
+    api: faux.api,
+    apiKey: 'synthetic-fixture-not-a-provider-key',
+    baseUrl: 'http://127.0.0.1:1',
+    streamSimple: faux.streamSimple,
+    models: faux.models.map((model) => ({
+      type: 'chat' as const,
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      input: model.input,
+      cost: model.cost,
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+    })),
+  });
+  const model = modelRuntime.getModel('oms-controlled', 'controlled');
+  assert.ok(model);
+  return { faux, modelRuntime, model };
+}
+
 /** Real repository/task/runtime setup; only provider responses are controlled. */
 export async function createHarnessFixture(environment: HarnessEnvironment) {
   // Callers that predate host mode are Docker fixtures; host fixtures pass backend: 'host'.
@@ -48,41 +88,7 @@ assert.equal((await response.json()).result, 'ok');
   const workspace = openWorkspace(repo, { stateRoot, initialize: { ignore: 'exclude' } });
   const task = createTask(workspace, { id: 'fixture', baseOid: git('rev-parse', 'HEAD') });
   const caps = { tokens: 100_000, spendMicroUsd: 1_000_000, wallClockMs: 120_000 };
-  const faux = createFauxCore({
-    api: 'openai-completions',
-    provider: 'oms-controlled',
-    models: [
-      {
-        id: 'controlled',
-        contextWindow: 4_096,
-        maxTokens: 128,
-        cost: { input: 1, output: 2, cacheRead: 1, cacheWrite: 1 },
-      },
-    ],
-  });
-  const modelRuntime = await ModelRuntime.create({
-    authPath: join(base, 'model-auth.json'),
-    modelsPath: null,
-    refreshOnCreate: false,
-  });
-  modelRuntime.registerProvider('oms-controlled', {
-    api: faux.api,
-    apiKey: 'synthetic-fixture-not-a-provider-key',
-    baseUrl: 'http://127.0.0.1:1',
-    streamSimple: faux.streamSimple,
-    models: faux.models.map((model) => ({
-      type: 'chat' as const,
-      id: model.id,
-      name: model.name,
-      reasoning: model.reasoning,
-      input: model.input,
-      cost: model.cost,
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-    })),
-  });
-  const model = modelRuntime.getModel('oms-controlled', 'controlled');
-  assert.ok(model);
+  const { faux, modelRuntime, model } = await createFauxModel(base);
   await prepareHarnessTask(workspace, task, environment, {
     contract: {
       version: 0,

@@ -5,6 +5,7 @@ import type { BudgetCaps, BudgetLedger, ExecutionMode } from '@oms/core';
 import type { SandboxResult } from '@oms/sandbox';
 import type { Task, Workspace } from '../workspace/index.ts';
 import type { ChainControls } from './chain.ts';
+import type { ChatFolder } from './chat-folder.ts';
 import type { NativeChatControls } from './claude-code.ts';
 import type { EdgeCheckSummary } from './edge-check.ts';
 import type { HostApproval, HostApprovalPolicy } from './host-approval.ts';
@@ -100,6 +101,17 @@ export interface SessionCore extends ProviderControls {
   };
   close(): Promise<void>;
 }
+/** A conversation that works in place in the user's folder, with no pinned task, verifier or proposal tool. */
+export interface ChatSession extends SessionCore {
+  kind: 'chat';
+  folder: ChatFolder;
+}
+export interface ChatSessionOptions extends CommonSessionOptions {
+  folder: ChatFolder;
+  /** Where OMS keeps this folder's state: `<stateRoot>/folders/<key>`. */
+  stateRoot: string;
+}
+export type OmsSession = HarnessSession | ChatSession;
 export interface HarnessSession extends SessionCore {
   kind: 'task';
   workspace: Workspace;

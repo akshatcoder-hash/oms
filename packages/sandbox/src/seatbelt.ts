@@ -26,6 +26,8 @@ export interface SeatbeltPolicy {
   readOnly: string[];
   /** The only network destination: 127.0.0.1:<port>. */
   surfnetPort?: number;
+  /** `.env` and `.env.*` files stay unreadable, even inside root; the documented example templates stay readable. */
+  denyEnv?: boolean;
   /** Trusted Surfpool binary: readable, and commands may start it on loopback and reach it on the standard local Solana ports. */
   surfpool?: string;
 }
@@ -69,6 +71,12 @@ export function seatbeltProfile(policy: SeatbeltPolicy): string {
         ]
       : []),
     '(deny file-read-data file-read* (regex #"-keypair\\.json$") (regex #"/id\\.json$"))',
+    ...(policy.denyEnv
+      ? [
+          '(deny file-read-data file-read* (regex #"/\\.env(\\.[^/]*)?$"))',
+          `(allow file-read-data file-read* (require-all (subpath ${quote(policy.root)}) (regex #"/\\.env\\.(example|sample|template)$")))`,
+        ]
+      : []),
     `(deny file-read-data file-read* ${subpaths(SECRET_DIRS.map((dir) => path.join(home, dir)))})`,
     ';; Keychain: no securityd, so no stored passwords or certificates.',
     '(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc"))',
@@ -172,6 +180,7 @@ export function seatbeltArgv(
       ...(env.SURFPOOL_BINARY ? [env.SURFPOOL_BINARY] : []),
     ]).filter((dir) => !within(home, dir)),
     readOnly: unique(o.protectedPaths ?? []),
+    denyEnv: o.denyEnv,
     surfnetPort: o.surfnet?.port,
     surfpool: env.SURFPOOL_BINARY,
   };

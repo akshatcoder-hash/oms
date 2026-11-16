@@ -409,3 +409,35 @@ test(
     }
   },
 );
+
+test('seatbelt profile reopens only the example templates after denying .env files', () => {
+  const lines = seatbeltProfile({ ...policy, denyEnv: true }).split('\n');
+  const deny = lines.findIndex((line) => line.startsWith('(deny file-read-data file-read* (regex #"/\\.env'));
+  const allow = lines.findIndex((line) => line.includes('(subpath "/Users/dev/repos/task") (regex #"/\\.env\\.('));
+  assert.ok(deny !== -1 && allow > deny, 'the templates are reopened after the deny');
+  assert.doesNotMatch(seatbeltProfile(policy), /\\\.env/);
+});
+
+test('seatbelt: .env files are unreadable inside the root, templates and .envrc are not', darwin, async () => {
+  const { result } = await sandboxed(
+    [
+      'for n in .env .env.local .env.example .env.sample .env.template .envrc; do echo "$n" > "$n"; done',
+      'for n in .env .env.local .env.example .env.sample .env.template .envrc; do cat "$n" >/dev/null 2>&1 && echo "read:$n" || echo "denied:$n"; done',
+    ].join('\n'),
+    { denyEnv: true },
+  );
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split('\n'), [
+    'denied:.env',
+    'denied:.env.local',
+    'read:.env.example',
+    'read:.env.sample',
+    'read:.env.template',
+    'read:.envrc',
+  ]);
+});
+
+test('seatbelt: .env files stay readable when the policy does not deny them', darwin, async () => {
+  const { result } = await sandboxed('echo secret > .env && cat .env');
+  assert.equal(result.exitCode, 0, result.stderr);
+});

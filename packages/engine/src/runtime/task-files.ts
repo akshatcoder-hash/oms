@@ -27,14 +27,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 try {
-const [operation, input, content, expected, taskRoot, protectedJson] = process.argv.slice(1);
+const [operation, input, content, expected, taskRoot, protectedJson, denyEnv] = process.argv.slice(1);
 const root = fs.realpathSync(taskRoot);
 const target = path.resolve(root, input);
 const inside = value => value === root || value.startsWith(root + path.sep);
 const protectedPaths = JSON.parse(protectedJson);
 if (['write', 'create', 'mkdir'].includes(operation) && protectedPaths.some(file => target === file || target.startsWith(file + path.sep) || file.startsWith(target + path.sep))) throw Error('pinned verifier files are not writable');
 const privateNames = { '.git': true, '.oms': true, '.keys': true, '.env.agent': true };
-if (!inside(target) || (target === root && operation !== 'mkdir' && operation !== 'list') || path.relative(root, target).split(path.sep).some(part => privateNames[part] === true)) throw Error('path is outside the admitted task files');
+const isPrivate = name => privateNames[name] === true || (denyEnv === '1' && /^\.env(\..*)?$/.test(name) && !['.env.example', '.env.sample', '.env.template'].includes(name));
+if (!inside(target) || (target === root && operation !== 'mkdir' && operation !== 'list') || path.relative(root, target).split(path.sep).some(part => isPrivate(part))) throw Error('path is outside the admitted task files');
 if (operation !== 'list') {
 let ancestor = target;
 while (!fs.existsSync(ancestor)) {
@@ -45,7 +46,7 @@ while (!fs.existsSync(ancestor)) {
 const canonicalAncestor = fs.realpathSync(ancestor);
 if (!inside(canonicalAncestor)) throw Error('path escapes the task through a symlink');
 const canonicalTarget = path.resolve(canonicalAncestor, path.relative(ancestor, target));
-if (path.relative(root, canonicalTarget).split(path.sep).some(part => privateNames[part] === true)) throw Error('private/control path is unavailable');
+if (path.relative(root, canonicalTarget).split(path.sep).some(part => isPrivate(part))) throw Error('private/control path is unavailable');
 if (['write', 'create', 'mkdir'].includes(operation) && protectedPaths.some(file => {
   const canonical = fs.existsSync(file) ? fs.realpathSync(file) : file;
   return canonicalTarget === canonical || canonicalTarget.startsWith(canonical + path.sep) || canonical.startsWith(canonicalTarget + path.sep);
@@ -87,7 +88,7 @@ if (operation === 'list') {
       const entry = directory.readSync();
       if (!entry) break;
       if (++count > 512) throw Error('Directory exceeds the 512-entry listing limit; open a file by path');
-      if (privateNames[entry.name] === true) continue;
+      if (isPrivate(entry.name)) continue;
       const stat = fs.lstatSync(descriptorRoot + fd + '/' + entry.name);
       if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) continue;
       entries.push({ path: path.relative(root, path.join(target, entry.name)), kind: stat.isDirectory() ? 'directory' : 'file' });
@@ -169,6 +170,7 @@ export function createTaskFileAccess(
   execute: TaskFileExecutor,
   root = '/work',
   protectedPaths: string[] = [],
+  denyEnv = false,
 ): TaskFileAccess {
   const call = async (
     operation: 'read' | 'write' | 'create' | 'mkdir' | 'access' | 'list',
@@ -179,7 +181,18 @@ export function createTaskFileAccess(
   ) => {
     signal?.throwIfAborted();
     const result = await execute(
-      ['node', '-e', FILE_OPERATION, operation, path, content, expected, root, JSON.stringify(protectedPaths)],
+      [
+        'node',
+        '-e',
+        FILE_OPERATION,
+        operation,
+        path,
+        content,
+        expected,
+        root,
+        JSON.stringify(protectedPaths),
+        ...(denyEnv ? ['1'] : []),
+      ],
       signal,
     );
     if (result.cancelled) throw new Error('Task file operation was cancelled');

@@ -25,6 +25,8 @@ export interface SandboxToolsOptions {
   backend: ExecutionBackend;
   approvalPolicy?: HostApprovalPolicy;
   protectedPaths?: string[];
+  /** `.env` files are neither readable through the file tools nor through commands. */
+  denyEnv?: boolean;
   onSpawn?: (pid: number, cwd: string) => void;
   taskName: string;
   mounts: MountPlan;
@@ -124,6 +126,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     surfnetPort: options.surfnetPort,
     cwd: root,
     protectedPaths: options.protectedPaths,
+    denyEnv: options.denyEnv,
     buildProfile: options.buildProfile,
     env: backend.commandEnv({ rpcUrl, buildProfile: options.buildProfile, surfpool: options.surfpool }),
     stdoutLimitBytes: MAX_TASK_FILE_BYTES * 2,
@@ -225,6 +228,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     (argv, signal, timeoutMs = defaultTimeout) => run(argv, signal, timeoutMs, false),
     root,
     options.protectedPaths,
+    options.denyEnv,
   );
   const shell: BashOperations = {
     async exec(command, _cwd, request) {
