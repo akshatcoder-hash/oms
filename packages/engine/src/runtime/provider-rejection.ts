@@ -58,12 +58,27 @@ export function describeRejection(provider: string, status: number, body: string
   } catch {
     reason = /^\s*[{[]/.test(body) ? undefined : body;
   }
-  const clean = (reason ?? '')
-    .replace(KEY_LIKE, '[key]')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 240);
+  const clean = plain(reason);
   return clean ? `${name} rejected the request: ${clean}` : `${name} rejected the request (HTTP ${status}).`;
+}
+
+/** Any other failed request: the provider's reason in one line, and what to do next. */
+export function describeFailure(provider: string, cause: string | undefined): string {
+  const name = providerName(provider);
+  const clean = plain(cause).replace(/\.$/, '');
+  return clean
+    ? `${name} request failed: ${clean}. Send your message again to retry.`
+    : `${name} request failed. Send your message again to retry.`;
+}
+
+function plain(text: string | undefined): string {
+  return (
+    (text ?? '')
+      .replace(KEY_LIKE, '[key]')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240)
+  );
 }
