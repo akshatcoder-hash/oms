@@ -1,3 +1,4 @@
+import { hostSandbox } from '@oms/sandbox';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -218,34 +219,38 @@ test('M1: another claim alone cannot hide a shell write in the helper result', a
   assert.match(text, /claims are not enforced for commands here/);
 });
 
-test('S5: a sandboxed reader is not blamed for another helper shell write', async (t) => {
-  const f = await helperRunnerFixture(t);
-  f.parts.options.hostTrust!.yolo = false;
-  let held!: () => void;
-  let release!: () => void;
-  const ready = new Promise<void>((resolve) => {
-    held = resolve;
-  });
-  const wait = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  f.faux.setResponses([
-    async () => {
-      held();
-      await wait;
-      return fauxAssistantMessage('Read only.');
-    },
-    () => {
-      writeFileSync(join(f.folder, 'Cargo.lock'), 'shell write');
-      return fauxAssistantMessage('Build done.');
-    },
-  ]);
-  const read = f.execute();
-  await ready;
-  await f.execute('build', 'Write lock.', ['a.ts']);
-  release();
-  assert.doesNotMatch(JSON.stringify((await read).content), /changed files/);
-});
+test(
+  'S5: a sandboxed reader is not blamed for another helper shell write',
+  { skip: hostSandbox() !== 'seatbelt' && 'needs macOS sandbox-exec' },
+  async (t) => {
+    const f = await helperRunnerFixture(t);
+    f.parts.options.hostTrust!.yolo = false;
+    let held!: () => void;
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      held = resolve;
+    });
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.faux.setResponses([
+      async () => {
+        held();
+        await wait;
+        return fauxAssistantMessage('Read only.');
+      },
+      () => {
+        writeFileSync(join(f.folder, 'Cargo.lock'), 'shell write');
+        return fauxAssistantMessage('Build done.');
+      },
+    ]);
+    const read = f.execute();
+    await ready;
+    await f.execute('build', 'Write lock.', ['a.ts']);
+    release();
+    assert.doesNotMatch(JSON.stringify((await read).content), /changed files/);
+  },
+);
 
 test('M2: the agent tool describes loaded definitions, including personal overrides', async (t) => {
   const f = await helperRunnerFixture(t);
