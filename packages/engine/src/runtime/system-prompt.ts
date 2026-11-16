@@ -164,6 +164,26 @@ export const CLAUDE_CAPPED_WORK = lines(
   ),
 );
 
+// Verified in oms-bench-report-work/sdk-deps/node_modules/@anchor-lang/core (1.2.2):
+// dist/cjs/error.js (IdlInstructionStub) and dist/cjs/program/index.js (fetchIdl).
+export const CLAUDE_DEPLOYMENT_KNOWLEDGE = lines(
+  'Solana deployment knowledge:',
+  words(
+    'Some programs run as many independent deployments with the same instruction set. SPL Governance DAOs deploy their own',
+    'instance; the public Realms registry lists deployments with their programId. Stake-pool and token-lending forks can work',
+    'similarly. Each deployment has a separate program id, so a working lifecycle often transfers to other deployments.',
+  ),
+  words(
+    "Frameworks can add instructions to every program they build, such as Anchor's IDL-account instructions. These matter when",
+    'fetching or managing an on-chain IDL; check whether a given deployment includes them.',
+  ),
+  words(
+    'program_reference with a specific program or instruction name returns purpose, deployment notes about wallet operations on',
+    'existing pools or configs and authority requirements, and SDK helpers. Use it before giving up on a program after an',
+    'authority or initialize refusal.',
+  ),
+);
+
 /**
  * The session system prompt. The static parts come first and the per-task text (task root, toolchain report) last, so the
  * reference prefix and the program index stay inside the provider's cached prompt prefix and are identical in every session.
