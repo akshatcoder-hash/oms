@@ -129,6 +129,7 @@ export function createCoreApi(parts: SessionApiParts): SessionCore {
         env.executionMode,
         options.maxInputTokens,
         options.subscriptionSpendExempt,
+        model.modelRuntime.isUsingSubscription(m.provider),
       ),
   });
   const runCommand = (command: string, signal?: AbortSignal): Promise<SandboxResult> =>

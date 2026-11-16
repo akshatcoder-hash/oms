@@ -182,6 +182,7 @@ export async function createSessionModel(
     maxOutputTokens: options.maxOutputTokens,
     maxInputTokens: options.maxInputTokens,
     subscriptionExempt: options.subscriptionSpendExempt,
+    subscribed: (provider) => modelRuntime.isUsingSubscription(provider),
     logicalTurnId: () => hooks.turn.id,
     onBareBadRequest: () => hooks.trim.forgetReasoning(),
   });

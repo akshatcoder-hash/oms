@@ -1402,3 +1402,31 @@ test('a Grok subscription sign-in is plan usage in a chat, while an xAI API key 
   assert.equal(apiKey.ready, false);
   assert.match(apiKey.detail, /cannot cover this model's maximum request cost/);
 });
+
+test('a chat request on a subscription login settles at no dollar charge; the same request on an API key is charged', async () => {
+  const spent: Record<string, number> = {};
+  for (const subscribed of [true, false]) {
+    const ledger = createBudgetLedger({ caps, executionMode: 'interactive', clock: Date.now, persist() {} });
+    assert.equal(ledger.beginOperation('turn').ok, true);
+    const stream = createMeteredStream({
+      streamFunction: () => {
+        const stream = createAssistantMessageEventStream();
+        const result = message();
+        stream.push({ type: 'start', partial: result });
+        stream.push({ type: 'done', reason: 'stop', message: result });
+        stream.end();
+        return stream;
+      },
+      ledger,
+      allocate: createDispatchAllocator(),
+      executionMode: 'interactive',
+      maxOutputTokens: 50,
+      subscribed: (provider) => subscribed && provider === 'xai',
+      logicalTurnId: () => 'turn',
+    });
+    assert.equal((await consume(stream, { ...model, provider: 'xai' })).result.stopReason, 'stop');
+    spent[String(subscribed)] = ledger.snapshot().used.spendMicroUsd;
+  }
+  assert.equal(spent.true, 0);
+  assert.ok(spent.false! > 0, 'an API-key request is charged');
+});

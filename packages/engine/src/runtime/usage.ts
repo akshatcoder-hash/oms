@@ -35,7 +35,13 @@ import {
 } from '@oms/core';
 
 import { BYTES_PER_TOKEN } from './context-trim.ts';
-import { describeFailure, describeRejection, describeTransient, isRejectionStatus } from './provider-rejection.ts';
+import {
+  describeFailure,
+  describeRejection,
+  describeTransient,
+  isRejectionStatus,
+  providerName,
+} from './provider-rejection.ts';
 import {
   modelOutputCap,
   modelReservationBound,
@@ -65,6 +71,8 @@ export interface MeteredStreamOptions {
   readonly maxInputTokens?: number;
   /** Benchmark runner only: ChatGPT-subscription calls in a bounded run reserve and settle $0 (tokens and wall time stay capped). */
   readonly subscriptionExempt?: boolean;
+  /** Whether a provider is signed in with a subscription login, such as SuperGrok; its chat usage is then plan usage. */
+  readonly subscribed?: (provider: string) => boolean;
   /** Called when the provider rejects a request with a bare 400 that gives no reason, before the turn is retried. */
   readonly onBareBadRequest?: () => void;
 }
@@ -74,15 +82,24 @@ function cleanMessage(message: AssistantMessage): AssistantMessage {
   return safe;
 }
 
-/** `exempt`: a trusted caller on a ChatGPT subscription also lifts the API-dollar bound for bounded runs. */
-function subscriptionUsage(model: Model<Api>, mode: ExecutionMode | undefined, exempt = false): boolean {
+/**
+ * `exempt`: a trusted caller on a ChatGPT subscription also lifts the API-dollar bound for bounded runs.
+ * `subscribed`: the provider is signed in with a subscription login (pi's isUsingSubscription), such as SuperGrok.
+ */
+function subscriptionUsage(
+  model: Model<Api>,
+  mode: ExecutionMode | undefined,
+  exempt = false,
+  subscribed = false,
+): boolean {
   // The native adapter verifies a first-party claude.ai login for every call and refuses API/3p credentials.
   return (
     isClaudeCodeModel(model) ||
     ((mode === 'interactive' || exempt) &&
-      model.provider === 'openai-codex' &&
-      model.api === 'openai-codex-responses' &&
-      model.baseUrl === 'https://chatgpt.com/backend-api')
+      ((model.provider === 'openai-codex' &&
+        model.api === 'openai-codex-responses' &&
+        model.baseUrl === 'https://chatgpt.com/backend-api') ||
+        (mode === 'interactive' && subscribed)))
   );
 }
 
@@ -92,12 +109,13 @@ function requestBound(
   mode: ExecutionMode | undefined,
   maxInputTokens?: number,
   exempt = false,
+  subscribed = false,
 ) {
   // Claude Code adds its own native prompt and protocol overhead outside OMS's payload hook.
   if (isClaudeCodeModel(model) && maxInputTokens !== undefined) return null;
   const priced = maxInputTokens === undefined ? model : { ...model, contextWindow: maxInputTokens };
   const bound = modelReservationBound(priced, maxOutputTokens);
-  if (bound && subscriptionUsage(model, mode, exempt)) bound.spendMicroUsd = 0;
+  if (bound && subscriptionUsage(model, mode, exempt, subscribed)) bound.spendMicroUsd = 0;
   return bound;
 }
 
@@ -145,6 +163,7 @@ function readinessForBound(
   bound: ReturnType<typeof requestBound>,
   executionMode: ExecutionMode,
   exempt = false,
+  subscribed = false,
 ): { ready: boolean; detail: string } {
   if (!bound)
     return { ready: false, detail: 'This model has unsupported usage limits. Choose a supported model in /model.' };
@@ -180,8 +199,8 @@ function readinessForBound(
     };
   return {
     ready: true,
-    detail: subscriptionUsage(model, executionMode, exempt)
-      ? `${isClaudeCodeModel(model) ? 'Claude Code' : 'ChatGPT'} subscription · provider usage limits apply; no OMS API-dollar charge`
+    detail: subscriptionUsage(model, executionMode, exempt, subscribed)
+      ? `${isClaudeCodeModel(model) ? 'Claude Code' : model.provider === 'openai-codex' ? 'ChatGPT' : providerName(model.provider)} subscription · provider usage limits apply; no OMS API-dollar charge`
       : 'Ready · paid API usage remains protected by the spending limit',
   };
 }
@@ -194,6 +213,7 @@ export function modelReadiness(
   executionMode: ExecutionMode = 'bounded',
   maxInputTokens?: number,
   subscriptionExempt = false,
+  subscribed = false,
 ): { ready: boolean; detail: string } {
   if (isClaudeCodeModel(model) && maxInputTokens !== undefined)
     return {
@@ -203,9 +223,10 @@ export function modelReadiness(
   return readinessForBound(
     model,
     ledger,
-    requestBound(model, maxOutputTokens, executionMode, maxInputTokens, subscriptionExempt),
+    requestBound(model, maxOutputTokens, executionMode, maxInputTokens, subscriptionExempt, subscribed),
     executionMode,
     subscriptionExempt,
+    subscribed,
   );
 }
 
@@ -336,12 +357,14 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           failed('Request cancelled before dispatch; no provider usage.', true);
           return;
         }
+        const subscribed = config.subscribed?.(model.provider) ?? false;
         const bound = requestBound(
           model,
           config.maxOutputTokens,
           config.executionMode,
           config.maxInputTokens,
           config.subscriptionExempt,
+          subscribed,
         );
         const readiness = modelReadiness(
           model,
@@ -350,6 +373,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           config.executionMode ?? 'bounded',
           config.maxInputTokens,
           config.subscriptionExempt,
+          subscribed,
         );
         if (!bound || !readiness.ready) {
           failed(`${readiness.detail} No provider request sent.`);
@@ -407,6 +431,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                   config.executionMode,
                   undefined,
                   config.subscriptionExempt,
+                  subscribed,
                 ).detail
               : admission.code === 'E_UNKNOWN'
                 ? 'A previous request has unconfirmed usage. Open /status; its usage record has been retained.'
@@ -582,7 +607,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
               receiptId: randomUUID(),
               outcome: 'known',
               tokens: usage.tokens,
-              spendMicroUsd: subscriptionUsage(model, config.executionMode, config.subscriptionExempt)
+              spendMicroUsd: subscriptionUsage(model, config.executionMode, config.subscriptionExempt, subscribed)
                 ? 0
                 : usage.spendMicroUsd,
               usage: {
