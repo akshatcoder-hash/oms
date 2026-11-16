@@ -5,8 +5,8 @@ export const MASK = '••••';
 
 const SECRET_WORD = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE|MNEMONIC|SEED|CREDENTIAL/i;
 
-// Name, then `=` that is not `==` or `=>`, then a quoted or bare value.
-const ASSIGNMENT = /(?<![A-Za-z0-9_])((?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)=(?![=>])("[^"\n]*"|'[^'\n]*'|[^\s"']*)/g;
+// Name, then `=` that is not `==`, `=>` or a `$` reference, then a quoted or bare value.
+const ASSIGNMENT = /(?<![A-Za-z0-9_])((?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)=(?![=>$])("[^"\n]*"|'[^'\n]*'|[^\s"']*)/g;
 
 const PROVIDER_KEYS: RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{16,}/g,

@@ -44,6 +44,8 @@ test('ordinary code, short arrays, hashes and comparisons stay as they are', () 
     `sha256 ${'a1b2c3d4'.repeat(8)}`,
     'task-key: sk-short',
     'PORT=3000 HOST=localhost',
+    "awk '{key=$1; print key}'",
+    'TOKEN=$OTHER',
   ].join('\n');
   assert.equal(maskSecrets(code), code);
 });
