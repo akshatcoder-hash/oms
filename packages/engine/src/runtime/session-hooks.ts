@@ -4,10 +4,10 @@ import { Type } from 'typebox';
 import type { KnowledgeConfig } from './knowledge-service.ts';
 import { createContextTrimmer } from './context-trim.ts';
 import type { SessionLifecycle } from './session-lifecycle.ts';
-import type { TaskEnvironment } from './session-environment.ts';
+import type { RuntimeEnvironment } from './session-environment.ts';
 import type { SessionTools } from './session-tools.ts';
-import type { HarnessSessionOptions } from './session-types.ts';
-import { knowledgeHint, omsSystemPrompt, WEB_PROMPT, WEB_PROMPT_NO_KNOWLEDGE } from './system-prompt.ts';
+import type { CommonSessionOptions } from './session-types.ts';
+import { knowledgeHint, omsChatPrompt, omsSystemPrompt, WEB_PROMPT, WEB_PROMPT_NO_KNOWLEDGE } from './system-prompt.ts';
 import { elideOldFetches } from './web.ts';
 
 /** The prompt text and the per-turn context hooks of one session. */
@@ -23,16 +23,16 @@ export interface SessionHooks {
 }
 
 export function createSessionHooks(
-  options: HarnessSessionOptions,
+  options: CommonSessionOptions,
   life: SessionLifecycle,
-  env: TaskEnvironment,
+  env: RuntimeEnvironment,
   tools: SessionTools,
 ): SessionHooks {
   const { taskRoot, web } = tools;
   const turn = { id: randomUUID() };
   const trim = createContextTrimmer(() => options.maxInputTokens ?? life.liveSession?.model?.contextWindow);
   const promptFor = (config: KnowledgeConfig | undefined) =>
-    omsSystemPrompt(
+    (env.contract ? omsSystemPrompt : omsChatPrompt)(
       taskRoot,
       tools.toolchainSummary,
       `${knowledgeHint(options, config)}${web ? (config ? WEB_PROMPT : WEB_PROMPT_NO_KNOWLEDGE) : ''}`,
@@ -53,7 +53,9 @@ export function createSessionHooks(
     pi.on('session_before_fork', () => ({ cancel: true }));
     pi.on('session_before_switch', (_event, ctx) => {
       ctx.ui.notify(
-        'Use the OMS launcher to select/resume a task session; this preview keeps its task owner fixed.',
+        env.contract
+          ? 'Use the OMS launcher to select/resume a task session; this preview keeps its task owner fixed.'
+          : 'Run oms again in this folder to resume a conversation; this chat keeps its folder fixed.',
         'warning',
       );
       return { cancel: true };
@@ -71,18 +73,21 @@ export function createSessionHooks(
         };
       },
     });
-    pi.registerTool({
-      name: 'task_status',
-      label: 'Task status',
-      description:
-        'Read the current trusted task requirements, item states and offline verification evidence. This tool cannot change requirements or close an item.',
-      parameters: Type.Object({}),
-      async execute() {
-        const state = env.evaluator.read();
-        if (!state.ok) throw new Error('Task state is unreadable; verification is blocked');
-        return { content: [{ type: 'text', text: JSON.stringify(state.value, null, 2) }], details: undefined };
-      },
-    });
+    if (env.contract) {
+      const { evaluator } = env.contract;
+      pi.registerTool({
+        name: 'task_status',
+        label: 'Task status',
+        description:
+          'Read the current trusted task requirements, item states and offline verification evidence. This tool cannot change requirements or close an item.',
+        parameters: Type.Object({}),
+        async execute() {
+          const state = evaluator.read();
+          if (!state.ok) throw new Error('Task state is unreadable; verification is blocked');
+          return { content: [{ type: 'text', text: JSON.stringify(state.value, null, 2) }], details: undefined };
+        },
+      });
+    }
   };
   return { turn, trim, promptFor, policy };
 }

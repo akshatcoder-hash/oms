@@ -32,9 +32,8 @@ export interface HarnessTaskDefinition {
   snapshotPath?: string;
   testTimeoutMs?: number;
 }
-export interface HarnessSessionOptions {
-  workspace: Workspace;
-  task: Task;
+/** What a pinned task session and a folder chat are opened with alike. */
+export interface CommonSessionOptions {
   environment: HarnessEnvironment;
   hostApprovalPolicy?: HostApprovalPolicy;
   caps: BudgetCaps;
@@ -62,6 +61,10 @@ export interface HarnessSessionOptions {
   knowledgeInject?: boolean;
   /** Web access (web_search, web_fetch, Solana MCP), host-side. Absent means the tools do not exist: the bench never sets it. */
   web?: WebConfig;
+}
+export interface HarnessSessionOptions extends CommonSessionOptions {
+  workspace: Workspace;
+  task: Task;
   /** Stop the run at a successful propose_done: the verifier answers next, with no closing model reply (headless). */
   endRunOnProposal?: boolean;
   /** Hold the first propose_done on a program change for a bounded edge-case pass (A3). Off by default. */
@@ -71,17 +74,16 @@ export interface HarnessVerification {
   itemId: string;
   result: EvaluateResult;
 }
-export interface HarnessSession extends ProviderControls {
+/** What every live session offers, whether it is a pinned task or a folder chat. */
+export interface SessionCore extends ProviderControls {
   nativeChat?: NativeChatControls;
-  workspace: Workspace;
-  task: Task;
+  /** The folder the agent edits. */
+  root: string;
   runtime: AgentSessionRuntime;
   session: AgentSession;
-  evaluator: Evaluator;
   budget: BudgetLedger;
   settings: HarnessSettingsControls;
   account: OmsAccountControls;
-  verify(itemId?: string): Promise<HarnessVerification>;
   runCommand(command: string, signal?: AbortSignal): Promise<SandboxResult>;
   files: TaskFileAccess;
   startTerminal(columns: number, rows: number): Promise<TaskTerminal>;
@@ -96,7 +98,14 @@ export interface HarnessSession extends ProviderControls {
     /** The credential the knowledge tools use right now, read on each call. */
     config(): KnowledgeConfig | undefined;
   };
+  close(): Promise<void>;
+}
+export interface HarnessSession extends SessionCore {
+  kind: 'task';
+  workspace: Workspace;
+  task: Task;
+  evaluator: Evaluator;
+  verify(itemId?: string): Promise<HarnessVerification>;
   /** Present only when the session was opened with `edgeCheck`. */
   edgeCheck?: { summary(): EdgeCheckSummary };
-  close(): Promise<void>;
 }

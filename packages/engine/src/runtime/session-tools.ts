@@ -1,9 +1,10 @@
 import { join } from 'node:path';
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { createOmsExtensions } from '../oms-extension.ts';
+import { createChatExtensions } from './chat-extensions.ts';
 import { checkToolchain } from '../toolchain/check.ts';
 import { readProject } from '../toolchain/project.ts';
-import { createEdgeCheck, gitChangedPaths } from './edge-check.ts';
+import { createEdgeCheck } from './edge-check.ts';
 import {
   accountKnowledgeSource,
   createKnowledgeExtension,
@@ -16,8 +17,8 @@ import { backendFor, type ExecutionBackend } from './execution-backend.ts';
 import { createSandboxTools } from './sandbox-tools.ts';
 import type { SessionHooks } from './session-hooks.ts';
 import type { SessionLifecycle } from './session-lifecycle.ts';
-import type { TaskEnvironment } from './session-environment.ts';
-import type { HarnessSessionOptions } from './session-types.ts';
+import type { RuntimeEnvironment } from './session-environment.ts';
+import type { CommonSessionOptions } from './session-types.ts';
 import { createDiagnosisExtension } from './solana-diagnosis.ts';
 import { createWeb } from './web.ts';
 
@@ -36,23 +37,25 @@ export interface SessionTools {
 }
 
 export function createSessionTools(
-  options: HarnessSessionOptions,
+  options: CommonSessionOptions,
   life: SessionLifecycle,
-  env: TaskEnvironment,
+  env: RuntimeEnvironment,
   account: OmsAccountControls,
+  edge?: { changedPaths: () => string[] },
 ): SessionTools {
-  const { task, environment } = options;
+  const { environment } = options;
+  const { root } = env;
   const backend = backendFor(environment);
-  const taskRoot = backend.taskRoot(task.codeRoot);
+  const taskRoot = backend.taskRoot(root.codeRoot);
   const sandboxTools = createSandboxTools({
     onSpawn: life.processes!.onSpawn,
     backend,
     approvalPolicy: options.hostApprovalPolicy,
-    protectedPaths: [...env.verifierFiles.map((file) => join(taskRoot, file)), join(taskRoot, '.git')],
-    taskName: env.context.taskName,
+    protectedPaths: env.protectedFiles.map((file) => join(taskRoot, file)),
+    taskName: root.taskName,
     mounts: env.mounts,
-    leaseDir: env.context.leaseDir,
-    sourceControlDir: env.context.sourceControlDir,
+    leaseDir: root.leaseDir,
+    sourceControlDir: root.sourceControlDir,
     surfnetPort: env.surfnetPort,
     signal: life.controller.signal,
     surfpool: backend.surfpoolPath(environment),
@@ -63,7 +66,7 @@ export function createSessionTools(
   life.taskTools = sandboxTools;
   const toolchainReadiness: SessionTools['toolchainReadiness'] = () => {
     try {
-      return checkToolchain(readProject(task.codeRoot));
+      return checkToolchain(readProject(root.codeRoot));
     } catch {
       return {
         status: 'proposed, not verified',
@@ -73,7 +76,7 @@ export function createSessionTools(
   };
   const initialToolchain = toolchainReadiness();
   const installedClients = installedProgramClients([
-    task.codeRoot,
+    root.codeRoot,
     ...(environment.dependencies ? [environment.dependencies] : []),
   ]);
   const toolchainSummary =
@@ -90,29 +93,27 @@ export function createSessionTools(
     pinned: options.knowledge,
     account: () => account.searchCredential(),
   });
-  const edgeCheck = options.edgeCheck
-    ? createEdgeCheck({ changedPaths: () => gitChangedPaths(task.codeRoot, task.baseOid) })
-    : undefined;
+  const edgeCheck = edge ? createEdgeCheck(edge) : undefined;
   return { taskRoot, backend, sandboxTools, toolchainReadiness, toolchainSummary, web, knowledgeSource, edgeCheck };
 }
 
-/** Composes the pi extensions: proposal and verification, guards, trace, budget, the sandbox tools, prompt hooks and knowledge. */
+/** Composes the pi extensions: proposal and verification when the session has them, guards, trace, budget, the sandbox tools, prompt hooks and knowledge. */
 export function createSessionExtensions(
-  options: HarnessSessionOptions,
+  options: CommonSessionOptions,
   life: SessionLifecycle,
-  env: TaskEnvironment,
+  env: RuntimeEnvironment,
   tools: SessionTools,
   hooks: SessionHooks,
   initiallyKnown: boolean,
-): ReturnType<typeof createOmsExtensions> {
-  const { task } = options;
+  endRunOnProposal?: boolean,
+): ExtensionFactory[] {
   const { taskRoot, knowledgeSource } = tools;
   const extra: ExtensionFactory[] = [
     tools.sandboxTools.extension,
     hooks.policy,
     programReferenceExtension,
     createDiagnosisExtension({
-      codeRoot: task.codeRoot,
+      codeRoot: env.root.codeRoot,
       rpcUrl: `http://127.0.0.1:${env.surfnetPort}`,
       knowledge: knowledgeSource,
     }),
@@ -123,15 +124,20 @@ export function createSessionExtensions(
       tools.edgeCheck?.extension,
     ].filter((extension) => extension !== undefined),
   ];
-  return createOmsExtensions({
-    proposer: env.proposer,
-    evaluator: env.evaluator,
-    endRunOnProposal: options.endRunOnProposal,
+  const shared = {
     guards: { approveHostCommands: tools.backend.approvesCommands },
     cwd: taskRoot,
     trace: life.trace!,
-    budget: env.budget,
-    protectedPaths: [...env.verifierFiles.map((file) => `${taskRoot}/${file}`), join(taskRoot, '.git')],
+    protectedPaths: env.protectedFiles.map((file) => join(taskRoot, file)),
     extra,
-  });
+  };
+  return env.contract
+    ? createOmsExtensions({
+        ...shared,
+        budget: env.budget,
+        proposer: env.contract.proposer,
+        evaluator: env.contract.evaluator,
+        endRunOnProposal,
+      }).extensions
+    : createChatExtensions(shared);
 }

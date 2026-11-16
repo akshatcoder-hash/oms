@@ -1,13 +1,8 @@
-import { dirname, join } from 'node:path';
 import { acquireTaskLease } from '../workspace/index.ts';
-import { privateDirectory } from '../workspace/storage.ts';
-import { createOmsAccountControls } from './oms-account.ts';
-import { createSessionApi } from './session-api.ts';
+import { gitChangedPaths } from './edge-check.ts';
+import { createTaskApi } from './session-api.ts';
+import { assembleSession, startSession } from './session-assembly.ts';
 import { startTaskEnvironment } from './session-environment.ts';
-import { createSessionHooks } from './session-hooks.ts';
-import { createSessionLifecycle } from './session-lifecycle.ts';
-import { createSessionModel } from './session-model.ts';
-import { createSessionExtensions, createSessionTools } from './session-tools.ts';
 import type { HarnessSession, HarnessSessionOptions } from './session-types.ts';
 
 export { sessionToolNames } from './session-model.ts';
@@ -30,31 +25,13 @@ export { knowledgeHint, omsSystemPrompt } from './system-prompt.ts';
  */
 export async function createHarnessSession(options: HarnessSessionOptions): Promise<HarnessSession> {
   const { workspace, task } = options;
-  const lease = acquireTaskLease(workspace, task.id);
-  const life = createSessionLifecycle(lease, new AbortController());
-  try {
+  return startSession(acquireTaskLease(workspace, task.id), async (life) => {
     const env = await startTaskEnvironment(options, life);
-    const agentRoot = join(dirname(dirname(workspace.stateDir)), 'agent');
-    privateDirectory(agentRoot);
-    const account = createOmsAccountControls({
-      agentRoot,
-      signal: life.controller.signal,
-      withUserOperation: life.withUserOperation,
+    const parts = await assembleSession(options, life, env, {
+      ...(options.edgeCheck ? { edge: { changedPaths: () => gitChangedPaths(task.codeRoot, task.baseOid) } } : {}),
+      endRunOnProposal: options.endRunOnProposal,
+      owner: `task ${task.id}`,
     });
-    const tools = createSessionTools(options, life, env, account);
-    const hooks = createSessionHooks(options, life, env, tools);
-    // Whether a knowledge credential exists at start: it decides the prompt and which tools are declared to the model.
-    const initiallyKnown = tools.knowledgeSource() !== undefined;
-    const extensions = createSessionExtensions(options, life, env, tools, hooks, initiallyKnown);
-    const model = await createSessionModel(options, life, env, tools, hooks, extensions, agentRoot, initiallyKnown);
-    return createSessionApi({ options, life, env, tools, model, account, agentRoot });
-  } catch (error) {
-    life.liveSession?.dispose();
-    try {
-      await life.releaseResources();
-    } catch (cleanupError) {
-      throw new AggregateError([error, cleanupError], 'Harness startup and cleanup failed');
-    }
-    throw error;
-  }
+    return createTaskApi({ ...parts, options, env });
+  });
 }

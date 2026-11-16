@@ -7,11 +7,17 @@ import { backendFor } from './execution-backend.ts';
 import { remoteDecodeError } from './knowledge-service.ts';
 import type { OmsAccountControls } from './oms-account.ts';
 import { createProviderControls } from './provider-controls.ts';
-import type { TaskEnvironment } from './session-environment.ts';
+import type { RuntimeEnvironment, TaskEnvironment } from './session-environment.ts';
 import type { SessionLifecycle } from './session-lifecycle.ts';
 import type { SessionModel } from './session-model.ts';
 import type { SessionTools } from './session-tools.ts';
-import type { HarnessSession, HarnessSessionOptions, HarnessVerification } from './session-types.ts';
+import type {
+  CommonSessionOptions,
+  HarnessSession,
+  HarnessSessionOptions,
+  HarnessVerification,
+  SessionCore,
+} from './session-types.ts';
 import { createHarnessSettingsControls, flushHarnessSettings } from './settings-controls.ts';
 import { modelReadiness } from './usage.ts';
 
@@ -19,17 +25,18 @@ const MAX_TIMER_MS = 2_147_483_647;
 
 /** Everything the returned session API is assembled from; each part is produced by an earlier startup stage. */
 export interface SessionApiParts {
-  options: HarnessSessionOptions;
+  options: CommonSessionOptions;
   life: SessionLifecycle;
-  env: TaskEnvironment;
+  env: RuntimeEnvironment;
   tools: SessionTools;
   model: SessionModel;
   account: OmsAccountControls;
-  agentRoot: string;
+  /** Names the session in the warning printed when cleanup is uncertain. */
+  owner: string;
 }
 
 /** Arms the task wall-clock deadline of a bounded session; the timer is cleared by `life.releaseResources`. */
-function enforceTaskDeadline(life: SessionLifecycle, env: TaskEnvironment, session: SessionModel['session']): void {
+function enforceTaskDeadline(life: SessionLifecycle, env: RuntimeEnvironment, session: SessionModel['session']): void {
   const enforce = () => {
     const remaining = env.budget.snapshot().remaining.wallClockMs;
     if (remaining > 0) {
@@ -44,10 +51,10 @@ function enforceTaskDeadline(life: SessionLifecycle, env: TaskEnvironment, sessi
 
 /** The pi runtime whose disposal releases everything the task session owns. */
 function createTaskRuntime(parts: SessionApiParts): AgentSessionRuntime {
-  const { options, life, model } = parts;
+  const { life, model, env } = parts;
   const services = {
-    cwd: options.task.codeRoot,
-    agentDir: parts.agentRoot,
+    cwd: env.root.codeRoot,
+    agentDir: env.root.agentRoot,
     modelRuntime: model.modelRuntime,
     settingsManager: model.settingsManager,
     resourceLoader: model.resourceLoader,
@@ -61,7 +68,7 @@ function createTaskRuntime(parts: SessionApiParts): AgentSessionRuntime {
           await life.releaseResources();
         } catch (error) {
           process.stderr.write(
-            `OMS cleanup uncertain for task ${options.task.id}; ownership retained. Stop and inspect task processes before lease recovery.\n`,
+            `OMS cleanup uncertain for ${parts.owner}; ownership retained. Stop and inspect task processes before lease recovery.\n`,
           );
           throw error;
         } finally {
@@ -83,8 +90,8 @@ function createTaskRuntime(parts: SessionApiParts): AgentSessionRuntime {
   );
 }
 
-/** The returned session API: verification, commands, controls for settings, providers, web and chain, and `close`. */
-export function createSessionApi(parts: SessionApiParts): HarnessSession {
+/** What every session returns: commands, controls for settings, providers, web and chain, and `close`. */
+export function createCoreApi(parts: SessionApiParts): SessionCore {
   const { options, life, env, tools, model, account } = parts;
   const { session } = model;
   const { sandboxTools } = tools;
@@ -113,7 +120,7 @@ export function createSessionApi(parts: SessionApiParts): HarnessSession {
     checkAuthFile: model.checkAuthFile,
     loginOptions: { agentName: 'OMS', getDeviceId: () => model.settingsManager.getOrCreateDeviceId() },
     flushSettings: () => flushHarnessSettings(model.settingsManager),
-    inferencePreferencesPath: join(parts.agentRoot, 'inference.json'),
+    inferencePreferencesPath: join(env.root.agentRoot, 'inference.json'),
     modelReadiness: (m) =>
       modelReadiness(
         m,
@@ -124,29 +131,6 @@ export function createSessionApi(parts: SessionApiParts): HarnessSession {
         options.subscriptionSpendExempt,
       ),
   });
-  const verify = (itemId?: string): Promise<HarnessVerification> =>
-    life.withUserOperation(() =>
-      env.withExecution(randomUUID(), () =>
-        sandboxTools.withVerification(async () => {
-          const state = env.evaluator.read();
-          if (!state.ok) throw new Error('Task state is unreadable');
-          const item = itemId
-            ? state.value.items.find((item) => item.id === itemId)
-            : state.value.items.find((item) => ['active', 'proposed', 'stale'].includes(item.status));
-          if (!item) throw new Error('Select an active, proposed or stale task item');
-          if (item.status === 'stale') {
-            const reopened = env.evaluator.reopen(item.id);
-            if (!reopened.ok) throw new Error(reopened.message);
-          }
-          if (item.status !== 'proposed') {
-            const proposal = env.proposer.propose(item.id);
-            if (!proposal.ok) throw new Error(proposal.message);
-          }
-          await life.backend!.assertIntegrity();
-          return { itemId: item.id, result: await env.baseEvaluator.evaluate(item.id) };
-        }),
-      ),
-    );
   const runCommand = (command: string, signal?: AbortSignal): Promise<SandboxResult> =>
     life.withUserOperation(() =>
       env.withExecution(randomUUID(), async (operationSignal) => {
@@ -168,14 +152,11 @@ export function createSessionApi(parts: SessionApiParts): HarnessSession {
   const runtime = createTaskRuntime(parts);
   enforceTaskDeadline(life, env, session);
   return {
-    workspace: options.workspace,
-    task: options.task,
+    root: env.root.codeRoot,
     runtime,
     session,
-    evaluator: env.evaluator,
     budget: env.budget,
     settings,
-    verify,
     runCommand,
     nativeChat: model.nativeChat,
     account,
@@ -188,11 +169,52 @@ export function createSessionApi(parts: SessionApiParts): HarnessSession {
         remoteDecodeError(tools.knowledgeSource, code, program, signal),
     },
     ...(webControls ? { web: webControls } : {}),
-    ...(tools.edgeCheck ? { edgeCheck: { summary: tools.edgeCheck.summary } } : {}),
     files: sandboxTools.files,
     startTerminal: (columns, rows) => life.withUserOperation(() => sandboxTools.startTerminal(columns, rows)),
     async close() {
       await runtime.dispose();
     },
+  };
+}
+
+/** The core API plus verification against the pinned requirements. */
+export function createTaskApi(
+  parts: SessionApiParts & { options: HarnessSessionOptions; env: TaskEnvironment },
+): HarnessSession {
+  const { options, life, env, tools } = parts;
+  const { contract } = env;
+  const { sandboxTools } = tools;
+  const core = createCoreApi(parts);
+  const verify = (itemId?: string): Promise<HarnessVerification> =>
+    life.withUserOperation(() =>
+      env.withExecution(randomUUID(), () =>
+        sandboxTools.withVerification(async () => {
+          const state = contract.evaluator.read();
+          if (!state.ok) throw new Error('Task state is unreadable');
+          const item = itemId
+            ? state.value.items.find((item) => item.id === itemId)
+            : state.value.items.find((item) => ['active', 'proposed', 'stale'].includes(item.status));
+          if (!item) throw new Error('Select an active, proposed or stale task item');
+          if (item.status === 'stale') {
+            const reopened = contract.evaluator.reopen(item.id);
+            if (!reopened.ok) throw new Error(reopened.message);
+          }
+          if (item.status !== 'proposed') {
+            const proposal = contract.proposer.propose(item.id);
+            if (!proposal.ok) throw new Error(proposal.message);
+          }
+          await life.backend!.assertIntegrity();
+          return { itemId: item.id, result: await contract.baseEvaluator.evaluate(item.id) };
+        }),
+      ),
+    );
+  return {
+    ...core,
+    kind: 'task',
+    workspace: options.workspace,
+    task: options.task,
+    evaluator: contract.evaluator,
+    verify,
+    ...(tools.edgeCheck ? { edgeCheck: { summary: tools.edgeCheck.summary } } : {}),
   };
 }

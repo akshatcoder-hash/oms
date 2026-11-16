@@ -5,35 +5,38 @@ import {
   DefaultResourceLoader,
   ModelRuntime,
   type AgentSession,
+  type ExtensionFactory,
   type SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 import type { StreamFn } from '@earendil-works/pi-agent-core';
 import { normalizeContext } from '@earendil-works/pi-ai';
-import type { createOmsExtensions } from '../oms-extension.ts';
 import { assertPrivate, isMissing } from '../workspace/storage.ts';
 import { registerOmsCatalog } from './catalog.ts';
 import { createClaudeCodeProvider, type NativeChatControls } from './claude-code.ts';
 import { KNOWLEDGE_TOOL_NAMES } from './knowledge-service.ts';
 import { PROGRAM_REFERENCE_TOOL } from './program-reference.ts';
-import type { TaskEnvironment } from './session-environment.ts';
+import type { RuntimeEnvironment } from './session-environment.ts';
 import type { SessionHooks } from './session-hooks.ts';
 import type { SessionLifecycle } from './session-lifecycle.ts';
 import type { SessionTools } from './session-tools.ts';
-import type { HarnessSessionOptions } from './session-types.ts';
+import type { CommonSessionOptions } from './session-types.ts';
 import { createHarnessSettings } from './settings-controls.ts';
 import { RAW_OUTPUT_TOOL } from './solana-diagnosis.ts';
 import { withToolExecutionModes } from './tool-execution.ts';
 import { createMeteredStream } from './usage.ts';
 
 /** Registered tools pi would otherwise drop: deps_fetch is part of the build profile. */
-export function sessionToolNames(buildProfile: boolean | undefined, outputMode: string | undefined): string[] {
+export function sessionToolNames(
+  buildProfile: boolean | undefined,
+  outputMode: string | undefined,
+  kind: 'task' | 'chat' = 'task',
+): string[] {
   return [
     'read',
     'edit',
     'write',
     'bash',
-    'propose_done',
-    'task_status',
+    ...(kind === 'task' ? ['propose_done', 'task_status'] : []),
     'toolchain_check',
     RAW_OUTPUT_TOOL,
     PROGRAM_REFERENCE_TOOL,
@@ -59,17 +62,17 @@ export interface SessionModel {
  * extensions, and the metered stream that enforces the budget on every model call.
  */
 export async function createSessionModel(
-  options: HarnessSessionOptions,
+  options: CommonSessionOptions,
   life: SessionLifecycle,
-  env: TaskEnvironment,
+  env: RuntimeEnvironment,
   tools: SessionTools,
   hooks: SessionHooks,
-  extensions: ReturnType<typeof createOmsExtensions>,
-  agentRoot: string,
+  extensions: ExtensionFactory[],
   initiallyKnown: boolean,
 ): Promise<SessionModel> {
-  const { task, environment } = options;
+  const { environment } = options;
   const { controller } = life;
+  const { agentRoot, codeRoot, sessionsDir } = env.root;
   const authPath = join(agentRoot, 'auth.json');
   const authFileCheck = () => {
     try {
@@ -87,7 +90,7 @@ export async function createSessionModel(
     (await ModelRuntime.create({ authPath, modelsPath: null, allowModelNetwork: false, refreshOnCreate: true }));
   registerOmsCatalog(modelRuntime);
   const native = (life.nativeSession = await createClaudeCodeProvider(modelRuntime, {
-    statePath: join(env.taskSessions, `${env.sessionId}.claude.json`),
+    statePath: join(sessionsDir, `${env.sessionId}.claude.json`),
     signal: controller.signal,
     onSpawn: life.processes!.onSpawn,
   }));
@@ -101,7 +104,7 @@ export async function createSessionModel(
   if (options.modelSelection && !selectedModel) throw new Error('The selected model is not in the installed catalog');
   const settingsManager = createHarnessSettings(agentRoot);
   const resourceLoader = new DefaultResourceLoader({
-    cwd: task.codeRoot,
+    cwd: codeRoot,
     agentDir: agentRoot,
     settingsManager,
     noExtensions: true,
@@ -110,12 +113,12 @@ export async function createSessionModel(
     noPromptTemplates: true,
     noThemes: true,
     appendSystemPrompt: [],
-    extensionFactories: extensions.extensions.map(withToolExecutionModes),
+    extensionFactories: extensions.map(withToolExecutionModes),
     systemPrompt: hooks.promptFor(tools.knowledgeSource()),
   });
   await resourceLoader.reload();
   const created = await createAgentSession({
-    cwd: task.codeRoot,
+    cwd: codeRoot,
     agentDir: agentRoot,
     modelRuntime,
     ...(selectedModel ? { model: selectedModel } : {}),
@@ -124,7 +127,7 @@ export async function createSessionModel(
     resourceLoader,
     noTools: 'builtin',
     tools: [
-      ...sessionToolNames(environment.buildProfile, options.outputMode),
+      ...sessionToolNames(environment.buildProfile, options.outputMode, env.contract ? 'task' : 'chat'),
       ...KNOWLEDGE_TOOL_NAMES,
       ...(tools.web?.toolNames ?? []),
     ],
