@@ -126,7 +126,8 @@ export async function runOmsContender(o: OmsContenderRun): Promise<number> {
     });
     if (!o.args.includes('--task') || !o.args[o.args.indexOf('--task') + 1]) throw new Error('Cell runs need --task');
     registerOmsCatalog(runtime);
-    const model = runtime.getModel(o.selection.provider, o.selection.id);
+    // The native Claude Code provider registers itself inside the OMS session, so the session resolves that model.
+    const model = claude ? o.selection : runtime.getModel(o.selection.provider, o.selection.id);
     if (!model) throw new Error(`Unknown model ${o.selection.provider}/${o.selection.id}`);
     const headlessOut = join(scratch, 'record.json');
     if (claude) process.env.OMS_CLAUDE_CODE_HOME = o.claudeHome;
