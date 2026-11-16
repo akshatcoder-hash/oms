@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { programReference } from '../src/runtime/program-reference.ts';
 import {
   DIAGNOSIS_LIMIT,
   diagnose,
@@ -35,6 +36,46 @@ const none: DiagnosisSources = { idls: () => [] };
 const withIdl: DiagnosisSources = { idls: () => [IDL] };
 const logs = (...lines: string[]) =>
   `not ok 1 - deposit\n  error: 'Transaction simulation failed'\n  logs: [\n${lines.map((l) => `    '${l}',`).join('\n')}\n  ]\n`;
+
+test('simulated Orca and Meteora failures show each deployment note once per session', async () => {
+  const shown = new Set<string>();
+  for (const name of ['Orca Whirlpools', 'Meteora DLMM']) {
+    const program = programReference().programs.find((entry) => entry.name === name)!;
+    const output = logs(
+      `Program ${program.id} invoke [1]`,
+      'Program log: Instruction: InitializeConfig',
+      `Program ${program.id} failed: custom program error: 0x7d3`,
+    );
+    const note = `Note for ${name}: ${program.deploymentNote}`;
+    const first = await diagnose(output, none, shown);
+    assert.ok(first!.endsWith(note));
+    assert.equal(first!.split(note).length - 1, 1);
+    assert.ok(Buffer.byteLength(first!) <= DIAGNOSIS_LIMIT);
+    const second = await diagnose(output, none, shown);
+    assert.match(second!, /Solana failure diagnosis/);
+    assert.doesNotMatch(second!, /Note for /);
+    assert.ok((await diagnose(output, none, new Set()))!.endsWith(note));
+  }
+});
+
+test('unrelated failures and a noted program that did not fail get no deployment note', async () => {
+  const orca = programReference().programs.find((entry) => entry.name === 'Orca Whirlpools')!;
+  for (const id of [PROGRAM, '11111111111111111111111111111111']) {
+    const output = logs(
+      `Program ${orca.id} invoke [1]`,
+      `Program ${orca.id} consumed 100 of 200000 compute units`,
+      `Program ${id} failed: custom program error: 0x1`,
+    );
+    assert.doesNotMatch((await diagnose(output, none, new Set()))!, /Note for /);
+  }
+});
+
+test('a deployment note survives a long diagnosis without exceeding the byte cap', async () => {
+  const orca = programReference().programs.find((entry) => entry.name === 'Orca Whirlpools')!;
+  const text = await diagnose(logs(`Program ${orca.id} failed: custom program error: 0x7d3 ${'x'.repeat(3000)}`), none);
+  assert.ok(text!.endsWith(`Note for ${orca.name}: ${orca.deploymentNote}`));
+  assert.ok(Buffer.byteLength(text!) <= DIAGNOSIS_LIMIT);
+});
 
 test('an Anchor constraint failure names the constraint, the account, the left/right values and the compute used', async () => {
   const text = await diagnose(

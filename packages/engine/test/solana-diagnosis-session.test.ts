@@ -2,6 +2,14 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { test } from 'node:test';
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  ExtensionHandler,
+  ToolResultEvent,
+  ToolResultEventResult,
+} from '@earendil-works/pi-coding-agent';
+import { createDiagnosisExtension } from '../src/runtime/solana-diagnosis.ts';
 import { createHarnessSession } from '../src/runtime/session.ts';
 import { createHarnessFixture } from '../test-support/runtime-fixture.ts';
 import { skipUnavailable } from '../../sandbox/test-support/infrastructure.ts';
@@ -13,6 +21,40 @@ const PROGRAM = 'Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS';
 
 const text = (message: { content: Array<{ type: string; text?: string }> }) =>
   message.content.map((p) => (p.type === 'text' ? p.text : '')).join('');
+
+test('failed bash simulations deliver deployment notes once and a new session delivers them again', async () => {
+  const event = {
+    type: 'tool_result',
+    toolName: 'bash',
+    toolCallId: 'simulation',
+    input: {},
+    isError: true,
+    content: [
+      {
+        type: 'text',
+        text: 'Transaction simulation failed\nProgram whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc failed: custom program error: 0x7d3',
+      },
+    ],
+  } as ToolResultEvent;
+  for (let session = 0; session < 2; session++) {
+    let handler: ExtensionHandler<ToolResultEvent, ToolResultEventResult> | undefined;
+    await createDiagnosisExtension({ codeRoot: '/nonexistent', rpcUrl: 'http://127.0.0.1:0' })({
+      on(name: string, registered: unknown) {
+        if (name === 'tool_result') handler = registered as typeof handler;
+      },
+      registerTool() {},
+    } as unknown as ExtensionAPI);
+    const result = handler;
+    assert.ok(result);
+    const first = await result(event, {} as ExtensionContext);
+    assert.ok(first?.content);
+    assert.match(text({ content: first.content }), /Note for Orca Whirlpools: On existing pools/);
+    const second = await result({ ...event, toolCallId: 'second-simulation' }, {} as ExtensionContext);
+    assert.ok(second?.content);
+    assert.match(text({ content: second.content }), /Solana failure diagnosis/);
+    assert.doesNotMatch(text({ content: second.content }), /Note for /);
+  }
+});
 
 test('a failing sandbox command with a Solana failure reaches the model as a diagnosis, and raw_output returns the raw log', async (t) => {
   if (

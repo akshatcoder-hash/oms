@@ -9,6 +9,7 @@ import type { SessionTools } from './session-tools.ts';
 import type { CommonSessionOptions } from './session-types.ts';
 import {
   CLAUDE_CAPPED_WORK,
+  CLAUDE_DEPLOYMENT_KNOWLEDGE,
   knowledgeHint,
   omsChatPrompt,
   omsSystemPrompt,
@@ -48,8 +49,12 @@ export function createSessionHooks(
     pi.on('before_agent_start', (event, ctx) => {
       event.systemPromptOptions.cwd = taskRoot;
       if (env.executionMode === 'bounded' && event.messageType === 'user') turn.id = randomUUID();
-      if (env.contract && ctx.model?.provider === 'claude-code' && !event.systemPrompt.includes(CLAUDE_CAPPED_WORK))
-        return { systemPrompt: `${event.systemPrompt}\n\n${CLAUDE_CAPPED_WORK}` };
+      if (env.contract && ctx.model?.provider === 'claude-code') {
+        const additions = [CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE].filter(
+          (text) => !event.systemPrompt.includes(text),
+        );
+        if (additions.length) return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
+      }
     });
     pi.on('context', (event) => {
       const fetched = web ? elideOldFetches(event.messages) : event.messages;

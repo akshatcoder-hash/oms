@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
+import { programReference } from './program-reference.ts';
 import {
   fetchMcpText,
   readWorktreeText,
@@ -104,7 +105,11 @@ async function decodeCustom(
 }
 
 /** A short diagnosis wrapped as untrusted text, or undefined when the output shows no Solana failure. */
-export async function diagnose(output: string, sources: DiagnosisSources): Promise<string | undefined> {
+export async function diagnose(
+  output: string,
+  sources: DiagnosisSources,
+  shownDeploymentNotes = new Set<string>(),
+): Promise<string | undefined> {
   const signature = sources.transaction ? lastMatch(output, SIGNATURE)?.[0] : undefined;
   const facts = signature ? await sources.transaction!(signature).catch(() => undefined) : undefined;
   const text = facts ? `${output}\n${facts.logs.join('\n')}` : output;
@@ -176,12 +181,19 @@ export async function diagnose(output: string, sources: DiagnosisSources): Promi
       lines.push(`${change.account}: ${parts.join('; ')}`);
     }
   }
-  return wrapUntrusted(
+  const reference = program ? programReference().programs.find((entry) => entry.id === program) : undefined;
+  const note =
+    reference?.deploymentNote && !shownDeploymentNotes.has(reference.id)
+      ? `\nNote for ${reference.name}: ${reference.deploymentNote}`
+      : '';
+  const diagnosis = wrapUntrusted(
     'solana_diagnosis',
     `Solana failure diagnosis (parsed from the command output; the full log is available via ${RAW_OUTPUT_TOOL})\n${lines.join('\n')}`,
-    DIAGNOSIS_LIMIT,
+    DIAGNOSIS_LIMIT - Buffer.byteLength(note),
     "the failing command's own output",
   );
+  if (note) shownDeploymentNotes.add(reference!.id);
+  return diagnosis + note;
 }
 
 /**
@@ -296,6 +308,7 @@ export interface DiagnosisOptions {
  */
 export function createDiagnosisExtension(options: DiagnosisOptions): ExtensionFactory {
   const raw = new Map<string, string>();
+  const shownDeploymentNotes = new Set<string>();
   const sources: DiagnosisSources = {
     idls: () => readLocalIdls(options.codeRoot),
     transaction: (signature) => surfpoolTransaction(options.rpcUrl, signature),
@@ -310,7 +323,7 @@ export function createDiagnosisExtension(options: DiagnosisOptions): ExtensionFa
     pi.on('tool_result', async (event) => {
       if (event.toolName !== 'bash' || !event.isError) return undefined;
       const output = event.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
-      const diagnosis = await diagnose(output, sources);
+      const diagnosis = await diagnose(output, sources, shownDeploymentNotes);
       if (!diagnosis) return undefined;
       raw.set(event.toolCallId, output);
       for (const key of [...raw.keys()].slice(0, -KEPT_RAW_OUTPUTS)) raw.delete(key);
