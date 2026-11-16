@@ -184,7 +184,7 @@ export class SetupPane {
               ? 'Codex (ChatGPT subscription)'
               : claude
                 ? 'Claude Code (Claude subscription)'
-                : line(provider.oauthLabel ?? `${provider.name} subscription`),
+                : line(provider.oauthName ?? provider.oauthLabel ?? `${provider.name} subscription`),
             description: connected,
             keywords: provider.id,
           },

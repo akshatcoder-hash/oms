@@ -22,6 +22,8 @@ export interface ProviderChoice {
   oauth: boolean;
   apiKeyLabel?: string;
   oauthLabel?: string;
+  /** The subscription's own name, such as "GitHub Copilot", for lists. */
+  oauthName?: string;
   oauthUnavailable?: string;
 }
 export interface ProviderModelChoice {
@@ -139,7 +141,12 @@ export function createProviderControls(options: ProviderControlsOptions): Provid
           provider.id === CLAUDE_CODE_PROVIDER ||
           (provider.id !== 'anthropic' && typeof provider.auth.oauth?.login === 'function'),
         ...(provider.auth.apiKey ? { apiKeyLabel: provider.auth.apiKey.name } : {}),
-        ...(provider.auth.oauth ? { oauthLabel: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name } : {}),
+        ...(provider.auth.oauth
+          ? {
+              oauthLabel: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name,
+              oauthName: provider.auth.oauth.name,
+            }
+          : {}),
         ...(provider.id === CLAUDE_CODE_PROVIDER ? { oauthLabel: 'Check local Claude Code subscription login' } : {}),
         ...(provider.id === 'anthropic' ? { oauthUnavailable: CLAUDE_SUBSCRIPTION_UNAVAILABLE } : {}),
       }));

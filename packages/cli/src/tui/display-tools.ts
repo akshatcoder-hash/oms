@@ -123,11 +123,39 @@ function writeDefinition(definition: Definition): Definition {
   };
 }
 
+/** pi shows the path the model typed; inside the folder the model's absolute path reads better relative to it. */
+function relativeCalls(definition: Definition): Definition {
+  type Draw = (...args: unknown[]) => unknown;
+  const call = definition.renderCall as Draw | undefined;
+  const result = definition.renderResult as Draw | undefined;
+  if (!call) return definition;
+  const shortened = (context: RenderContext): RenderContext => {
+    const args = context.args ?? {};
+    const key = typeof args.path === 'string' ? 'path' : typeof args.file_path === 'string' ? 'file_path' : undefined;
+    return key ? { ...context, args: { ...args, [key]: shownPath(args[key], context.cwd) } } : context;
+  };
+  return {
+    ...definition,
+    renderCall(args: Record<string, unknown>, theme: Theme, context: RenderContext) {
+      const shown = shortened({ ...context, args });
+      return call(shown.args, theme, { ...context, args: shown.args });
+    },
+    ...(result
+      ? {
+          renderResult(output: unknown, options: unknown, theme: Theme, context: RenderContext) {
+            return result(output, options, theme, shortened(context));
+          },
+        }
+      : {}),
+  };
+}
+
 /** The tool as the transcript draws it: pi's own look for pi's tools, one line for OMS's, a diff or one line for write. */
 export function displayDefinition(name: string, definition: unknown): unknown {
   if (!definition || typeof definition !== 'object') return definition;
   const base = definition as Definition;
   if (name === 'write') return writeDefinition(base);
-  if (['read', 'edit', 'bash', 'ls', 'find', 'grep'].includes(name)) return base;
+  if (name === 'read' || name === 'edit') return relativeCalls(base);
+  if (['bash', 'ls', 'find', 'grep'].includes(name)) return base;
   return summaryDefinition(name, base);
 }

@@ -2990,15 +2990,15 @@ test('/yolo toggles unasked, unsandboxed commands and says so once', async () =>
   }
 });
 
-function chatFixture(yolo = false) {
+function chatFixture(yolo = false, folder = '/fixtures/rental-ledger') {
   const f = fixture();
   const chat = f.harness as unknown as Record<string, unknown>;
   for (const field of ['workspace', 'task', 'evaluator', 'verify']) delete chat[field];
   let on = yolo;
   Object.assign(chat, {
     kind: 'chat',
-    root: '/fixtures/rental-ledger',
-    folder: { path: '/fixtures/rental-ledger', requested: '/fixtures/rental-ledger', key: 'k', scratch: false },
+    root: folder,
+    folder: { path: folder, requested: folder, key: 'k', scratch: false },
     yolo: {
       enabled: () => on,
       set(value: boolean) {
@@ -3026,8 +3026,8 @@ test('a chat opens to its conversation, the input and one footer line', async ()
   }
 });
 
-test('the footer shows YOLO while it is on', async () => {
-  const f = chatFixture(true);
+test('the footer shows YOLO and the model even when the folder path is long', async () => {
+  const f = chatFixture(true, '/very/long/path/to/some/deeply/nested/project/folder/with/a/long/name/rental-ledger');
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {

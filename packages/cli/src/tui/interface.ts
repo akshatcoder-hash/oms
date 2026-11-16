@@ -1039,20 +1039,24 @@ export async function runOmsInterface(
     const connected = harness.listModels().some((candidate) => candidate.configured);
     const parts: string[] = [];
     if (model && hasModelConfiguration(model) && connected)
-      parts.push(`${singleLine(model.provider, 60)}/${singleLine(model.id, 100)}`);
+      parts.push(colorText(theme!, 'muted', `${singleLine(model.provider, 60)}/${singleLine(model.id, 100)}`));
     const usage = harness.session.getContextUsage?.();
-    if (usage?.percent != null) parts.push(`${usage.percent.toFixed(1)}%`);
+    if (usage?.percent != null) parts.push(colorText(theme!, 'muted', `${usage.percent.toFixed(1)}%`));
     const budget = harness.budget.snapshot();
-    if (budget.accounting === 'unknown') parts.push('usage unknown · /status');
-    else if (budget.exhausted) parts.push('budget used up · /status');
-    const right = parts.join(' · ');
-    const yolo = harness.kind === 'chat' && harness.yolo.enabled() ? colorText(theme!, 'warning', 'YOLO') : '';
+    if (budget.accounting === 'unknown') parts.push(colorText(theme!, 'warning', 'usage unknown · /status'));
+    else if (budget.exhausted) parts.push(colorText(theme!, 'warning', 'budget used up · /status'));
+    if (harness.kind === 'chat' && harness.yolo.enabled()) parts.unshift(colorText(theme!, 'warning', 'YOLO'));
+    const right = parts.join(colorText(theme!, 'muted', ' · '));
     const folderPath = harness.kind === 'chat' ? harness.folder.path : harness.root;
     const home = homedir();
-    const folder =
-      folderPath === home || folderPath.startsWith(home + '/') ? '~' + folderPath.slice(home.length) : folderPath;
-    const left = colorText(theme!, 'muted', singleLine(folder, 200)) + (yolo ? '  ' + yolo : '');
-    return [paintThemeRow(theme!, alignEnds(left, colorText(theme!, 'muted', right), width), width)];
+    const folder = singleLine(
+      folderPath === home || folderPath.startsWith(home + '/') ? '~' + folderPath.slice(home.length) : folderPath,
+      400,
+    );
+    const room = Math.max(8, width - visibleWidth(right) - 4);
+    // The end of a long path says more than its start.
+    const shown = folder.length > room ? '…' + folder.slice(folder.length - room + 1) : folder;
+    return [paintThemeRow(theme!, alignEnds(colorText(theme!, 'muted', shown), right, width), width)];
   });
   const rule = component((width) => [colorText(theme!, 'border', '─'.repeat(Math.max(0, width)))]);
   const chatComposer = new VStack([

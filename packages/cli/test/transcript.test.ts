@@ -138,3 +138,35 @@ test('a restored conversation reads the same as the live one', () => {
   const strip = (text: string) => text.replace(/Took [\d.]+s/g, '').replace(/\s+/g, ' ');
   assert.equal(strip(restored), strip(live));
 });
+
+test('an absolute path inside the folder is shown relative to it, and the edit diff still appears', () => {
+  const absolute = [
+    { ...calls[3]!, arguments: { path: `${cwd}/src/hello.mjs`, edits: [{ oldText: 'hello', newText: 'hi' }] } },
+    { ...calls[0]!, arguments: { path: `${cwd}/src/big.ts` } },
+  ];
+  const message = { ...assistant, content: absolute.map((call) => ({ type: 'toolCall', ...call })) };
+  const conversation = new Conversation([], undefined, options);
+  conversation.accept({ type: 'message_start', message } as never);
+  conversation.accept({ type: 'message_end', message } as never);
+  for (const call of absolute) {
+    conversation.accept({
+      type: 'tool_execution_start',
+      toolCallId: call.id,
+      toolName: call.name,
+      args: call.arguments,
+    } as never);
+    const result = results[call.id]!;
+    conversation.accept({
+      type: 'tool_execution_end',
+      toolCallId: call.id,
+      toolName: call.name,
+      isError: false,
+      result: { content: [{ type: 'text', text: result.text }], details: result.details },
+    } as never);
+  }
+  const screen = plain(conversation.render(100));
+  assert.match(screen, /edit src\/hello\.mjs/);
+  assert.match(screen, /read src\/big\.ts/);
+  assert.ok(!screen.includes(cwd), 'the folder prefix is dropped');
+  assert.match(screen, /\+1 console\.log\("hi"\);/);
+});
