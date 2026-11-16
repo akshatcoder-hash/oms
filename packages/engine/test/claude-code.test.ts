@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
+import { Server } from 'node:net';
 import { Agent } from '@earendil-works/pi-agent-core';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { InMemoryCredentialStore, normalizeContext, Type } from '@earendil-works/pi-ai';
@@ -64,6 +65,15 @@ function receipt(mult){const u={input_tokens:20*mult,output_tokens:10*mult,cache
 const input=createInterface({input:process.stdin});input.on('line',async line=>{
  const x=JSON.parse(line);if(x.type==='control_request'){emit({type:'control_response',response:{subtype:'success',request_id:x.request_id,response:{}}});return;}history.push(x.message.content);writeFileSync(file,JSON.stringify(history));appendFileSync(root+'/input',JSON.stringify(x)+'\\n');
  emit({type:'system',subtype:'init',tools:mode==='builtin'?['Bash']:tools,mcp_servers:[{name:'oms',status:'connected'}]});if(mode==='hang'||mode==='stubborn')return;
+ if(mode==='active-turn'||mode==='active-then-idle'){
+  emit({type:'stream_event',event:{type:'message_start',message:{id:'msg_idle',model:'claude-haiku-5-5',usage}}});
+  emit({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'text',text:''}}});
+  for(let i=0;i<4;i++){await new Promise(resolve=>setTimeout(resolve,150));emit({type:'stream_event',event:{type:'content_block_delta',index:0,delta:{type:'text_delta',text:'working'}}});}
+  if(mode==='active-then-idle')return;
+  emit({type:'stream_event',event:{type:'content_block_stop',index:0}});
+  emit({type:'stream_event',event:{type:'message_delta',delta:{stop_reason:'end_turn'},usage}});
+  emit({type:'stream_event',event:{type:'message_stop'}});receipt(1);return;
+ }
  if(JSON.stringify(x.message.content).includes('probe')){assistant({type:'tool_use',id:'call_'+id,name:'mcp__oms__read',input:{path:'src/main.ts'}},'tool_use');const result=await mcp();appendFileSync(root+'/results',JSON.stringify(result)+'\\n');if(mode==='multi'){assistant({type:'tool_use',id:'call_'+id+'_2',name:'mcp__oms__read',input:{path:'src/main.ts'}},'tool_use');const second=await mcp();appendFileSync(root+'/results',JSON.stringify(second)+'\\n');assistant({type:'text',text:JSON.stringify(second)});receipt(3);}else{assistant({type:'text',text:JSON.stringify(result)});receipt(2);}}
  else{assistant({type:'text',text:JSON.stringify(x.message.content).includes('recall')?JSON.stringify(history[0]):'reply'});receipt(1);}
 });input.on('close',()=>{bridge?.kill();process.exit(0);});
@@ -78,14 +88,32 @@ const input=createInterface({input:process.stdin});input.on('line',async line=>{
     rmSync(directory, { recursive: true, force: true });
   }
 }
-async function modelAndSession(statePath?: string, onSpawn?: (pid: number, cwd: string) => void) {
+// Tool-free native turns never use IPC; stub only the unused listener, keeping CLI launch and streaming real.
+async function toolFreeFixture(t: TestContext, mode: string, run: (directory: string) => Promise<void>) {
+  t.mock.method(Server.prototype, 'listen', function (this: Server, ...args: unknown[]) {
+    queueMicrotask(args.at(-1) as () => void);
+    return this;
+  });
+  await fixture(mode, run);
+}
+const toolFreeContext = () =>
+  normalizeContext({
+    systemPrompt: 'Trusted OMS',
+    tools: [],
+    messages: [{ role: 'user', content: 'FIRST_SECRET', timestamp: 1 }],
+  });
+async function modelAndSession(
+  statePath?: string,
+  onSpawn?: (pid: number, cwd: string) => void,
+  options: { effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' } = {},
+) {
   const runtime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
     allowModelNetwork: false,
     refreshOnCreate: false,
   });
-  const native = await createClaudeCodeProvider(runtime, { statePath, onSpawn });
+  const native = await createClaudeCodeProvider(runtime, { statePath, onSpawn, ...options });
   await runtime.refresh({ allowNetwork: false });
   const model = runtime.getModel('claude-code', 'haiku');
   assert.ok(model);
@@ -109,6 +137,118 @@ test('OMS_CLAUDE_CODE_HOME replaces the native home and is not itself forwarded'
   assert.equal(env.HOME, '/run/claude-home');
   assert.equal(env.OMS_CLAUDE_CODE_HOME, undefined);
 });
+test('native effort defaults to high in launch argv and request metadata', async (t) =>
+  toolFreeFixture(t, 'ok', async (directory) => {
+    const previous = process.env.OMS_CLAUDE_EFFORT;
+    delete process.env.OMS_CLAUDE_EFFORT;
+    const { native, model } = await modelAndSession();
+    try {
+      let payload: unknown;
+      const response = await native
+        .stream(model, toolFreeContext(), {
+          onPayload: (value) => {
+            payload = value;
+          },
+        })
+        .result();
+      assert.equal(response.stopReason, 'stop', response.errorMessage);
+      const args = rows(join(directory, 'launch'))[0].args;
+      assert.equal(args[args.indexOf('--effort') + 1], 'high');
+      assert.equal((payload as { effort: string }).effort, 'high');
+    } finally {
+      await native.close();
+      if (previous === undefined) delete process.env.OMS_CLAUDE_EFFORT;
+      else process.env.OMS_CLAUDE_EFFORT = previous;
+    }
+  }));
+for (const effort of ['low', 'medium', 'high', 'xhigh', 'max'] as const)
+  test(`explicit native effort ${effort} reaches launch argv`, async (t) =>
+    toolFreeFixture(t, 'ok', async (directory) => {
+      const { native, model } = await modelAndSession(undefined, undefined, { effort });
+      try {
+        const response = await native.stream(model, toolFreeContext()).result();
+        assert.equal(response.stopReason, 'stop', response.errorMessage);
+        const args = rows(join(directory, 'launch'))[0].args;
+        assert.equal(args[args.indexOf('--effort') + 1], effort);
+      } finally {
+        await native.close();
+      }
+    }));
+test('environment effort changes the native configuration identity and restarts the CLI', async (t) =>
+  toolFreeFixture(t, 'ok', async (directory) => {
+    const previous = process.env.OMS_CLAUDE_EFFORT;
+    process.env.OMS_CLAUDE_EFFORT = 'medium';
+    const { native, model } = await modelAndSession();
+    const transcript = toolFreeContext();
+    try {
+      const first = await native.stream(model, transcript).result();
+      assert.equal(first.stopReason, 'stop', first.errorMessage);
+      transcript.messages.push(first, { role: 'user', content: 'second', timestamp: 2 });
+      process.env.OMS_CLAUDE_EFFORT = 'max';
+      const second = await native.stream(model, transcript).result();
+      assert.equal(second.stopReason, 'stop', second.errorMessage);
+      transcript.messages.push(second, { role: 'user', content: 'third', timestamp: 3 });
+      assert.equal((await native.stream(model, transcript).result()).stopReason, 'stop');
+      const launches = rows(join(directory, 'launch'));
+      assert.equal(launches.length, 2, 'effort changes restart the process; unchanged effort reuses it');
+      assert.notEqual(launches[0].pid, launches[1].pid);
+      for (const [i, effort] of ['medium', 'max'].entries()) {
+        const args = launches[i].args;
+        assert.equal(args[args.indexOf('--effort') + 1], effort);
+      }
+    } finally {
+      await native.close();
+      if (previous === undefined) delete process.env.OMS_CLAUDE_EFFORT;
+      else process.env.OMS_CLAUDE_EFFORT = previous;
+    }
+  }));
+test('invalid environment effort is rejected before starting native inference', () => {
+  const previous = process.env.OMS_CLAUDE_EFFORT;
+  process.env.OMS_CLAUDE_EFFORT = 'extreme';
+  try {
+    assert.throws(() => new ClaudeCodeSession(), /OMS_CLAUDE_EFFORT/);
+  } finally {
+    if (previous === undefined) delete process.env.OMS_CLAUDE_EFFORT;
+    else process.env.OMS_CLAUDE_EFFORT = previous;
+  }
+});
+test('native turn idle deadline resets on stream events throughout a long response', async (t) =>
+  toolFreeFixture(t, 'active-turn', async () => {
+    const { native, model } = await modelAndSession();
+    try {
+      const response = await native.stream(model, toolFreeContext(), { timeoutMs: 400 }).result();
+      assert.equal(response.stopReason, 'stop', response.errorMessage);
+      assert.equal(
+        response.content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text)
+          .join(''),
+        'working'.repeat(4),
+      );
+    } finally {
+      await native.close();
+    }
+  }));
+test('native turn still times out after stream activity stops', async (t) =>
+  toolFreeFixture(t, 'active-then-idle', async () => {
+    const { native, model } = await modelAndSession();
+    try {
+      const start = Date.now();
+      const response = await native.stream(model, toolFreeContext(), { timeoutMs: 400 }).result();
+      assert.equal(response.stopReason, 'error');
+      assert.equal(
+        response.content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text)
+          .join(''),
+        'working'.repeat(4),
+      );
+      assert.ok(Date.now() - start < 4000, 'silence is still bounded');
+      assert.notEqual(native.status().state, 'ready');
+    } finally {
+      await native.close();
+    }
+  }));
 test('native provider exposes Sonnet, Opus and Haiku through installed CLI subscription without inference', async () =>
   fixture('ok', async (directory) => {
     const { native, runtime } = await modelAndSession();

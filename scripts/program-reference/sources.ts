@@ -11,6 +11,8 @@ export interface ProgramSpec {
   name: string;
   id: string;
   purpose: string;
+  /** Deployment guidance verified from an installed SDK; excluded from the prompt index. */
+  deploymentNote?: string;
   kind: SourceKind;
   /** Pinned: a commit-addressed raw GitHub URL or an exact-version npm CDN URL. */
   url: string;

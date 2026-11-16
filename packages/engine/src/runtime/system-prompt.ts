@@ -139,6 +139,31 @@ export const BATCHED_STEPS = words(
   'keep reusable helpers in a file.',
 );
 
+export const CLAUDE_CAPPED_WORK = lines(
+  'Capped Solana work procedure:',
+  words(
+    '1. Before the first capped action, write a ledger file with at least five candidate families drawn from the task, the program',
+    'index and installed packages. Record prerequisites, guessed useful work per action and an action budget for each; revise the',
+    'ledger after observed results.',
+  ),
+  words(
+    '2. Explore with uncapped simulation before spending actions. Any script sending more than one capped action must check the',
+    'useful work gained after each action and stop itself when that gain falls below a floor chosen from the ledger.',
+  ),
+  words(
+    '3. Sweeping one input dimension costs more per new value as it grows. Pack its cheap values into other useful actions; give',
+    'it no actions of its own while an untried family and at least a fifth of the time remain.',
+  ),
+  words(
+    "4. One refused admin or initialize instruction does not rule out a program. Check the live deployment's existing configuration",
+    "and the installed SDK's high-level helpers for operations your wallet can authorize before dropping that family.",
+  ),
+  words(
+    '5. If the cap would run out with more than a quarter of the time left, stop sending and use that time to prepare fuller,',
+    'simulated actions before continuing.',
+  ),
+);
+
 /**
  * The session system prompt. The static parts come first and the per-task text (task root, toolchain report) last, so the
  * reference prefix and the program index stay inside the provider's cached prompt prefix and are identical in every session.

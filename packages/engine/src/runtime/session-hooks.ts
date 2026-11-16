@@ -7,7 +7,14 @@ import type { SessionLifecycle } from './session-lifecycle.ts';
 import type { RuntimeEnvironment } from './session-environment.ts';
 import type { SessionTools } from './session-tools.ts';
 import type { CommonSessionOptions } from './session-types.ts';
-import { knowledgeHint, omsChatPrompt, omsSystemPrompt, WEB_PROMPT, WEB_PROMPT_NO_KNOWLEDGE } from './system-prompt.ts';
+import {
+  CLAUDE_CAPPED_WORK,
+  knowledgeHint,
+  omsChatPrompt,
+  omsSystemPrompt,
+  WEB_PROMPT,
+  WEB_PROMPT_NO_KNOWLEDGE,
+} from './system-prompt.ts';
 import { elideOldFetches } from './web.ts';
 
 /** The prompt text and the per-turn context hooks of one session. */
@@ -38,9 +45,11 @@ export function createSessionHooks(
       `${knowledgeHint(options, config)}${web ? (config ? WEB_PROMPT : WEB_PROMPT_NO_KNOWLEDGE) : ''}`,
     );
   const policy: ExtensionFactory = (pi) => {
-    pi.on('before_agent_start', (event) => {
+    pi.on('before_agent_start', (event, ctx) => {
       event.systemPromptOptions.cwd = taskRoot;
       if (env.executionMode === 'bounded' && event.messageType === 'user') turn.id = randomUUID();
+      if (env.contract && ctx.model?.provider === 'claude-code' && !event.systemPrompt.includes(CLAUDE_CAPPED_WORK))
+        return { systemPrompt: `${event.systemPrompt}\n\n${CLAUDE_CAPPED_WORK}` };
     });
     pi.on('context', (event) => {
       const fetched = web ? elideOldFetches(event.messages) : event.messages;

@@ -151,6 +151,7 @@ async function build(
     id: spec.id,
     category,
     purpose: spec.purpose,
+    ...(spec.deploymentNote ? { deploymentNote: spec.deploymentNote } : {}),
     ...(spec.indexHint ? { indexHint: spec.indexHint } : {}),
     ...(STANDALONE.has(spec.name) ? { standalone: true as const } : {}),
     style: adapted.style,

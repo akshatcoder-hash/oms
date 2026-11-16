@@ -235,7 +235,7 @@ const sourceLine = (program: ReferenceProgram): string => {
 };
 
 const programHeader = (program: ReferenceProgram): string =>
-  `${program.name} ${program.id}\n${program.purpose}\nInstruction tag: ${{ u8: '1-byte instruction tag (Token-2022 extensions add a sub-tag byte)', u32: '4-byte little-endian instruction index', anchor8: '8-byte Anchor discriminator', count: 'none; the data starts with a count', none: 'none' }[program.style]}.` +
+  `${program.name} ${program.id}\n${program.purpose}${program.deploymentNote ? `\nDeployment: ${program.deploymentNote}` : ''}\nInstruction tag: ${{ u8: '1-byte instruction tag (Token-2022 extensions add a sub-tag byte)', u32: '4-byte little-endian instruction index', anchor8: '8-byte Anchor discriminator', count: 'none; the data starts with a count', none: 'none' }[program.style]}.` +
   `${program.count ? `\nInput dimension: no discriminator; the leading field (${program.count.lead}) varies, bounded by transaction size, and each distinct value is a distinct instruction prefix.\nData layout (${program.count.lead}): ${program.count.layout}.` : ''}` +
   `${program.clients?.length ? `\nOfficial TypeScript client (npm): ${program.clients.join(', ')}. Use it when the project already depends on it.` : ''}` +
   `\nSource: ${program.source.url} (${program.source.version}), licence ${program.source.licence}${program.factsOnly ? '; facts only (names, order and discriminators; no argument types or account flags)' : ''}.` +
@@ -259,7 +259,7 @@ function describeInstruction(program: ReferenceProgram, ix: ReferenceInstruction
         ? ix.args.map((arg) => `  ${arg.name}: ${arg.type}`).join('\n')
         : '  none';
   return (
-    `${program.name} ${program.id} / ${ix.name}${ix.alias ? ` (source name ${ix.alias})` : ''}\n${prefix}\nAccounts in order:\n${accounts}\nArguments:\n${args}` +
+    `${program.name} ${program.id} / ${ix.name}${ix.alias ? ` (source name ${ix.alias})` : ''}\n${program.purpose}${program.deploymentNote ? `\nDeployment: ${program.deploymentNote}` : ''}\n${prefix}\nAccounts in order:\n${accounts}\nArguments:\n${args}` +
     `${ix.note ? `\nNote: ${ix.note}.` : ''}${program.clients?.length ? `\nOfficial TypeScript client (npm): ${program.clients.join(', ')}.` : ''}\nSource: ${program.source.url} (${program.source.version}), licence ${program.source.licence}${program.factsOnly ? '; facts only: names, order and discriminators, no argument types or signer/writable flags' : ''}.${sourceLine(program)}`
   );
 }

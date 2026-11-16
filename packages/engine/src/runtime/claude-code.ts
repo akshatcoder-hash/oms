@@ -293,10 +293,27 @@ interface NativeState {
   emitted: NativeUsage;
   blocked?: string;
 }
+export type ClaudeCodeEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export function claudeCodeEffort(value = process.env.OMS_CLAUDE_EFFORT ?? 'high'): ClaudeCodeEffort {
+  switch (value) {
+    case 'low':
+    case 'medium':
+    case 'high':
+    case 'xhigh':
+    case 'max':
+      return value;
+    default:
+      throw new Error('OMS_CLAUDE_EFFORT must be low, medium, high, xhigh or max');
+  }
+}
+
 export interface ClaudeCodeSessionOptions {
   /** Private OMS state, outside the model's task mounts; never native credentials. */
   statePath?: string;
   signal?: AbortSignal;
+  /** Native CLI effort, defaulting to OMS_CLAUDE_EFFORT or high. */
+  effort?: ClaudeCodeEffort;
   onSpawn?(pid: number, cwd: string): void;
 }
 interface Completion {
@@ -305,6 +322,7 @@ interface Completion {
   output: ReturnType<typeof createAssistantMessageEventStream>;
   resolve(): void;
   reject(error: Error): void;
+  onEvent(): void;
   nativeId?: string;
   rawUsage?: Record<string, unknown>;
   stop?: string;
@@ -331,7 +349,12 @@ export class ClaudeCodeSession implements NativeChatControls {
   private temporaryWork?: string;
   private initialized = false;
   private transportReady = false;
-  private configuration?: { model: Model<Api>; context: TranscriptContext; maxTokens: number };
+  private configuration?: {
+    model: Model<Api>;
+    context: TranscriptContext;
+    maxTokens: number;
+    effort: ClaudeCodeEffort;
+  };
   private configurationKey?: string;
   private active?: Completion;
   private failure?: string;
@@ -340,6 +363,7 @@ export class ClaudeCodeSession implements NativeChatControls {
   private results = new Map<string, { content: unknown; isError: boolean }>();
   private readonly options: ClaudeCodeSessionOptions;
   constructor(options: ClaudeCodeSessionOptions = {}) {
+    claudeCodeEffort(options.effort);
     this.options = options;
     this.state = {
       version: 1,
@@ -411,7 +435,7 @@ export class ClaudeCodeSession implements NativeChatControls {
     this.save();
   }
   configure(model: Model<Api>, context: TranscriptContext, maxTokens: number): void {
-    this.configuration = { model, context, maxTokens };
+    this.configuration = { model, context, maxTokens, effort: claudeCodeEffort(this.options.effort) };
   }
   async reconnect(): Promise<void> {
     if (this.active) throw new Error('Wait for the native turn to finish');
@@ -499,7 +523,7 @@ export class ClaudeCodeSession implements NativeChatControls {
     const auth = await inspectClaudeCode(startupSignal);
     startupSignal?.throwIfAborted();
     if (!auth.configured) throw new Error(auth.detail);
-    const { model, context, maxTokens } = this.configuration;
+    const { model, context, maxTokens, effort } = this.configuration;
     const tools = getCurrentTools(context.messages);
     const names = new Set(tools.map((tool) => `mcp__oms__${tool.name}`));
     if (tools.some((tool) => !/^[a-zA-Z0-9_-]{1,64}$/.test(tool.name)) || names.size !== tools.length)
@@ -568,6 +592,8 @@ export class ClaudeCodeSession implements NativeChatControls {
       '--verbose',
       '--model',
       NATIVE_MODELS[model.id as NativeAlias],
+      '--effort',
+      effort,
       '--tools',
       '',
       '--strict-mcp-config',
@@ -717,6 +743,7 @@ export class ClaudeCodeSession implements NativeChatControls {
   }
 
   private event(event: Record<string, unknown>, names: Set<string>): void {
+    this.active?.onEvent();
     if (event.type === 'control_response') {
       const response = object(event.response);
       if (!this.handshake || response.request_id !== this.handshake.id || response.subtype !== 'success')
@@ -945,8 +972,10 @@ export class ClaudeCodeSession implements NativeChatControls {
           !Object.hasOwn(NATIVE_MODELS, model.id)
         )
           throw new Error('Unsupported Claude Code model');
+        const effort = claudeCodeEffort(this.options.effort);
         const key = hash({
           model: model.id,
+          effort,
           prompt: getCurrentSystemPrompt(context.messages),
           tools: getCurrentTools(context.messages),
         });
@@ -955,6 +984,7 @@ export class ClaudeCodeSession implements NativeChatControls {
           model,
           context,
           maxTokens: Math.min(options?.maxTokens ?? model.maxTokens, model.maxTokens),
+          effort,
         };
         this.configurationKey = key;
         // Cancellation covers native startup/auth as well as model streaming.
@@ -972,7 +1002,7 @@ export class ClaudeCodeSession implements NativeChatControls {
         const user = context.messages.findLast((item) => item.role === 'user');
         const userKey = user ? hash(user) : undefined;
         await options?.onPayload?.(
-          { model: model.id, nativeSessionId: this.state.sessionId, continuation: pending.length > 0 },
+          { model: model.id, effort, nativeSessionId: this.state.sessionId, continuation: pending.length > 0 },
           model,
         );
         const completion = new Promise<void>((resolve, reject) => {
@@ -985,6 +1015,9 @@ export class ClaudeCodeSession implements NativeChatControls {
               resolve();
             },
             reject,
+            onEvent: () => {
+              timer?.refresh();
+            },
             stopped: false,
             settled: false,
             finishing: false,

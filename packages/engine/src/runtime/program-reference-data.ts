@@ -35,6 +35,8 @@ export interface ReferenceProgram {
   /** Solana native and SPL programs, or applications chosen by the ranking. */
   category: 'native' | 'application';
   purpose: string;
+  /** SDK-verified deployment prerequisites and user flows, shown only in lookup results. */
+  deploymentNote?: string;
   /** Extra text for the system-prompt index, for a program whose instruction list is too long to print. */
   indexHint?: string;
   /** Its whole lifecycle runs on accounts a wallet creates itself, with no existing protocol state to find first. */
