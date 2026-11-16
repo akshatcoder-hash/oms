@@ -1264,3 +1264,26 @@ test('caller abort and an unpersistable bound are never converted into a conserv
   assert.equal(ledger.snapshot().used.tokens, modelReservationBound(model, 50)!.tokens);
   assert.notEqual(ledger.snapshot().accounting, 'known');
 });
+
+test('only OpenAI itself is asked for background: false; xAI rejects the field', async () => {
+  const sent: Record<string, Record<string, unknown>> = {};
+  for (const provider of ['openai', 'xai']) {
+    const f = fixture((model, context, options) =>
+      openaiStreamSimple({ ...model, api: 'openai-responses' }, context, options),
+    );
+    const stream = await f.stream(
+      { ...model, api: 'openai-responses', provider },
+      normalizeContext({ messages: [{ role: 'user', content: 'synthetic', timestamp: 0 }] }),
+      {
+        apiKey: 'synthetic-offline',
+        fetch: async (_url: unknown, init?: { body?: unknown }) => {
+          sent[provider] = JSON.parse(String(init?.body));
+          throw Error('offline');
+        },
+      },
+    );
+    await stream.result();
+  }
+  assert.equal(sent.openai?.background, false);
+  assert.ok(sent.xai && !('background' in sent.xai), 'xAI request carries no background field');
+});
