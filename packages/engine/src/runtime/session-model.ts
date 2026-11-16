@@ -13,6 +13,7 @@ import { normalizeContext } from '@earendil-works/pi-ai';
 import { assertPrivate, isMissing } from '../workspace/storage.ts';
 import { registerOmsCatalog } from './catalog.ts';
 import { createClaudeCodeProvider, type NativeChatControls } from './claude-code.ts';
+import { AGENT_TOOL } from './helpers/agents.ts';
 import { KNOWLEDGE_TOOL_NAMES } from './knowledge-service.ts';
 import { PROGRAM_REFERENCE_TOOL } from './program-reference.ts';
 import type { RuntimeEnvironment } from './session-environment.ts';
@@ -130,6 +131,7 @@ export async function createSessionModel(
       ...sessionToolNames(environment.buildProfile, options.outputMode, env.contract ? 'task' : 'chat'),
       ...KNOWLEDGE_TOOL_NAMES,
       ...(tools.web?.toolNames ?? []),
+      ...(env.contract ? [] : [AGENT_TOOL]),
     ],
   });
   const { session } = created;

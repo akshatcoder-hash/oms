@@ -11,6 +11,7 @@ import {
 } from './solana-commands.ts';
 import { prepareDiff, prepareSession, prepareStatus, prepareUsage } from './inspect-commands.ts';
 import { prepareReview, prepareRun, prepareTest, prepareVerify } from './work-commands.ts';
+import { agentsCommand, teamCommand } from './agent-commands.ts';
 import { clearConversation, goalCommand } from './conversation-commands.ts';
 import { acceptsArt, acceptsLayout, acceptsWeb, uiCommands } from './ui-commands.ts';
 import { refuseWith, type Prepared } from './prepared.ts';
@@ -60,6 +61,8 @@ export interface CommandContext {
   art: { setMode(mode: StartupArtMode): void; next(): void; title(): string; reload(): void };
   goal: { get(): Goal | undefined; set(goal: Goal | undefined): void };
   startGoal(text: string, check: string | undefined, draft: string | undefined): void;
+  /** Send text to the agent as the user's next message. */
+  ask(text: string, draft: string | undefined): void;
   /** Run another command as if chosen from the menu. */
   submit(text: string): void;
   cancel(): void;
@@ -120,6 +123,8 @@ const CHAT_HELP = [
   'yolo',
   'web',
   'goal',
+  'team',
+  'agents',
   'run',
   'test',
   'diff',
@@ -443,6 +448,27 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     accepts: any,
     whileBusy: (argument) => !argument.trim(),
     run: goalCommand,
+  },
+  {
+    name: 'team',
+    group: 'Work',
+    description: 'Split a goal across helper agents',
+    argument: '<goal>',
+    needsArgument: true,
+    accepts: nonBlank,
+    availability: 'chat',
+    whileBusy: 'never',
+    run: teamCommand,
+  },
+  {
+    name: 'agents',
+    group: 'Work',
+    description: 'List helper agents, or add one',
+    argument: '[new <name> <what it does>]',
+    accepts: any,
+    availability: 'chat',
+    whileBusy: 'always',
+    run: agentsCommand,
   },
   {
     name: 'clear',

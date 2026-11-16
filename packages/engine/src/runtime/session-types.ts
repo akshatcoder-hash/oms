@@ -8,6 +8,7 @@ import type { ChainControls } from './chain.ts';
 import type { ChatFolder } from './chat-folder.ts';
 import type { NativeChatControls } from './claude-code.ts';
 import type { EdgeCheckSummary } from './edge-check.ts';
+import type { Helpers } from './helpers/index.ts';
 import type { HostApproval, HostApprovalPolicy, HostTrust } from './host-approval.ts';
 import type { KnowledgeConfig } from './knowledge-service.ts';
 import type { OmsAccountControls } from './oms-account.ts';
@@ -107,6 +108,8 @@ export interface SessionCore extends ProviderControls {
 export interface ChatSession extends SessionCore {
   kind: 'chat';
   folder: ChatFolder;
+  /** Helper agents: the ones that can be started, and the ones that ran in this conversation. */
+  helpers: Helpers;
   /** YOLO: commands run without asking and without the sandbox. */
   yolo: { enabled(): boolean; set(on: boolean): void };
 }

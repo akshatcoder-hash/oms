@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.2
+
+Helper agents: the chat's agent can hand work to helpers that run beside it.
+
+### Helpers and teams
+
+- The agent can start helpers. `explore` finds code and facts, `review` reads a diff or program, `build` makes one scoped change and runs its check. Several run at once, at most 4, and each report comes back to the chat for it to check.
+- `/team <goal>` asks the agent to split a goal across helpers and combine the results. `/agents` lists the agents and what each helper in this conversation did, with status, model and tokens. A helper shows as one line in the conversation; Ctrl+O opens its own transcript.
+- Your own agents are files in `~/.oms/agents/` or, for one project, `.oms-agents/` in the folder. `/agents new <name> [--project] [--edit] <what it does>` writes one. A project agent beats a personal custom agent of the same name, but cannot replace a built-in. Descriptions are limited to 120 printable characters, and only personal agent files may select a model. The agent cannot rewrite `.oms-agents`; `/agents new` still works.
+- Helpers use the chat's model unless a personal agent file names another, and spend from the same session limits. A subscription sign-in such as SuperGrok stays plan usage. Esc and `/cancel` stop helpers too. Helpers need a direct model: with Claude Code selected the agent tool is off and `/team` says so.
+
+### Safety
+
+- Read-only helpers cannot write the folder when commands run under the macOS sandbox. Where there is no sandbox, or YOLO is on, the first report says so.
+- A `build` helper takes its files before it starts and cannot change others with the file tools. File tools enforce these claims on every system. Commands may write outside the claim; changes are reported in the result, except observed file-tool writes by another helper. On macOS the sandbox also protects other live claims. Where there is no sandbox, or YOLO is on, the first editing report says command claims are not enforced.
+- One helper's long command no longer holds up another helper. The chat's own commands still run one at a time, and the terminal is not shared with helpers.
+- Approval questions are asked one at a time, so two helpers asking together do not deny each other. YOLO skips them as it does for the chat.
+- Pinned tasks and `oms run` are unchanged.
+
 ## 0.1.1
 
 OMS now works like the pi and Claude Code CLIs: run `oms` in any folder and it edits that folder.

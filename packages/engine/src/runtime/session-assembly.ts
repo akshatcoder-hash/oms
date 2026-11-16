@@ -1,3 +1,4 @@
+import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { privateDirectory } from '../workspace/storage.ts';
 import type { MutationLease } from '../workspace/index.ts';
 import { createOmsAccountControls } from './oms-account.ts';
@@ -30,7 +31,13 @@ export async function assembleSession(
   options: CommonSessionOptions,
   life: SessionLifecycle,
   env: RuntimeEnvironment,
-  extras: { edge?: { changedPaths: () => string[] }; endRunOnProposal?: boolean; owner: string },
+  extras: {
+    edge?: { changedPaths: () => string[] };
+    endRunOnProposal?: boolean;
+    owner: string;
+    /** A chat's helper tool; pinned tasks never get one. */
+    helpers?: ExtensionFactory;
+  },
 ): Promise<SessionApiParts> {
   privateDirectory(env.root.agentRoot);
   const account = createOmsAccountControls({
@@ -42,7 +49,16 @@ export async function assembleSession(
   const hooks = createSessionHooks(options, life, env, tools);
   // Whether a knowledge credential exists at start: it decides the prompt and which tools are declared to the model.
   const initiallyKnown = tools.knowledgeSource() !== undefined;
-  const extensions = createSessionExtensions(options, life, env, tools, hooks, initiallyKnown, extras.endRunOnProposal);
+  const extensions = createSessionExtensions(
+    options,
+    life,
+    env,
+    tools,
+    hooks,
+    initiallyKnown,
+    extras.endRunOnProposal,
+    extras.helpers,
+  );
   const model = await createSessionModel(options, life, env, tools, hooks, extensions, initiallyKnown);
   return { options, life, env, tools, model, account, owner: extras.owner };
 }

@@ -26,6 +26,8 @@ export interface SessionLifecycle {
   discardUnused?: () => void;
   taskTools?: SandboxTools;
   nativeSession?: ClaudeCodeSession;
+  /** A chat's helpers: they stop before the chat's own session does. */
+  helpers?: { abortAll(): Promise<void> };
   liveSession?: AgentSession;
   /** The current execution window of an interactive session; undefined between operations. */
   executionController?: AbortController;
@@ -60,6 +62,7 @@ export function createSessionLifecycle(lease: MutationLease, controller: AbortCo
         controller.abort();
         life.executionController?.abort();
         const outcomes = await Promise.allSettled([
+          life.helpers?.abortAll(),
           life.liveSession?.abort(),
           life.nativeSession?.close(),
           life.taskTools?.dispose(),

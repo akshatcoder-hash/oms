@@ -51,6 +51,8 @@ export interface ToolRunSpec {
   protectedPaths?: string[];
   /** Host only: read when each command starts, so /yolo applies to the next one. */
   readonly unsandboxed?: boolean;
+  /** Host only: this command may overlap others of the same process (a helper's, which holds its own write claims). */
+  sharedSource?: boolean;
   buildProfile?: boolean;
 }
 
@@ -193,6 +195,7 @@ export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend
     backend: 'host' as const,
     protectedPaths: spec.protectedPaths,
     unsandboxed: spec.unsandboxed,
+    sharedSource: spec.sharedSource,
   });
   return {
     name: 'host',

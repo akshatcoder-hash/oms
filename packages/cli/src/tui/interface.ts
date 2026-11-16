@@ -41,7 +41,7 @@ import { AccountPane } from './account.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
-import { displayDefinition } from './display-tools.ts';
+import { displayDefinition, type HelperDisplay } from './display-tools.ts';
 import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
 import { nativeChatDisplayHistory } from './claude-chat.ts';
 import type { CommandOutput, Prepared } from './prepared.ts';
@@ -266,11 +266,30 @@ export async function runOmsInterface(
     columns: () => terminal.columns,
     rows: () => Math.max(3, Math.floor(terminal.rows / 3)),
   });
+  /** A helper's conversation drawn like this one, rebuilt only when it has grown. */
+  const helperViews = new Map<string, { count: number; view: Conversation }>();
+  const helperDisplay: HelperDisplay | undefined =
+    harness.kind === 'chat'
+      ? {
+          transcript(id) {
+            const messages = harness.helpers.messages(id);
+            const known = helperViews.get(id);
+            if (known && known.count === messages.length) return known.view;
+            const view = new Conversation(messages, (message, provider) => actionError('agent', message, provider), {
+              toolDefinition: (name) => displayDefinition(name, harness.session.getToolDefinition?.(name)),
+              cwd: harness.root,
+              requestRender: () => requestRender(),
+            });
+            helperViews.set(id, { count: messages.length, view });
+            return view;
+          },
+        }
+      : undefined;
   const conversation = new Conversation(
     nativeChatDisplayHistory(harness),
     (message, provider) => actionError('agent', message, provider),
     {
-      toolDefinition: (name) => displayDefinition(name, harness.session.getToolDefinition?.(name)),
+      toolDefinition: (name) => displayDefinition(name, harness.session.getToolDefinition?.(name), helperDisplay),
       cwd: harness.root,
       requestRender: () => requestRender(),
     },
@@ -866,6 +885,7 @@ export async function runOmsInterface(
       },
     },
     startGoal,
+    ask,
     submit: (text) => submit(text, true),
     cancel,
     quit: () => quit(),
@@ -910,6 +930,10 @@ export async function runOmsInterface(
       runPrepared(command, argument, prepared, composerDraft);
       return;
     }
+    ask(draft, draft);
+  }
+  /** The user's next message to the agent, from the composer or a command such as /team. */
+  function ask(text: string, composerDraft: string | undefined): void {
     if (!hasModelConfiguration(harness.session.model)) {
       setNotice(`Model unavailable. ${MODEL_CONFIGURATION}`);
       return;
@@ -922,8 +946,8 @@ export async function runOmsInterface(
       setNotice(detail);
       return;
     }
-    begin('agent', draft, async () => {
-      await harness.session.prompt(draft, { expandPromptTemplates: false });
+    begin('agent', composerDraft, async () => {
+      await harness.session.prompt(text, { expandPromptTemplates: false });
     });
   }
 
@@ -1281,7 +1305,7 @@ export async function runOmsInterface(
         const choices =
           harness.kind === 'chat' ? 'y = once · s = this session · n / Escape = deny' : 'Y = allow · N / Escape = deny';
         hostApproval = {
-          text: `Allow host command? ${request.reasons.join(', ')}\n${request.command}\n${choices}`,
+          text: `Allow host command${request.requester ? ` from ${singleLine(request.requester, 40)}` : ''}? ${request.reasons.join(', ')}\n${request.command}\n${choices}`,
           answer: finish,
         };
         signal?.addEventListener('abort', abort, { once: true });

@@ -32,6 +32,12 @@ export function singleLine(value: string, limit: number): string {
   return displayText(value, limit).replace(/\s+/g, ' ').trim();
 }
 
+/** One line cut at `limit` characters with an ellipsis; secrets are masked before the cut. */
+export function clipLine(value: string, limit: number): string {
+  const line = singleLine(value, 4000);
+  return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;
+}
+
 /** Bounded diagnostic projection; does not invoke toJSON or retain provider objects. */
 export function describeValue(value: unknown, depth = 0): string {
   if (typeof value === 'string') return displayText(value, 3000);

@@ -60,3 +60,12 @@ export {
 export { lookupProgramReference, programReference } from './runtime/program-reference.ts';
 export { readLocalIdls, type Idl } from './runtime/solana-diagnosis.ts';
 export { readWorktreeText } from './runtime/knowledge-service.ts';
+export {
+  AGENT_TOOL,
+  formatElapsed,
+  formatTokens,
+  type AgentCallDetails,
+  type AgentDefinition,
+  type HelperView,
+  type Helpers,
+} from './runtime/helpers/index.ts';

@@ -5,6 +5,8 @@ export type HostApprovalPolicy = 'deny' | 'allow';
 export interface HostApprovalRequest {
   command: string;
   reasons: string[];
+  /** The helper asking, when it is not the main chat. */
+  requester?: string;
 }
 /** `'session'` allows this exact command for the rest of the session. */
 export type HostApprovalAnswer = boolean | 'session';
@@ -50,13 +52,41 @@ export async function approveHostCommand(
     approve?: HostApproval;
     signal?: AbortSignal;
     allowed?: Set<string>;
+    requester?: string;
   },
 ): Promise<void> {
   options.signal?.throwIfAborted();
   if (options.allowed?.has(command)) return;
-  const request = { command, reasons: hostCommandRisks(command, root) };
+  const request = {
+    command,
+    reasons: hostCommandRisks(command, root),
+    ...(options.requester ? { requester: options.requester } : {}),
+  };
   const answer = options.approve ? await options.approve(request, options.signal) : options.policy === 'allow';
   options.signal?.throwIfAborted();
   if (!answer) throw new Error(`Host command denied: ${request.reasons.join(', ')}`);
   if (answer === 'session') options.allowed?.add(command);
+}
+
+/**
+ * Asks one question at a time, in arrival order. The terminal can show a single prompt, and a second request that arrives
+ * while one is open is refused there, so helpers asking together would otherwise deny each other.
+ */
+export function serialized(approve: HostApproval): HostApproval {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (request, signal) => {
+    const turn = tail.then(() => {
+      signal?.throwIfAborted();
+      return approve(request, signal);
+    });
+    tail = turn.catch(() => {});
+    if (!signal) return turn;
+    // A request cancelled while it waits its turn stops waiting at once; its turn is skipped when it comes.
+    return new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason ?? new Error('Cancelled'));
+      if (signal.aborted) return abort();
+      signal.addEventListener('abort', abort, { once: true });
+      turn.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
+  };
 }

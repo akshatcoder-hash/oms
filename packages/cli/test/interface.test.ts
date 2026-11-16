@@ -2327,6 +2327,26 @@ test('host approval denies on cancellation and shutdown', async () => {
   }
 });
 
+test('a host approval from a helper names the helper', async () => {
+  const f = fixture();
+  const terminal = new InterfaceTerminal(100, 30);
+  let approve: Parameters<NonNullable<HarnessSession['setHostApproval']>>[0];
+  f.harness.setHostApproval = (handler) => {
+    approve = handler;
+  };
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((screen) => screen.includes('Harness'));
+    const pending = approve!({ command: 'python x.py', reasons: ['sudo'], requester: 'build#2' });
+    await terminal.until((screen) => screen.includes('Allow host command from build#2?'));
+    terminal.send('y');
+    assert.equal(await pending, true);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
 test('/review runs keyless Phase A and opens counts and disclaimer in a read-only report', async () => {
   const f = fixture();
   const terminal = new InterfaceTerminal(120, 36);
@@ -3106,11 +3126,152 @@ test('/help is a short list with one entry for leaving, and /help keys has the r
     assert.match(help, /\/yolo +Run commands without asking/);
     assert.doesNotMatch(help, /\/requirements|\/verify|\/open |Keyboard\n|F6|Toolbar/);
     assert.match(help, /\/goal +/);
+    assert.match(help, /\/team +Split a goal across helper agents/);
+    assert.match(help, /\/agents +List helper agents/);
     assert.match(help, /\/rewind +/);
     assert.match(help, /\/connect +Sign in/, 'the whole list fits on one screen');
     terminal.send('/help keys');
     terminal.send('\r');
     await terminal.until((s) => s.includes('Toolbar: F10'));
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+function withHelpers(
+  f: ReturnType<typeof fixture>,
+  available: { ok: true } | { ok: false; reason: string } = { ok: true },
+) {
+  const created: unknown[] = [];
+  Object.assign(f.harness, {
+    helpers: {
+      agents: () => ({
+        agents: [
+          { name: 'explore', description: 'Find code and facts, report file paths', tools: 'read', source: 'built-in' },
+          { name: 'build', description: 'Make one scoped change and run its check', tools: 'edit', source: 'built-in' },
+          { name: 'auditor', description: 'Check accounts', tools: 'read', source: 'project' },
+        ],
+        problems: ['project: broken.md: needs a --- header with name and description'],
+      }),
+      list: () => [
+        {
+          id: 'explore#1',
+          agent: 'explore',
+          task: 'find vault PDA seeds',
+          model: 'xai/grok-4.7',
+          status: 'done',
+          startedAt: 1000,
+          endedAt: 15000,
+          turnId: 't',
+          sessionFile: '',
+          tokens: 22_400,
+          spendMicroUsd: 0,
+        },
+        {
+          id: 'build#2',
+          agent: 'build',
+          task: 'add close_vault',
+          model: 'xai/grok-4.7',
+          status: 'waiting',
+          startedAt: 1000,
+          turnId: 't2',
+          sessionFile: '',
+          tokens: 0,
+          spendMicroUsd: 0,
+          waitingFor: 'build#1',
+        },
+      ],
+      createAgent(draft: unknown) {
+        created.push(draft);
+        return '/home/dev/.oms/agents/scanner.md';
+      },
+      messages: () => [],
+      cancel: async () => {},
+      available: () => available,
+    },
+  });
+  return created;
+}
+
+test('/agents lists the agents with their source, then the helpers of this session', async () => {
+  const f = chatFixture();
+  withHelpers(f);
+  const terminal = new InterfaceTerminal(130, 40);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send('/agents');
+    terminal.send('\r');
+    const screen = await terminal.until((s) => s.includes('This session'));
+    assert.match(screen, /explore +read-only +Find code and facts, report file paths +built-in/);
+    assert.match(screen, /build +edits +Make one scoped change/);
+    assert.match(screen, /auditor +read-only +Check accounts +\.oms-agents \(this folder\)/);
+    assert.match(screen, /explore#1 +"find vault PDA seeds" +done 14s +xai\/grok-4\.7 +22k tokens/);
+    assert.match(screen, /build#2 +"add close_vault" +waiting for build#1/);
+    assert.match(screen, /Skipped: project: broken\.md/);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('/agents new writes the file and says where; a bad name is refused in the notice row', async () => {
+  const f = chatFixture();
+  const created = withHelpers(f);
+  const terminal = new InterfaceTerminal(130, 40);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send('/agents new scanner --project --edit Scan programs for missing checks');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('/home/dev/.oms/agents/scanner.md'));
+    assert.deepEqual(created, [
+      { name: 'scanner', description: 'Scan programs for missing checks', scope: 'project', tools: 'edit' },
+    ]);
+    terminal.send('/agents new');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Usage: /agents new <name>'));
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('/team hands the goal to the agent with the instruction to use helpers', async () => {
+  const f = chatFixture();
+  withHelpers(f);
+  const terminal = new InterfaceTerminal(130, 40);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send('/team add a header comment to each module');
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.match(f.prompts[0]!, /add a header comment to each module/);
+    assert.match(f.prompts[0]!, /agent tool/);
+  } finally {
+    f.abortGate.resolve();
+    f.promptGate.resolve();
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('/team says plainly that helpers need a direct model when Claude Code is selected', async () => {
+  const f = chatFixture();
+  withHelpers(f, {
+    ok: false,
+    reason: 'Helpers need a direct model. Claude Code runs as one chat, so pick another model with /model.',
+  });
+  const terminal = new InterfaceTerminal(130, 40);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send('/team do something');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Helpers need a direct model'));
+    assert.deepEqual(f.prompts, []);
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();

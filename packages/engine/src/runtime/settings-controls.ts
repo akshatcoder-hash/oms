@@ -25,6 +25,9 @@ const POLICY: Settings = {
   transport: 'sse',
 };
 
+/** The runtime policy of every session, for a settings manager that keeps nothing on disk. */
+export const harnessPolicySettings = (): Settings => ({ ...POLICY });
+
 function guardedSettings(value: unknown): Settings {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid harness settings');
   // These are runtime policy, not user-selectable preferences. Pi saves rebuild its effective settings.
