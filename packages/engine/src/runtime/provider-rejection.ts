@@ -22,6 +22,19 @@ export function isRejectionStatus(status: number): boolean {
   return status >= 400 && status < 500 && status !== 408 && status !== 429;
 }
 
+/** A failure that proves nothing about usage, in words that still read as transient so the turn is retried. */
+export function describeTransient(provider: string, cause: string | undefined): string {
+  const name = providerName(provider);
+  const text = cause ?? '';
+  if (/rate.?limit|too many requests|(?<![a-z0-9])429(?![a-z0-9])/i.test(text))
+    return `${name} is rate limiting requests. Wait a moment and try again.`;
+  if (/overloaded|server.?error|(?<![a-z0-9])(?:500|502|503|504)(?![a-z0-9])|service.?unavailable/i.test(text))
+    return `${name} reported a server error. Try again in a moment.`;
+  if (/network|connection|fetch failed|econn|enotfound|socket|terminated|stream/i.test(text))
+    return `Network error reaching ${name}. Check your connection and try again.`;
+  return `Provider stream disconnected before completion; ${name} may have partly answered. Try again.`;
+}
+
 const KEY_LIKE = /\b(?:sk|xai|gsk|key)[-_][A-Za-z0-9_-]{8,}/g;
 
 function messageFrom(value: unknown): string | undefined {

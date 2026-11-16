@@ -35,7 +35,7 @@ import {
 } from '@oms/core';
 
 import { BYTES_PER_TOKEN } from './context-trim.ts';
-import { describeRejection, isRejectionStatus } from './provider-rejection.ts';
+import { describeRejection, describeTransient, isRejectionStatus } from './provider-rejection.ts';
 import {
   modelOutputCap,
   modelReservationBound,
@@ -285,7 +285,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
     };
     const interrupted = (cause: string | undefined): boolean => {
       if (!transient(cause) || !settleAtBound()) return false;
-      failed('Provider stream disconnected before completion; usage was counted at its reserved maximum.');
+      failed(describeTransient(model.provider, cause));
       return true;
     };
     let httpRequests = 0;

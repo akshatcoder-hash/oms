@@ -1347,11 +1347,34 @@ test('a 4xx message never carries raw JSON or a key', async () => {
   assert.ok(!text.includes('{') && !text.includes('sk-abcdefghijklmnopqrstu'), text);
 });
 
-test('a rate limit or a server error keeps its existing accounting', async () => {
+test('a rate limit or a server error stays charged at its bound and says what happened', async () => {
   const limited = await rejectedWith(429, 'slow down');
-  await limited.send();
+  const rate = await limited.send();
+  assert.equal(rate.errorMessage, 'xAI is rate limiting requests. Wait a moment and try again.');
+  assert.ok(isRetryableAssistantError(rate), 'a rate limit is retried');
   assert.ok(limited.f.ledger.snapshot().used.tokens > 0, 'a 429 stays charged at the reserved bound');
   const broken = await rejectedWith(500, 'boom');
-  await broken.send();
+  const server = await broken.send();
+  assert.equal(server.errorMessage, 'xAI reported a server error. Try again in a moment.');
+  assert.ok(isRetryableAssistantError(server));
   assert.ok(broken.f.ledger.snapshot().used.tokens > 0, 'a 5xx stays charged at the reserved bound');
+});
+
+test('a dropped network says so in plain words and is retried', async () => {
+  const f = fixture((selected, context, options) =>
+    openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+  );
+  const stream = await f.stream(
+    { ...model, api: 'openai-responses', provider: 'xai' },
+    normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
+    {
+      apiKey: 'synthetic-offline',
+      fetch: async () => {
+        throw new TypeError('fetch failed');
+      },
+    },
+  );
+  const result = await stream.result();
+  assert.equal(result.errorMessage, 'Network error reaching xAI. Check your connection and try again.');
+  assert.ok(isRetryableAssistantError(result));
 });
