@@ -2932,12 +2932,13 @@ test('/help lists the new commands under Solana; a bare /account still opens the
   }
 });
 
-test('a folder chat names its folder in the header, shows no requirements, and hides the task commands', async () => {
+test('a folder chat shows its folder in the footer, no panes or requirements, and hides the task commands', async () => {
   const f = fixture();
   const chat = f.harness as unknown as Record<string, unknown>;
   for (const field of ['workspace', 'task', 'evaluator', 'verify']) delete chat[field];
   Object.assign(chat, {
     kind: 'chat',
+    yolo: { enabled: () => false, set() {} },
     root: '/projects/solana-vault',
     folder: {
       path: '/projects/solana-vault',
@@ -2954,8 +2955,8 @@ test('a folder chat names its folder in the header, shows no requirements, and h
   });
   try {
     const header = await terminal.until((screen) => screen.includes('solana-vault'));
-    assert.match(header, /oms · Harness · solana-vault/);
-    assert.doesNotMatch(header, /Requirements|task/i);
+    assert.match(header, /\/projects\/solana-vault/);
+    assert.doesNotMatch(header, /Requirements|task|Harness|Workbench|╭|│/i);
     assert.match(header, /No project here, so this chat uses a scratch folder\./);
     terminal.send('/re');
     const menu = await terminal.until((screen) => screen.includes('/review'));
@@ -2992,6 +2993,76 @@ test('/yolo toggles unasked, unsandboxed commands and says so once', async () =>
     terminal.send('\r');
     await terminal.until((s) => s.includes('YOLO off'));
     assert.equal(on, false);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+function chatFixture(yolo = false) {
+  const f = fixture();
+  const chat = f.harness as unknown as Record<string, unknown>;
+  for (const field of ['workspace', 'task', 'evaluator', 'verify']) delete chat[field];
+  let on = yolo;
+  Object.assign(chat, {
+    kind: 'chat',
+    root: '/fixtures/rental-ledger',
+    folder: { path: '/fixtures/rental-ledger', requested: '/fixtures/rental-ledger', key: 'k', scratch: false },
+    yolo: {
+      enabled: () => on,
+      set(value: boolean) {
+        on = value;
+      },
+    },
+  });
+  return f;
+}
+
+test('a chat opens to its conversation, the input and one footer line', async () => {
+  const f = chatFixture();
+  const terminal = new InterfaceTerminal(100, 30);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until((s) => s.includes('/connect to sign in'));
+    assert.match(screen, /\/connect to sign in · \/model to pick a model · \/help/);
+    assert.match(screen, /\/fixtures\/rental-ledger +local\/test-model/);
+    assert.doesNotMatch(screen, /Harness|Workbench|Commands \]|╭|╰|Conversation|Agent ·|Enter send|input ·/);
+    const rows = screen.split('\n').filter((row) => row.trim());
+    assert.ok(rows.length <= 5, `only the hint, two rules and the footer are drawn, got ${rows.length}`);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('the footer shows YOLO while it is on', async () => {
+  const f = chatFixture(true);
+  const terminal = new InterfaceTerminal(100, 30);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until((s) => s.includes('YOLO'));
+    assert.match(
+      screen
+        .split('\n')
+        .filter((row) => row.trim())
+        .at(-1)!,
+      /YOLO/,
+    );
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('with nothing connected the chat says only to run /connect', async () => {
+  const f = chatFixture();
+  f.model(false);
+  (f.harness as unknown as { listModels(): unknown[] }).listModels = () => [];
+  const terminal = new InterfaceTerminal(100, 30);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    const screen = await terminal.until((s) => s.includes('Run /connect to sign in.'));
+    assert.doesNotMatch(screen, /\/model to pick/);
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();

@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import { runReviewCommand } from '../review.ts';
 import {
   HStack,
@@ -140,6 +141,8 @@ export async function runOmsInterface(
   const terminal = options.terminal ?? new ProcessTerminal();
   let theme = getTheme(options.theme ?? DEFAULT_THEME_ID);
   if (!theme) throw new Error(`Choose a theme from: ${THEME_IDS.join(', ')}`);
+  /** A folder chat is pi-minimal: the conversation, the input and one footer line. A pinned task keeps its panes. */
+  const minimal = harness.kind === 'chat';
   let requirementsVisible = false;
   let view = options.view ?? 'harness';
   let terminalVisible = false;
@@ -194,6 +197,7 @@ export async function runOmsInterface(
     () => {
       repairHiddenFocus();
       composerLayoutEntry.basis = terminal.rows >= 24 ? 7 : terminal.rows >= 20 ? 6 : 3;
+      chatComposerEntry.basis = 2 + Math.max(1, Math.min(6, input.document.text.split('\n').length));
     },
     (component) => {
       if (setup) return setup.input;
@@ -261,7 +265,7 @@ export async function runOmsInterface(
   );
   if (options.startNote) conversation.note('scratch folder', options.startNote);
   const art = new StartupArt();
-  let artMode = options.startupArt ?? 'auto';
+  let artMode = options.startupArt ?? (minimal ? 'off' : 'auto');
   // Chosen from the environment (after the one Kitty graphics query over SSH) and again when /art changes the setting.
   let artShown = artShow(artMode, process.env);
   /** The image tier draws the mosaic until the picture is converted for Kitty graphics. */
@@ -270,11 +274,25 @@ export async function runOmsInterface(
     artHidden = 0;
   function placeholder(width: number): string[] {
     const configured = hasModelConfiguration(harness.session.model);
+    if (minimal)
+      return [
+        ' ' +
+          truncateToWidth(
+            colorText(
+              theme!,
+              'muted',
+              harness.listModels().some((candidate) => candidate.configured)
+                ? '/connect to sign in · /model to pick a model · /help'
+                : 'Run /connect to sign in.',
+            ),
+            Math.max(1, width - 1),
+          ),
+      ];
     const content = configured
       ? [
           colorText(theme!, 'accent', 'What are we building?'),
           '',
-          `Describe a change below. Your agent works in this ${harness.kind === 'chat' ? 'folder' : 'task'}.`,
+          'Describe a change below. Your agent works in this task.',
           '',
           '/workbench  Files and terminal',
           '/help       Commands and keyboard controls',
@@ -1012,6 +1030,36 @@ export async function runOmsInterface(
     ];
   });
   const noticeRow = component((width) => [truncateToWidth(colorText(theme!, 'warning', notice), width)]);
+  const workingRow = component((width) => [
+    truncateToWidth(colorText(theme!, 'muted', ` ${active?.cancellation ? 'Cancelling...' : 'Working...'}`), width),
+  ]);
+  /** The folder, then the model, how full its context is, and YOLO when it is on. One line. */
+  const chatFooter = component((width) => {
+    const model = harness.session.model;
+    const connected = harness.listModels().some((candidate) => candidate.configured);
+    const parts: string[] = [];
+    if (model && hasModelConfiguration(model) && connected)
+      parts.push(`${singleLine(model.provider, 60)}/${singleLine(model.id, 100)}`);
+    const usage = harness.session.getContextUsage?.();
+    if (usage?.percent != null) parts.push(`${usage.percent.toFixed(1)}%`);
+    const budget = harness.budget.snapshot();
+    if (budget.accounting === 'unknown') parts.push('usage unknown · /status');
+    else if (budget.exhausted) parts.push('budget used up · /status');
+    const right = parts.join(' · ');
+    const yolo = harness.kind === 'chat' && harness.yolo.enabled() ? colorText(theme!, 'warning', 'YOLO') : '';
+    const folderPath = harness.kind === 'chat' ? harness.folder.path : harness.root;
+    const home = homedir();
+    const folder =
+      folderPath === home || folderPath.startsWith(home + '/') ? '~' + folderPath.slice(home.length) : folderPath;
+    const left = colorText(theme!, 'muted', singleLine(folder, 200)) + (yolo ? '  ' + yolo : '');
+    return [paintThemeRow(theme!, alignEnds(left, colorText(theme!, 'muted', right), width), width)];
+  });
+  const rule = component((width) => [colorText(theme!, 'border', '─'.repeat(Math.max(0, width)))]);
+  const chatComposer = new VStack([
+    { component: rule, basis: 1, shrink: 0 },
+    { component: input.view, basis: 0, grow: 1, minSize: 1 },
+    { component: rule, basis: 1, shrink: 0 },
+  ]);
   const footer = component((width) => [
     truncateToWidth(
       colorText(
@@ -1122,9 +1170,24 @@ export async function runOmsInterface(
   );
   const layoutRoot = new VStack([
     { component: approvalRow, basis: 'auto', shrink: 0, visible: () => !!hostApproval },
-    { component: header, basis: 'auto', shrink: 1, minSize: 1 },
-    { component: appActions, basis: 1, shrink: 0, visible: () => !setup && !paletteInput },
-    { component: body, basis: 0, grow: 1, shrink: 1, minSize: 1, visible: () => !setup && view === 'harness' },
+    { component: header, basis: 'auto', shrink: 1, minSize: 1, visible: () => !minimal },
+    { component: appActions, basis: 1, shrink: 0, visible: () => !minimal && !setup && !paletteInput },
+    {
+      component: transcript,
+      basis: 0,
+      grow: 1,
+      shrink: 1,
+      minSize: 1,
+      visible: () => minimal && !setup && view === 'harness',
+    },
+    {
+      component: body,
+      basis: 0,
+      grow: 1,
+      shrink: 1,
+      minSize: 1,
+      visible: () => !minimal && !setup && view === 'harness',
+    },
     {
       component: workbenchLayout,
       basis: 0,
@@ -1149,16 +1212,26 @@ export async function runOmsInterface(
       basis: terminal.rows >= 24 ? 7 : terminal.rows >= 20 ? 6 : 3,
       shrink: 1,
       minSize: 1,
-      visible: () => !setup && !paletteInput && (view === 'harness' || focus === 'input'),
+      visible: () => !minimal && !setup && !paletteInput && (view === 'harness' || focus === 'input'),
+    },
+    { component: workingRow, basis: 1, shrink: 0, visible: () => minimal && (!!active || externalBusy) },
+    {
+      component: chatComposer,
+      basis: 3,
+      shrink: 1,
+      minSize: 3,
+      visible: () => minimal && !setup && !paletteInput && (view === 'harness' || focus === 'input'),
     },
     { component: paletteField, basis: 1, shrink: 0, visible: () => !!paletteInput },
     { component: setupInput, basis: 1, shrink: 0, visible: () => !!setup },
     { component: setupActions, basis: 1, shrink: 0, visible: () => !!setup },
     { component: noticeRow, basis: 1, shrink: 0, visible: () => !!notice },
-    { component: status, basis: 1, shrink: 0 },
-    { component: footer, basis: 1, shrink: 0 },
+    { component: status, basis: 1, shrink: 0, visible: () => !minimal },
+    { component: footer, basis: 1, shrink: 0, visible: () => !minimal || !!setup || !!paletteInput },
+    { component: chatFooter, basis: 1, shrink: 0, visible: () => minimal && !setup && !paletteInput },
   ]);
   const composerLayoutEntry = layoutRoot[LAYOUT_NODE]().entries.find((entry) => entry.component === composerFrame)!;
+  const chatComposerEntry = layoutRoot[LAYOUT_NODE]().entries.find((entry) => entry.component === chatComposer)!;
   renderer.setLayoutRoot(layoutRoot);
   setFocus(focus);
   function changeFocus(backward = false): void {
