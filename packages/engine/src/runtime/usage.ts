@@ -491,8 +491,8 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
               }
             } else if (model.api === 'openai-responses') {
               body.max_output_tokens = modelCap;
-              // Deferred results escape this stream's receipt lifecycle.
-              body.background = false;
+              // Deferred results escape this stream's receipt lifecycle. Only OpenAI defers; xAI rejects the field.
+              if (model.provider === 'openai') body.background = false;
             } else if (model.api === 'openai-codex-responses') {
               // The subscription endpoint rejects max_output_tokens; do not pretend to enforce it.
               delete body.max_output_tokens;
