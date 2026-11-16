@@ -73,6 +73,8 @@ export function claudeCodeEnvironment(source: NodeJS.ProcessEnv = process.env): 
   ]) {
     if (source[name] !== undefined) environment[name] = source[name];
   }
+  // A benchmark cell stages its own login in a private home; the user's own ~/.claude is then never read.
+  if (source.OMS_CLAUDE_CODE_HOME) environment.HOME = source.OMS_CLAUDE_CODE_HOME;
   return {
     ...environment,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',

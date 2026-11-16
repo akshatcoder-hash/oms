@@ -1,8 +1,9 @@
 import { catalogThinking, type ContenderModel, type Rates } from './contenders.ts';
 
 /**
- * The three Solana Bench cells, each a whole harness as shipped, run online on a subscription login:
- * `oms3-web` (OMS on GPT-6.1 Sol through the Codex subscription), `codex-web` (Codex CLI) and `claude-code-web` (Claude Code).
+ * The Solana Bench cells, each a whole harness as shipped, run online on a subscription login:
+ * `oms3-web` (OMS on GPT-6.1 Sol through the Codex subscription, or on Claude Opus through Claude Code), `codex-web` (Codex CLI)
+ * and `claude-code-web` (Claude Code).
  */
 export const HARNESSES = ['oms3', 'codex', 'claude-code'] as const;
 export type Harness = (typeof HARNESSES)[number];
@@ -27,7 +28,11 @@ const sub = (
 /** Models served on a subscription login, by harness. Cost is reported as "subscription", with token counts from the CLI or run record. */
 export const SUBSCRIPTION_MODELS: Record<Harness, Record<string, ContenderModel>> = {
   // OMS signs in to the ChatGPT subscription through pi's `openai-codex` provider.
-  oms3: { 'gpt-sol': sub('openai-codex', 'gpt-6.1-sol', 272_000) },
+  oms3: {
+    'gpt-sol': sub('openai-codex', 'gpt-6.1-sol', 272_000),
+    // OMS drives the installed Claude Code CLI as its model (provider `claude-code`, alias `opus` = Claude Opus 5.5).
+    'opus-sub': sub('claude-code', 'opus', 1_000_000, 'anthropic-messages'),
+  },
   codex: { 'gpt-sol': sub('openai', 'gpt-6.1-sol', 272_000) },
   'claude-code': { 'opus-sub': sub('anthropic', 'claude-opus-5-5', 1_000_000, 'anthropic-messages') },
 };
@@ -37,6 +42,7 @@ export type OnlineLabel = 'web + Solana MCP';
 const ONLINE: Record<string, OnlineLabel> = {
   'codex-web:gpt-sol': 'web + Solana MCP',
   'oms3-web:gpt-sol': 'web + Solana MCP',
+  'oms3-web:opus-sub': 'web + Solana MCP',
   'claude-code-web:opus-sub': 'web + Solana MCP',
 };
 

@@ -104,6 +104,11 @@ test('environment is scrubbed and API auth cannot become a subscription', async 
   for (const key of ['ANTHROPIC_API_KEY', 'NODE_OPTIONS', 'CLAUDE_CODE_OAUTH_TOKEN']) assert.equal(env[key], undefined);
   await fixture('api-auth', async () => assert.equal((await inspectClaudeCode()).configured, false));
 });
+test('OMS_CLAUDE_CODE_HOME replaces the native home and is not itself forwarded', () => {
+  const env = claudeCodeEnvironment({ HOME: '/home/user', PATH: '/usr/bin', OMS_CLAUDE_CODE_HOME: '/run/claude-home' });
+  assert.equal(env.HOME, '/run/claude-home');
+  assert.equal(env.OMS_CLAUDE_CODE_HOME, undefined);
+});
 test('native provider exposes Sonnet, Opus and Haiku through installed CLI subscription without inference', async () =>
   fixture('ok', async (directory) => {
     const { native, runtime } = await modelAndSession();
