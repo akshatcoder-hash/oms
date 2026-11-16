@@ -16,6 +16,8 @@ export const acceptsArt = (argument: string): boolean =>
 export const acceptsWeb = (argument: string): boolean => ['', 'on', 'off'].includes(argument);
 export const acceptsLayout = (argument: string): boolean => ['editor', 'balanced', ''].includes(argument);
 
+export const YOLO_NOTICE = 'YOLO: commands run without asking and without the sandbox.';
+
 type Draft = string | undefined;
 
 /** Show the agent or the workbench and focus its main pane. */
@@ -102,6 +104,14 @@ export const uiCommands = {
     ctx.setNotice(
       `Web ${web.enabled() ? 'on' : 'off'} · ${used.webSearch} searches, ${used.webFetch} fetches, ${used.solanaMcp} Solana MCP calls · /web ${web.enabled() ? 'off' : 'on'}`,
     );
+  },
+  yolo(ctx: CommandContext, _argument: string, draft: Draft): void {
+    ctx.clearDraft(draft);
+    const { harness } = ctx;
+    if (harness.kind !== 'chat') return;
+    const on = !harness.yolo.enabled();
+    harness.yolo.set(on);
+    ctx.setNotice(on ? YOLO_NOTICE : 'YOLO off. Commands run in the sandbox again.');
   },
   terminal(ctx: CommandContext, argument: string, draft: Draft): void {
     ctx.clearDraft(draft);

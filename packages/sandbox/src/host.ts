@@ -12,7 +12,7 @@ import {
   symlinkSync,
   unlinkSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import type { HostRunOptions, SandboxResult } from './exec.ts';
 import { hostSandbox, seatbeltArgv } from './seatbelt.ts';
@@ -62,7 +62,7 @@ export const hostArgv = (
   home: string,
   env: NodeJS.ProcessEnv,
   argv: string[],
-): string[] => (hostSandbox() === 'seatbelt' ? seatbeltArgv(o, root, home, env, argv) : argv);
+): string[] => (hostSandbox() === 'seatbelt' && !o.unsandboxed ? seatbeltArgv(o, root, home, env, argv) : argv);
 
 /** Empty per-execution HOME; the caller removes it when the command exits. */
 const createPrivateHome = (): string => mkdtempSync(path.join(tmpdir(), 'oms-home-'));
@@ -149,7 +149,7 @@ export async function runOnHost(o: HostRunOptions): Promise<SandboxResult> {
   o.signal?.throwIfAborted();
   const { home, cleanup } = acquireHostRun(o, root);
   return new Promise<SandboxResult>((resolve, reject) => {
-    const env = hostEnvironment({ HOME: home, ...o.env });
+    const env = hostEnvironment({ HOME: o.unsandboxed ? homedir() : home, ...o.env });
     const argv = hostArgv(o, root, home, env, o.argv);
     const child = spawn(argv[0]!, argv.slice(1), { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let timedOut = false,

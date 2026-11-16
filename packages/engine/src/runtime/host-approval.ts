@@ -6,7 +6,16 @@ export interface HostApprovalRequest {
   command: string;
   reasons: string[];
 }
-export type HostApproval = (request: HostApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
+/** `'session'` allows this exact command for the rest of the session. */
+export type HostApprovalAnswer = boolean | 'session';
+export type HostApproval = (request: HostApprovalRequest, signal?: AbortSignal) => Promise<HostApprovalAnswer>;
+
+/** How much a chat trusts its commands. The sandbox is the protection where there is one, and YOLO is the user's opt-out. */
+export interface HostTrust {
+  yolo: boolean;
+  /** Commands allowed for the rest of this session. */
+  readonly allowed: Set<string>;
+}
 
 /** These are disclosures, not a shell security boundary. Host execution is unsandboxed. */
 export function hostCommandRisks(command: string, root: string, home = homedir()): string[] {
@@ -40,11 +49,14 @@ export async function approveHostCommand(
     policy?: HostApprovalPolicy;
     approve?: HostApproval;
     signal?: AbortSignal;
+    allowed?: Set<string>;
   },
 ): Promise<void> {
   options.signal?.throwIfAborted();
+  if (options.allowed?.has(command)) return;
   const request = { command, reasons: hostCommandRisks(command, root) };
-  const allowed = options.approve ? await options.approve(request, options.signal) : options.policy === 'allow';
+  const answer = options.approve ? await options.approve(request, options.signal) : options.policy === 'allow';
   options.signal?.throwIfAborted();
-  if (!allowed) throw new Error(`Host command denied: ${request.reasons.join(', ')}`);
+  if (!answer) throw new Error(`Host command denied: ${request.reasons.join(', ')}`);
+  if (answer === 'session') options.allowed?.add(command);
 }

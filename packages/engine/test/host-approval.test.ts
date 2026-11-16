@@ -50,3 +50,26 @@ test('host shell waits for approval and catches opaque commands conservatively',
   await pending;
   assert.equal(done, true);
 });
+
+test('allowing a command for the session asks once and remembers that exact command', async () => {
+  const allowed = new Set<string>();
+  const asked: string[] = [];
+  const approve = async (request: { command: string }) => {
+    asked.push(request.command);
+    return 'session' as const;
+  };
+  await approveHostCommand('npm test', '/task', { approve, allowed });
+  await approveHostCommand('npm test', '/task', { approve, allowed });
+  await approveHostCommand('npm run build', '/task', { approve, allowed });
+  assert.deepEqual(asked, ['npm test', 'npm run build']);
+});
+
+test('allowing once asks again next time, and a denial still refuses', async () => {
+  const allowed = new Set<string>();
+  let asked = 0;
+  const once = async () => (++asked, true);
+  await approveHostCommand('ls', '/task', { approve: once, allowed });
+  await approveHostCommand('ls', '/task', { approve: once, allowed });
+  assert.equal(asked, 2);
+  await assert.rejects(approveHostCommand('ls', '/task', { approve: async () => false, allowed }), /denied/);
+});

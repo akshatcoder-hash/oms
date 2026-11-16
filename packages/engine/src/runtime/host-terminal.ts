@@ -1,5 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { acquireHostRun, hostArgv, hostEnvironment, type HostRunOptions, type SandboxResult } from '@oms/sandbox';
 import {
   LatestResizeQueue,
@@ -34,7 +35,11 @@ export async function createHostTerminal(options: HostTerminalOptions): Promise<
 
 async function startHostTerminal(options: HostTerminalOptions, home: string): Promise<OwnedTaskTerminal> {
   options.run.signal?.throwIfAborted();
-  const env = hostEnvironment({ HOME: home, ...options.run.env, TERM: 'xterm-256color' });
+  const env = hostEnvironment({
+    HOME: options.run.unsandboxed ? homedir() : home,
+    ...options.run.env,
+    TERM: 'xterm-256color',
+  });
   // BSD script(1) refuses a socket on stdin (tcgetattr fails), and Node gives children socket pairs on macOS, so a cat pipe
   // feeds it a real pipe there. Closing kills the whole process group, cat included.
   const [command, ...args] = hostArgv(

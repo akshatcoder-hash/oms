@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -205,3 +206,81 @@ test('git init works in a folder that is not a repository yet', { ...seatbelt, t
   assert.equal(init.exitCode, 0, init.stderr);
   assert.equal(existsSync(join(f.project, '.git', 'hooks')), true);
 });
+
+test('on macOS a command runs inside the sandbox without asking', { ...seatbelt, timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  const chat = await f.start();
+  let asked = 0;
+  chat.setHostApproval?.(async () => (++asked, false));
+  const result = await chat.runCommand('echo hi > made.txt && cat made.txt');
+  assert.equal(result.stdout.trim(), 'hi');
+  assert.equal(asked, 0);
+  const outside = join(homedir(), `.oms-outside-${process.pid}-${Date.now()}.txt`);
+  t.after(() => rmSync(outside, { force: true }));
+  assert.notEqual((await chat.runCommand(`echo x > ${outside}`)).exitCode, 0);
+  assert.equal(existsSync(outside), false);
+});
+
+test(
+  'YOLO lets a command write outside the folder, and turning it off restores the sandbox',
+  {
+    ...seatbelt,
+    timeout: 60_000,
+  },
+  async (t) => {
+    const f = await open(t);
+    const chat = await f.start();
+    const outside = join(homedir(), `.oms-outside-${process.pid}-${Date.now()}.txt`);
+    t.after(() => rmSync(outside, { force: true }));
+    chat.yolo.set(true);
+    assert.equal((await chat.runCommand(`echo x > ${outside}`)).exitCode, 0);
+    assert.equal(existsSync(outside), true);
+    rmSync(outside);
+    chat.yolo.set(false);
+    assert.notEqual((await chat.runCommand(`echo x > ${outside}`)).exitCode, 0);
+  },
+);
+
+test('a chat started with yolo reports it on', { timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  const chat = await f.start({ yolo: true });
+  assert.equal(chat.yolo.enabled(), true);
+});
+
+test(
+  'without a sandbox a command waits for approval, and the session answer is remembered',
+  {
+    skip: hostSandbox() === 'seatbelt' && 'the sandbox answers instead',
+    timeout: 60_000,
+  },
+  async (t) => {
+    const f = await open(t);
+    const chat = await f.start();
+    let asked = 0;
+    chat.setHostApproval?.(async () => (++asked, 'session'));
+    await chat.runCommand('echo a');
+    await chat.runCommand('echo a');
+    assert.equal(asked, 1);
+  },
+);
+
+test(
+  'a command the sandbox probably refused ends with one line naming /yolo',
+  { ...seatbelt, timeout: 60_000 },
+  async (t) => {
+    const f = await open(t);
+    f.faux.setResponses([
+      fauxAssistantMessage(fauxToolCall('bash', { command: 'echo "getaddrinfo ENOTFOUND registry" >&2; exit 1' }), {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage(fauxToolCall('bash', { command: 'echo plain failure >&2; exit 1' }), {
+        stopReason: 'toolUse',
+      }),
+      fauxAssistantMessage('Done.'),
+    ]);
+    const chat = await f.start();
+    await chat.session.prompt('try the network');
+    const results = JSON.stringify(chat.session.messages.filter((m) => m.role === 'toolResult'));
+    assert.equal(results.split('Blocked by the sandbox (network). /yolo allows it.').length - 1, 1);
+  },
+);

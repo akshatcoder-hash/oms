@@ -2961,3 +2961,35 @@ test('a folder chat names its folder in the header, shows no requirements, and h
     terminal.vt.dispose();
   }
 });
+
+test('/yolo toggles unasked, unsandboxed commands and says so once', async () => {
+  const f = fixture();
+  let on = false;
+  Object.assign(f.harness, {
+    kind: 'chat',
+    folder: { path: '/fixtures/rental-ledger', name: 'rental-ledger', key: 'k', scratch: false },
+    yolo: {
+      enabled: () => on,
+      set: (value: boolean) => {
+        on = value;
+      },
+    },
+  });
+  const terminal = new InterfaceTerminal(120, 36);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    terminal.send('/yolo');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('YOLO: commands run without asking and without the sandbox.'));
+    assert.equal(on, true);
+    await terminal.until((s) => s.includes('YOLO'));
+    terminal.send('/yolo');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('YOLO off'));
+    assert.equal(on, false);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});

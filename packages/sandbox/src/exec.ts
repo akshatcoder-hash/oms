@@ -52,6 +52,8 @@ export interface HostRunOptions extends RunOptionsBase {
   denyEnv?: boolean;
   /** The one loopback port the command may reach. */
   surfnet?: { port: number };
+  /** The user turned Seatbelt off (YOLO): the command runs as the user, with their HOME, network and writes. */
+  unsandboxed?: boolean;
 }
 
 /** A command in a container with its own egress network. */

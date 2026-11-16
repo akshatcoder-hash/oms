@@ -88,8 +88,8 @@ export interface CommandSpec {
   whileBusy: WhileBusy;
   /** False for work that must finish within its backend timeout: the Cancel control stays off and /cancel refuses. */
   cancellable?: false;
-  /** 'task' commands need a pinned task: a chat hides them from the menu and /help and refuses them when typed. */
-  availability?: 'task';
+  /** 'task' commands need a pinned task: a chat hides them from the menu and /help and refuses them when typed. 'chat' commands exist only in a chat. */
+  availability?: 'task' | 'chat';
   /** What the header and a failure note call this work when it runs as an action. Default: command. */
   activity?: 'verification' | 'review';
   run: CommandHandler;
@@ -204,6 +204,14 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     accepts: acceptsWeb,
     whileBusy: 'accepted',
     run: uiCommands.web,
+  },
+  {
+    name: 'yolo',
+    group: 'Setup',
+    description: 'Run commands without asking and without the sandbox',
+    availability: 'chat',
+    whileBusy: 'accepted',
+    run: uiCommands.yolo,
   },
   {
     name: 'settings',
@@ -504,7 +512,7 @@ export function commandMatches(draft: string, kind: 'task' | 'chat' = 'task'): r
 }
 
 const available = (kind: 'task' | 'chat'): readonly CommandSpec[] =>
-  kind === 'chat' ? OMS_COMMANDS.filter((command) => command.availability !== 'task') : OMS_COMMANDS;
+  OMS_COMMANDS.filter((command) => command.availability !== (kind === 'chat' ? 'task' : 'chat'));
 
 export function commandHelp(kind: 'task' | 'chat' = 'task'): string {
   return ['Navigate', 'Setup', 'Edit', 'Inspect', 'Work', 'Solana']

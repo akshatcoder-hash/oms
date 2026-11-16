@@ -22,6 +22,8 @@ export interface ChatLaunch {
   launch: LaunchOptions;
   /** false for --no-web. Web tools are still registered so /web on can turn them on later. */
   web?: boolean;
+  /** --yolo: start with commands unsandboxed and unasked. */
+  yolo?: boolean;
   start?: typeof createChatSession;
   run?: typeof runOmsInterface;
   choose?: typeof chooseLocalAction;
@@ -62,6 +64,7 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
     maxOutputTokens: o.launch.maxOutputTokens,
     executionMode: o.launch.executionMode,
     web: { enabled: o.web !== false && webSetting(o.stateRoot) === 'on' },
+    ...(o.yolo ? { yolo: true } : {}),
     ...selected,
   });
   process.stdout.write(`OMS ready | ${sessionLabel(chat)}\n`);

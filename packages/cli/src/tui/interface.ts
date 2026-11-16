@@ -171,7 +171,7 @@ export async function runOmsInterface(
   let workbenchFocus: Focus = 'editor';
   let selectedId: string | undefined;
   let notice = '';
-  let hostApproval: { text: string; answer(allowed: boolean): void } | undefined;
+  let hostApproval: { text: string; answer(allowed: boolean | 'session'): void } | undefined;
   let checkedItems: Requirement[] = [];
   let setup: SetupPane | HarnessSettingsPane | AccountPane | undefined;
   let commandIndex = 0;
@@ -1170,20 +1170,22 @@ export async function runOmsInterface(
   }
   harness.setHostApproval?.(
     (request, signal) =>
-      new Promise<boolean>((resolve) => {
+      new Promise<boolean | 'session'>((resolve) => {
         if (closing || signal?.aborted || hostApproval) {
           resolve(false);
           return;
         }
         const abort = () => finish(false);
-        const finish = (allowed: boolean) => {
+        const finish = (allowed: boolean | 'session') => {
           signal?.removeEventListener('abort', abort);
           hostApproval = undefined;
           requestRender();
           resolve(allowed);
         };
+        const choices =
+          harness.kind === 'chat' ? 'y = once · s = this session · n / Escape = deny' : 'Y = allow · N / Escape = deny';
         hostApproval = {
-          text: `Allow host command? ${request.reasons.join(', ')}\n${request.command}\nY = allow · N / Escape = deny`,
+          text: `Allow host command? ${request.reasons.join(', ')}\n${request.command}\n${choices}`,
           answer: finish,
         };
         signal?.addEventListener('abort', abort, { once: true });
@@ -1197,6 +1199,7 @@ export async function runOmsInterface(
       if (isKeyRelease(data)) return { consume: true };
       if (hostApproval) {
         if (data.toLowerCase() === 'y') hostApproval.answer(true);
+        else if (data.toLowerCase() === 's' && harness.kind === 'chat') hostApproval.answer('session');
         else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) hostApproval.answer(false);
         else if (matchesKey(data, 'ctrl+q') || matchesKey(data, 'ctrl+c')) {
           hostApproval.answer(false);

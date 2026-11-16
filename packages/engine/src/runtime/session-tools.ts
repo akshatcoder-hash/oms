@@ -51,6 +51,7 @@ export function createSessionTools(
     onSpawn: life.processes!.onSpawn,
     backend,
     approvalPolicy: options.hostApprovalPolicy,
+    hostTrust: options.hostTrust,
     protectedPaths: env.protectedFiles.map((file) => join(taskRoot, file)),
     denyEnv: root.denyEnv,
     taskName: root.taskName,

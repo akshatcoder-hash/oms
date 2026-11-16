@@ -51,6 +51,8 @@ export interface ToolRunSpec {
   protectedPaths?: string[];
   /** Host only: `.env` files are unreadable. */
   denyEnv?: boolean;
+  /** Host only: read when each command starts, so /yolo applies to the next one. */
+  readonly unsandboxed?: boolean;
   buildProfile?: boolean;
 }
 
@@ -193,6 +195,7 @@ export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend
     backend: 'host' as const,
     protectedPaths: spec.protectedPaths,
     denyEnv: spec.denyEnv,
+    unsandboxed: spec.unsandboxed,
   });
   return {
     name: 'host',

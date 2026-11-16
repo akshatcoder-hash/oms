@@ -1,4 +1,4 @@
-import { approveHostCommand, type HostApproval, type HostApprovalPolicy } from './host-approval.ts';
+import { approveHostCommand, type HostApproval, type HostApprovalPolicy, type HostTrust } from './host-approval.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { posix, relative, isAbsolute } from 'node:path';
 import { realpathSync } from 'node:fs';
@@ -12,7 +12,7 @@ import {
   type ExtensionFactory,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
-import { runInSandbox, type MountPlan, type SandboxResult } from '@oms/sandbox';
+import { hostSandbox, runInSandbox, type MountPlan, type SandboxResult } from '@oms/sandbox';
 import { Type, type TSchema } from 'typebox';
 import { dependencyFetchArgv } from './deps-fetch.ts';
 import type { ExecutionBackend, ToolRunSpec } from './execution-backend.ts';
@@ -24,6 +24,8 @@ import { BUILD_TIMEOUT_MS } from './build-profile.ts';
 export interface SandboxToolsOptions {
   backend: ExecutionBackend;
   approvalPolicy?: HostApprovalPolicy;
+  /** A chat's trust: where Seatbelt confines commands they run without asking, and YOLO turns the sandbox off. */
+  hostTrust?: HostTrust;
   protectedPaths?: string[];
   /** `.env` files are neither readable through the file tools nor through commands. */
   denyEnv?: boolean;
@@ -42,6 +44,17 @@ export interface SandboxToolsOptions {
   remainingWallClockMs?: () => number;
   /** Opt in for commands only; raw file protocols and verifier evidence stay unchanged. */
   outputMode?: 'head-tail';
+}
+
+const NETWORK_BLOCK =
+  /could not resolve host|couldn't connect|could not connect|network is unreachable|enotfound|eai_again|econnrefused|connection refused|unable to connect|failed to connect|getaddrinfo|temporary failure in name resolution/i;
+const FILE_BLOCK = /operation not permitted|read-only file system/i;
+
+/** What Seatbelt most likely refused, judged from a failed command's own output; undefined when it looks unrelated. */
+export function sandboxBlock(output: string): 'network' | 'file access' | undefined {
+  if (NETWORK_BLOCK.test(output)) return 'network';
+  if (FILE_BLOCK.test(output)) return 'file access';
+  return undefined;
 }
 
 function taskPath(path: string, root: string): string {
@@ -127,6 +140,9 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     cwd: root,
     protectedPaths: options.protectedPaths,
     denyEnv: options.denyEnv,
+    get unsandboxed() {
+      return options.hostTrust?.yolo === true;
+    },
     buildProfile: options.buildProfile,
     env: backend.commandEnv({ rpcUrl, buildProfile: options.buildProfile, surfpool: options.surfpool }),
     stdoutLimitBytes: MAX_TASK_FILE_BYTES * 2,
@@ -157,25 +173,27 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
         log?.finish();
       }
     });
+  const sandboxed = () => !options.hostTrust?.yolo && hostSandbox() === 'seatbelt';
+  const approve = async (command: string, signal?: AbortSignal): Promise<void> => {
+    if (!backend.approvesCommands) return;
+    const { hostTrust } = options;
+    if (hostTrust && (hostTrust.yolo || sandboxed())) return;
+    await approveHostCommand(command, root, {
+      policy: options.approvalPolicy,
+      approve: hostApproval,
+      signal,
+      allowed: hostTrust?.allowed,
+    });
+  };
   const execute = (argv: string[], signal?: AbortSignal, timeoutMs = defaultTimeout) =>
     (async () => {
-      if (backend.approvesCommands)
-        await approveHostCommand(argv[1] === '-c' ? argv[2]! : argv.join(' '), root, {
-          policy: options.approvalPolicy,
-          approve: hostApproval,
-          signal,
-        });
+      await approve(argv[1] === '-c' ? argv[2]! : argv.join(' '), signal);
       return run(argv, signal, timeoutMs, options.outputMode === 'head-tail');
     })();
   const startTerminal = (columns: number, rows: number): Promise<TaskTerminal> =>
     enqueue(async () => {
       if (terminal) return terminal;
-      if (backend.approvesCommands)
-        await approveHostCommand('interactive host terminal (unrestricted shell)', root, {
-          policy: options.approvalPolicy,
-          approve: hostApproval,
-          signal: lifetimeSignal,
-        });
+      await approve('interactive host terminal (unrestricted shell)', lifetimeSignal);
       const remaining = Math.floor(options.remainingWallClockMs?.() ?? defaultTimeout);
       if (remaining <= 0) throw new Error('Task wall-clock budget exhausted');
       terminalStarting = true;
@@ -209,12 +227,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     enqueue(async () => {
       assertVerificationAllowed();
       // Verification runs model-written test code on the host.
-      if (backend.approvesCommands)
-        await approveHostCommand('host verification (runs the task tests and verifier commands unsandboxed)', root, {
-          policy: options.approvalPolicy,
-          approve: hostApproval,
-          signal: lifetimeSignal,
-        });
+      await approve('host verification (runs the task tests and verifier commands unsandboxed)', lifetimeSignal);
       return action();
     });
   function withCancellation<P extends TSchema, D, S>(tool: ToolDefinition<P, D, S>): ToolDefinition<P, D, S> {
@@ -236,6 +249,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       if (!Number.isFinite(timeout) || timeout <= 0) throw new Error('Command timeout must be positive');
       const result = await execute(['/bin/sh', '-c', command], request.signal, timeout);
       request.onData(Buffer.from(result.stdout + result.stderr));
+      const blocked = result.exitCode === 0 || !sandboxed() ? undefined : sandboxBlock(result.stdout + result.stderr);
+      if (blocked) request.onData(Buffer.from(`\nBlocked by the sandbox (${blocked}). /yolo allows it.\n`));
       if (result.truncated) request.onData(Buffer.from('\n[output truncated at the task limit]\n'));
       return { exitCode: result.exitCode };
     },

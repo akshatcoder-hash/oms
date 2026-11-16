@@ -36,7 +36,7 @@ export async function checkLocalPrerequisites(environment: HarnessEnvironment): 
 
 /** Plain `oms`: an interactive chat that edits the current folder in place. */
 export async function startLocal(args: string[] = []): Promise<void> {
-  const launch = parseLaunchOptions(args);
+  const launch = parseLaunchOptions(args, ['--yolo'], ['--yolo']);
   if (!process.stdin.isTTY || !process.stdout.isTTY)
     throw new Error('Run oms in an interactive terminal such as Ghostty');
   const environment = defaultHarnessEnvironment(undefined, configuredBackend(launch.values.get('--sandbox')));
@@ -48,5 +48,6 @@ export async function startLocal(args: string[] = []): Promise<void> {
     environment,
     launch,
     web: !launch.values.has('--no-web'),
+    yolo: launch.values.has('--yolo'),
   });
 }
