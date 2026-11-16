@@ -9,6 +9,7 @@ import {
   type AgentSessionEvent,
 } from '@earendil-works/pi-coding-agent';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
+import { commandNamesEnvFile, isEnvFile, maskEnvFile, maskSecrets } from './secret-mask.ts';
 
 const ENTRY_CHARS = 12_000;
 const HISTORY_CHARS = 192_000;
@@ -17,10 +18,12 @@ const HISTORY_ENTRIES = 160;
 /** All provider, repository, tool and metadata strings cross this boundary before rendering. */
 export function displayText(value: string, limit = ENTRY_CHARS): string {
   const clipped = value.length > limit;
-  const text = stripTerminalSequences(value.slice(0, limit))
-    .replace(/\r\n|\r/g, '\n')
-    .replace(/\t/g, '    ')
-    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, '');
+  const text = maskSecrets(
+    stripTerminalSequences(value.slice(0, limit))
+      .replace(/\r\n|\r/g, '\n')
+      .replace(/\t/g, '    ')
+      .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, ''),
+  );
   return text + (clipped ? '\n[display truncated]' : '');
 }
 
@@ -55,6 +58,25 @@ export interface ConversationOptions {
   toolDefinition?: (name: string) => unknown;
   cwd?: string;
   requestRender?: () => void;
+}
+
+/** Whether a tool call touches an env file, so every value in its arguments and output is hidden, not only secret-named ones. */
+function touchesEnvFile(args: unknown): boolean {
+  if (!args || typeof args !== 'object') return false;
+  const { path, file_path: filePath, command } = args as Record<string, unknown>;
+  return isEnvFile(path) || isEnvFile(filePath) || commandNamesEnvFile(command);
+}
+
+function maskValue(value: unknown, mask: (text: string) => string, depth = 0): unknown {
+  if (typeof value === 'string') return mask(value);
+  if (depth > 4 || !value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((item) => maskValue(item, mask, depth + 1));
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskValue(item, mask, depth + 1)]));
+}
+
+/** Arguments as the screen shows them. The model's own copy is untouched. */
+function argsForDisplay(args: unknown): unknown {
+  return maskValue(args, touchesEnvFile(args) ? maskEnvFile : maskSecrets);
 }
 
 interface Item {
@@ -110,6 +132,7 @@ function assistantForDisplay(message: AssistantMessage, diagnostic: string): Ass
 export class Conversation implements Component {
   private readonly items: Item[] = [];
   private readonly tools = new Map<string, ToolExecutionComponent>();
+  private readonly envCalls = new Set<string>();
   private readonly formatError: (message: string, recordedProvider?: string) => string;
   private readonly options: ConversationOptions;
   private readonly ui: TUI;
@@ -141,6 +164,7 @@ export class Conversation implements Component {
   clear(): void {
     this.items.length = 0;
     this.tools.clear();
+    this.envCalls.clear();
     this.trimmed = false;
     this.currentMessage = undefined;
     this.streaming = undefined;
@@ -185,10 +209,11 @@ export class Conversation implements Component {
   private toolComponent(id: string, name: string, args: unknown): ToolExecutionComponent {
     const known = this.tools.get(id);
     if (known) return known;
+    if (touchesEnvFile(args)) this.envCalls.add(id);
     const component = new ToolExecutionComponent(
       displayText(name, 80),
       id,
-      args,
+      argsForDisplay(args),
       { showImages: false },
       this.options.toolDefinition?.(name) as never,
       this.ui,
@@ -198,6 +223,24 @@ export class Conversation implements Component {
     this.tools.set(id, component);
     this.put({ key: `tool-${id}`, component });
     return component;
+  }
+
+  /** Tool output as the screen shows it, whether live, expanded with Ctrl+O or restored from history. */
+  private resultForDisplay(id: string, content: unknown): never {
+    const mask = this.envCalls.has(id) ? maskEnvFile : maskSecrets;
+    return (
+      Array.isArray(content)
+        ? content.map((block) =>
+            block && block.type === 'text' && typeof block.text === 'string'
+              ? { ...block, text: mask(block.text) }
+              : block,
+          )
+        : []
+    ) as never;
+  }
+
+  private detailsForDisplay(id: string, details: unknown): unknown {
+    return maskValue(details, this.envCalls.has(id) ? maskEnvFile : maskSecrets);
   }
 
   private assistant(message: AssistantMessage, key: string, streaming: boolean): void {
@@ -220,7 +263,10 @@ export class Conversation implements Component {
       if (block.type === 'toolCall') {
         const known = this.tools.has(block.id);
         const tool = this.toolComponent(block.id, block.name, block.arguments);
-        if (known) tool.updateArgs(block.arguments);
+        if (known) {
+          if (touchesEnvFile(block.arguments)) this.envCalls.add(block.id);
+          tool.updateArgs(argsForDisplay(block.arguments) as never);
+        }
       }
   }
 
@@ -232,8 +278,8 @@ export class Conversation implements Component {
       const tool = this.tools.get(String(message.toolCallId));
       if (tool)
         tool.updateResult({
-          content: Array.isArray(message.content) ? (message.content as never) : [],
-          details: message.details,
+          content: this.resultForDisplay(String(message.toolCallId), message.content),
+          details: this.detailsForDisplay(String(message.toolCallId), message.details),
           isError: message.isError === true,
         });
       return;
@@ -254,7 +300,10 @@ export class Conversation implements Component {
       const command = displayText(String(message.command ?? ''), 2000);
       const component = new BashExecutionComponent(command, this.ui, message.excludeFromContext === true);
       component.setExpanded(this.toolsExpanded);
-      if (message.output) component.appendOutput(displayText(String(message.output)));
+      if (message.output) {
+        const output = displayText(String(message.output));
+        component.appendOutput(commandNamesEnvFile(message.command) ? maskEnvFile(output) : output);
+      }
       component.setComplete(
         typeof message.exitCode === 'number' ? message.exitCode : undefined,
         message.cancelled === true,
@@ -313,15 +362,19 @@ export class Conversation implements Component {
         break;
       case 'tool_execution_update':
         this.toolComponent(event.toolCallId, event.toolName, event.args).updateResult(
-          { ...(event.partialResult as { content: never[] }), isError: false },
+          {
+            ...(event.partialResult as { content: never[] }),
+            content: this.resultForDisplay(event.toolCallId, (event.partialResult as { content?: unknown }).content),
+            isError: false,
+          },
           true,
         );
         break;
       case 'tool_execution_end': {
         const result = event.result as { content?: never[]; details?: unknown } | undefined;
         this.toolComponent(event.toolCallId, event.toolName, undefined).updateResult({
-          content: result?.content ?? [],
-          details: result?.details,
+          content: this.resultForDisplay(event.toolCallId, result?.content),
+          details: this.detailsForDisplay(event.toolCallId, result?.details),
           isError: event.isError,
           durationMs: (event as { durationMs?: number }).durationMs,
         });
