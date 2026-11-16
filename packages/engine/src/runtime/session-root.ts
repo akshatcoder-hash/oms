@@ -25,8 +25,6 @@ export interface SessionRoot {
   forbidden: { signerDir: string; stateDir: string; extra: string[] };
   /** The user's own folder, where other processes of theirs also run, instead of a worktree only this session uses. */
   sharedCodeRoot: boolean;
-  /** `.env` files are unreadable to the agent. */
-  denyEnv: boolean;
 }
 
 export function taskRoot(workspace: Workspace, task: Task, context: TaskContext): SessionRoot {
@@ -47,7 +45,6 @@ export function taskRoot(workspace: Workspace, task: Task, context: TaskContext)
       extra: [join(workspace.omsDir, '.env.agent')],
     },
     sharedCodeRoot: false,
-    denyEnv: false,
   };
 }
 
@@ -79,6 +76,5 @@ export function chatRoot(folder: ChatFolder, stateRoot: string): SessionRoot {
     ownedRoots: [folder.path, stateDir],
     forbidden: { signerDir: join(stateDir, '.keys'), stateDir, extra: [] },
     sharedCodeRoot: true,
-    denyEnv: true,
   };
 }

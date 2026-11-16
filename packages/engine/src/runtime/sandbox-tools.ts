@@ -30,8 +30,6 @@ export interface SandboxToolsOptions {
   /** A chat shows what a write changed: the result carries a diff, or says the file is new. Pinned runs keep the plain result. */
   writeDetails?: boolean;
   protectedPaths?: string[];
-  /** `.env` files are neither readable through the file tools nor through commands. */
-  denyEnv?: boolean;
   onSpawn?: (pid: number, cwd: string) => void;
   taskName: string;
   mounts: MountPlan;
@@ -142,7 +140,6 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     surfnetPort: options.surfnetPort,
     cwd: root,
     protectedPaths: options.protectedPaths,
-    denyEnv: options.denyEnv,
     get unsandboxed() {
       return options.hostTrust?.yolo === true;
     },
@@ -244,7 +241,6 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     (argv, signal, timeoutMs = defaultTimeout) => run(argv, signal, timeoutMs, false),
     root,
     options.protectedPaths,
-    options.denyEnv,
   );
   const shell: BashOperations = {
     async exec(command, _cwd, request) {

@@ -79,33 +79,26 @@ test('the chat prompt names the folder and drops the pinned task rules', { timeo
   assert.doesNotMatch(prompt, /Call propose_done|task_status returns|Work only in the selected/);
 });
 
-test(
-  '.env files are refused to the file tools while the example template is readable',
-  { timeout: 60_000 },
-  async (t) => {
-    const f = await open(t);
-    f.faux.setResponses([
-      fauxAssistantMessage(fauxToolCall('read', { path: join(f.project, '.env') }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage(fauxToolCall('read', { path: join(f.project, '.env.example') }), { stopReason: 'toolUse' }),
-      fauxAssistantMessage('Done.'),
-    ]);
-    const chat = await f.start();
-    await chat.session.prompt('Show me the environment files.');
-    const results = chat.session.messages.filter((message) => message.role === 'toolResult');
-    assert.equal(results.length, 2);
-    assert.equal(results[0]!.isError, true);
-    assert.equal(results[1]!.isError, false);
-    assert.ok(!JSON.stringify(chat.session.messages).includes('TOP_SECRET_VALUE'));
-  },
-);
+test('.env files are readable through the file tools', { timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  f.faux.setResponses([
+    fauxAssistantMessage(fauxToolCall('read', { path: join(f.project, '.env') }), { stopReason: 'toolUse' }),
+    fauxAssistantMessage('Done.'),
+  ]);
+  const chat = await f.start();
+  await chat.session.prompt('Show me the environment file.');
+  const results = chat.session.messages.filter((message) => message.role === 'toolResult');
+  assert.equal(results.length, 1);
+  assert.equal(results[0]!.isError, false);
+  assert.ok(JSON.stringify(results[0]).includes('TOP_SECRET_VALUE'));
+});
 
-test('a shell command cannot read .env under the sandbox', { ...seatbelt, timeout: 60_000 }, async (t) => {
+test('a shell command can read .env under the sandbox', { ...seatbelt, timeout: 60_000 }, async (t) => {
   const f = await open(t);
   const chat = await f.start();
-  const blocked = await chat.runCommand('cat .env');
-  assert.notEqual(blocked.exitCode, 0);
-  assert.ok(!(blocked.stdout + blocked.stderr).includes('TOP_SECRET_VALUE'));
-  assert.equal((await chat.runCommand('cat .env.example')).exitCode, 0);
+  const shell = await chat.runCommand('cat .env');
+  assert.equal(shell.exitCode, 0);
+  assert.ok(shell.stdout.includes('TOP_SECRET_VALUE'));
 });
 
 test(

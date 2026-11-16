@@ -49,8 +49,6 @@ export interface ToolRunSpec {
   stderrLimitBytes: number;
   /** Host only: files a command may never write. */
   protectedPaths?: string[];
-  /** Host only: `.env` files are unreadable. */
-  denyEnv?: boolean;
   /** Host only: read when each command starts, so /yolo applies to the next one. */
   readonly unsandboxed?: boolean;
   buildProfile?: boolean;
@@ -194,7 +192,6 @@ export function hostBackend(images: BackendImages = NO_IMAGES): ExecutionBackend
     ...hostBase(spec),
     backend: 'host' as const,
     protectedPaths: spec.protectedPaths,
-    denyEnv: spec.denyEnv,
     unsandboxed: spec.unsandboxed,
   });
   return {

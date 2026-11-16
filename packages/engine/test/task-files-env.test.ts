@@ -38,26 +38,26 @@ function folder(t: TestContext) {
   return root;
 }
 
-test('with env denial on, .env and .env.<name> are neither readable nor writable, at any depth', async (t) => {
+test('.env and .env.<name> are readable, writable and listed at any depth', async (t) => {
   const root = folder(t);
-  const files = createTaskFileAccess(run, root, [], true);
+  const files = createTaskFileAccess(run, root);
   for (const name of ['.env', '.env.local', '.env.production', 'sub/.env'])
-    await assert.rejects(files.read(name), /outside the admitted task files/, name);
-  await assert.rejects(files.write('.env.local', Buffer.from('x')), /outside the admitted task files/);
-  await assert.rejects(files.create('.env.staging', Buffer.from('x')), /outside the admitted task files/);
-  for (const name of ['.env.example', '.env.sample', '.env.template', '.envrc'])
-    assert.equal((await files.read(name)).bytes.toString(), `${name}\n`);
-});
-
-test('with env denial on, a listing leaves .env files out', async (t) => {
-  const root = folder(t);
-  const files = createTaskFileAccess(run, root, [], true);
-  const listed = (await files.list('.')).map((entry) => entry.path).sort();
-  assert.deepEqual(listed, ['.env.example', '.env.sample', '.env.template', '.envrc', 'sub']);
+    assert.ok((await files.read(name)).bytes.length > 0, name);
+  await files.write('.env.local', Buffer.from('x'));
+  await files.create('.env.staging', Buffer.from('x'));
+  const listed = (await files.list('.')).map((entry) => entry.path);
+  assert.ok(listed.includes('.env') && listed.includes('.env.local') && listed.includes('.env.staging'));
   assert.deepEqual(
     (await files.list('sub')).map((entry) => entry.path),
-    [],
+    ['sub/.env'],
   );
+});
+
+test('the broker-only .env.agent stays out of reach', async (t) => {
+  const root = folder(t);
+  writeFileSync(join(root, '.env.agent'), 'K=v\n');
+  const files = createTaskFileAccess(run, root);
+  await assert.rejects(files.read('.env.agent'), /outside the admitted task files/);
 });
 
 test('a listing follows no symlink, whether the link is the folder or one of its parents', async (t) => {
@@ -73,10 +73,4 @@ test('a listing follows no symlink, whether the link is the folder or one of its
   await assert.rejects(files.list('link/deep'), /symlink|directory|ELOOP|ENOTDIR/i);
   await assert.rejects(files.list('sub-alias'), /symlink|directory|ELOOP|ENOTDIR/i);
   assert.ok(!(await files.list('.')).some((entry) => entry.path === 'link'), 'a symlink is not listed');
-});
-
-test('a pinned task keeps .env files readable', async (t) => {
-  const root = folder(t);
-  const files = createTaskFileAccess(run, root);
-  assert.equal((await files.read('.env')).bytes.toString(), '.env\n');
 });

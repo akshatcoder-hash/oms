@@ -27,14 +27,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 try {
-const [operation, input, content, expected, taskRoot, protectedJson, denyEnv] = process.argv.slice(1);
+const [operation, input, content, expected, taskRoot, protectedJson] = process.argv.slice(1);
 const root = fs.realpathSync(taskRoot);
 const target = path.resolve(root, input);
 const inside = value => value === root || value.startsWith(root + path.sep);
 const protectedPaths = JSON.parse(protectedJson);
 if (['write', 'create', 'mkdir'].includes(operation) && protectedPaths.some(file => target === file || target.startsWith(file + path.sep) || file.startsWith(target + path.sep))) throw Error('pinned verifier files are not writable');
 const privateNames = { '.git': true, '.oms': true, '.keys': true, '.env.agent': true };
-const isPrivate = name => privateNames[name] === true || (denyEnv === '1' && /^\.env(\..*)?$/.test(name) && !['.env.example', '.env.sample', '.env.template'].includes(name));
+const isPrivate = name => privateNames[name] === true;
 if (!inside(target) || (target === root && operation !== 'mkdir' && operation !== 'list') || path.relative(root, target).split(path.sep).some(part => isPrivate(part))) throw Error('path is outside the admitted task files');
 if (operation !== 'list') {
 let ancestor = target;
@@ -186,7 +186,6 @@ export function createTaskFileAccess(
   execute: TaskFileExecutor,
   root = '/work',
   protectedPaths: string[] = [],
-  denyEnv = false,
 ): TaskFileAccess {
   const call = async (
     operation: 'read' | 'write' | 'create' | 'mkdir' | 'access' | 'list',
@@ -207,7 +206,6 @@ export function createTaskFileAccess(
         expected,
         root,
         JSON.stringify(protectedPaths),
-        ...(denyEnv ? ['1'] : []),
       ],
       signal,
     );

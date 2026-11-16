@@ -48,8 +48,6 @@ export interface HostRunOptions extends RunOptionsBase {
   backend: 'host';
   /** Files and trees a command may never write (pinned verifier files, git control). */
   protectedPaths?: string[];
-  /** `.env` files are unreadable. */
-  denyEnv?: boolean;
   /** The one loopback port the command may reach. */
   surfnet?: { port: number };
   /** The user turned Seatbelt off (YOLO): the command runs as the user, with their HOME, network and writes. */
