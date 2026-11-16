@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { createBudgetLedger, type BudgetCaps, type BudgetLedgerEvent, type ExecutionMode } from '@oms/core';
@@ -56,20 +56,22 @@ export async function createChatSession(options: ChatSessionOptions): Promise<Ch
   warnAboutBackend(options.environment, stateRoot);
   return startSession(await acquireChatLease(root), async (life) => {
     const { execution, processes } = claimRuntime(options, root, life);
+    // Only a repository that already exists has hooks and config worth guarding; a new one the user asked for must work.
+    const protectedFiles = PROTECTED_GIT_FILES.filter((file) => existsSync(join(root.codeRoot, file)));
     const conversation = openConversation(options, root, life);
+    life.discardUnused = () => {
+      const saved = conversation.manager.getSessionFile();
+      if (conversation.budget.reservations().length || (saved && existsSync(saved))) return;
+      for (const suffix of ['budget', 'trace'])
+        rmSync(join(root.sessionsDir, `${conversation.sessionId}.${suffix}.jsonl`), { force: true });
+    };
     const surfnetPort = await startSurfnet(options, root, life, processes);
     const env: RuntimeEnvironment = {
       root,
       ...conversation,
       surfnetPort,
-      // A bind can only name what exists; the protected paths still cover a repository created later.
-      ...planMounts(
-        options,
-        root,
-        execution,
-        PROTECTED_GIT_FILES.filter((file) => existsSync(join(root.codeRoot, file))),
-      ),
-      protectedFiles: PROTECTED_GIT_FILES,
+      ...planMounts(options, root, execution, protectedFiles),
+      protectedFiles,
     };
     const parts = await assembleSession(options, life, env, { owner: 'this folder' });
     return { ...createCoreApi(parts), kind: 'chat', folder };

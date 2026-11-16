@@ -174,3 +174,34 @@ test('Docker is refused for a chat and names the pinned-task path', async (t) =>
     /Docker chats need a pinned task: use oms task create and oms run\./,
   );
 });
+
+test('a launch that sends nothing leaves no budget journal or trace behind', { timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  const chat = await f.start();
+  await chat.close();
+  const sessions = join(f.stateRoot, 'folders', f.folder.key, 'sessions');
+  assert.deepEqual(existsSync(sessions) ? readdirSync(sessions) : [], []);
+});
+
+test('a conversation that did run keeps its journal and trace', { timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  f.faux.setResponses([fauxAssistantMessage('Hello.')]);
+  const chat = await f.start();
+  await chat.session.prompt('hi');
+  await chat.close();
+  const sessions = join(f.stateRoot, 'folders', f.folder.key, 'sessions');
+  const names = readdirSync(sessions);
+  for (const suffix of ['.budget.jsonl', '.trace.jsonl', '.jsonl'])
+    assert.ok(
+      names.some((name) => name.endsWith(suffix)),
+      suffix,
+    );
+});
+
+test('git init works in a folder that is not a repository yet', { ...seatbelt, timeout: 60_000 }, async (t) => {
+  const f = await open(t);
+  const chat = await f.start();
+  const init = await chat.runCommand('git init -q && git add notes.txt && git commit -qm first');
+  assert.equal(init.exitCode, 0, init.stderr);
+  assert.equal(existsSync(join(f.project, '.git', 'hooks')), true);
+});

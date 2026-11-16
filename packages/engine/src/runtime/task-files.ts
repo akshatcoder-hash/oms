@@ -71,17 +71,32 @@ function readRegular(file) {
   } finally { fs.closeSync(fd); }
 }
 if (operation === 'list') {
-  // Directory descriptors pin each component; the Linux sandbox never follows a
-  // symlink, including an alias swapped while a directory is being traversed.
-  const descriptorRoot = process.platform === 'linux' ? '/proc/self/fd/' : '/dev/fd/';
-  let fd = fs.openSync(root, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  // Linux walks directory descriptors, so each component is pinned and the sandbox never follows a swapped symlink.
+  // macOS cannot open a directory through /dev/fd (ENOTDIR). There the path is canonical with no symlink in it, the
+  // opened descriptor is the very directory the path names, and both facts are checked again after the listing.
+  const pinned = process.platform === 'linux';
+  const descriptorRoot = '/proc/self/fd/';
+  const verify = () => {
+    if (fs.realpathSync(target) !== target) throw Error('directory path must not contain a symlink');
+    const named = fs.statSync(target);
+    const opened = fs.fstatSync(fd);
+    if (named.dev !== opened.dev || named.ino !== opened.ino) throw Error('directory changed while it was listed');
+  };
+  let fd = fs.openSync(pinned ? root : target, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
   let directory;
+  let base;
   try {
-    for (const part of path.relative(root, target).split(path.sep).filter(Boolean)) {
-      const next = fs.openSync(descriptorRoot + fd + '/' + part, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
-      fs.closeSync(fd); fd = next;
+    if (pinned) {
+      for (const part of path.relative(root, target).split(path.sep).filter(Boolean)) {
+        const next = fs.openSync(descriptorRoot + fd + '/' + part, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+        fs.closeSync(fd); fd = next;
+      }
+      base = descriptorRoot + fd;
+    } else {
+      verify();
+      base = target;
     }
-    directory = fs.opendirSync(descriptorRoot + fd);
+    directory = fs.opendirSync(base);
     const entries = [];
     let count = 0;
     for (;;) {
@@ -89,10 +104,11 @@ if (operation === 'list') {
       if (!entry) break;
       if (++count > 512) throw Error('Directory exceeds the 512-entry listing limit; open a file by path');
       if (isPrivate(entry.name)) continue;
-      const stat = fs.lstatSync(descriptorRoot + fd + '/' + entry.name);
+      const stat = fs.lstatSync(base + '/' + entry.name);
       if (stat.isSymbolicLink() || (!stat.isDirectory() && !stat.isFile())) continue;
       entries.push({ path: path.relative(root, path.join(target, entry.name)), kind: stat.isDirectory() ? 'directory' : 'file' });
     }
+    if (!pinned) verify();
     entries.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1) || a.path.localeCompare(b.path));
     const output = JSON.stringify(entries);
     if (Buffer.byteLength(output) > 65536) throw Error('Directory listing exceeds the 64 KiB output limit; open a file by path');

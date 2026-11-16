@@ -22,6 +22,8 @@ export interface SessionLifecycle {
   surf?: Surfnet;
   budgetJournal?: BudgetJournal;
   trace?: TraceWriter;
+  /** Runs after the journal and trace are closed; a chat uses it to drop the files of a window that never sent anything. */
+  discardUnused?: () => void;
   taskTools?: SandboxTools;
   nativeSession?: ClaudeCodeSession;
   liveSession?: AgentSession;
@@ -74,6 +76,13 @@ export function createSessionLifecycle(lease: MutationLease, controller: AbortCo
           life.budgetJournal?.close();
         } catch (reason) {
           failures.push({ status: 'rejected', reason });
+        }
+        if (!failures.length) {
+          try {
+            life.discardUnused?.();
+          } catch (reason) {
+            failures.push({ status: 'rejected', reason });
+          }
         }
         if (!failures.length) {
           try {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -49,8 +49,7 @@ test('with env denial on, .env and .env.<name> are neither readable nor writable
     assert.equal((await files.read(name)).bytes.toString(), `${name}\n`);
 });
 
-// The listing helper opens directories through /dev/fd, which macOS refuses.
-test('with env denial on, a listing leaves .env files out', { skip: process.platform === 'darwin' }, async (t) => {
+test('with env denial on, a listing leaves .env files out', async (t) => {
   const root = folder(t);
   const files = createTaskFileAccess(run, root, [], true);
   const listed = (await files.list('.')).map((entry) => entry.path).sort();
@@ -59,6 +58,21 @@ test('with env denial on, a listing leaves .env files out', { skip: process.plat
     (await files.list('sub')).map((entry) => entry.path),
     [],
   );
+});
+
+test('a listing follows no symlink, whether the link is the folder or one of its parents', async (t) => {
+  const root = folder(t);
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'oms-task-outside-')));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  mkdirSync(join(outside, 'deep'));
+  writeFileSync(join(outside, 'deep', 'secret.txt'), 'x');
+  symlinkSync(outside, join(root, 'link'));
+  symlinkSync(join(root, 'sub'), join(root, 'sub-alias'));
+  const files = createTaskFileAccess(run, root);
+  await assert.rejects(files.list('link'), /symlink|directory|ELOOP|ENOTDIR/i);
+  await assert.rejects(files.list('link/deep'), /symlink|directory|ELOOP|ENOTDIR/i);
+  await assert.rejects(files.list('sub-alias'), /symlink|directory|ELOOP|ENOTDIR/i);
+  assert.ok(!(await files.list('.')).some((entry) => entry.path === 'link'), 'a symlink is not listed');
 });
 
 test('a pinned task keeps .env files readable', async (t) => {
