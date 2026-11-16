@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.1
+
+OMS now works like the pi and Claude Code CLIs: run `oms` in any folder and it edits that folder.
+
+### Start anywhere
+
+- `oms` opens a chat in the current folder and edits files in place, with or without git, uncommitted work included. OMS stores nothing in the folder; conversations live under `~/.oms/folders/` and running `oms` there again picks up where you left off.
+- In your home folder, `/` or a folder that holds keys, OMS opens a scratch folder instead and says so.
+- Surfpool installs itself on first launch. `oms start` works, `oms --help` fits on one screen and `oms help advanced` has the rest.
+- The old demo starter project is gone. Pinned tasks (`oms task create`, `oms run`) are unchanged.
+
+### Fewer prompts, YOLO mode
+
+- On macOS, commands run inside the sandbox without asking. A command the sandbox blocks says so in one line.
+- `oms --yolo` or `/yolo` runs commands without asking and without the sandbox, with full network. The footer shows YOLO while it is on.
+- On Linux, where there is no sandbox, OMS asks once per command with an option to allow it for the session.
+- `.env` files are not readable in a chat. `.git/hooks` and `.git/config` stay read-only.
+
+### A quieter screen
+
+- The conversation, the input and one footer line (folder, model, context). Thinking is shown; reads are one line; edits show only the changed lines; commands show their last lines. Ctrl+O expands, Ctrl+T hides thinking.
+- `/connect` lists Codex (ChatGPT) and Claude Code first. `/help` lists every command on one screen. `/exit` and Ctrl+D leave.
+
+### Fixes
+
+- Every Grok (xAI) request failed: OMS sent a `background` field that xAI rejects. It is now sent to OpenAI only.
+- One failed request no longer locks the chat. A request the provider rejects is not charged and its reason is shown; a request that breaks off midway is counted at its maximum cost and the chat goes on.
+- `/files` works on macOS, `git init` works in a new folder, and opening OMS without sending anything leaves no files behind.
+
 ## 0.1.0
 
 First public release, `npx @barestate/oms`.
