@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -57,4 +67,14 @@ function findFile(directory: string, name: string): string | undefined {
     } else if (entry.name === name && statSync(path).size > 0) return path;
   }
   return undefined;
+}
+
+/** Install the Surfpool build pinned in the runtime manifest for this platform at `target`. */
+export async function installPinnedSurfpool(target: string, fetchImpl: typeof fetch = fetch): Promise<string> {
+  const manifest = JSON.parse(readFileSync(new URL('../../../engine/runtime-manifest.json', import.meta.url), 'utf8'));
+  const archive: SurfpoolArchive | undefined = manifest.surfpoolArchives[`${process.platform}-${process.arch}`];
+  if (!archive)
+    throw new Error(`No Surfpool ${manifest.surfpoolVersion} build for ${process.platform}-${process.arch}`);
+  await installSurfpool(archive, target, fetchImpl);
+  return manifest.surfpoolVersion;
 }

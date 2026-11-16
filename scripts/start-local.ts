@@ -31,6 +31,7 @@ import {
 } from '@oms/engine';
 import { runInteractiveHarness } from '../packages/cli/src/interactive.ts';
 import { DEFAULT_OPTIONS } from '../packages/cli/src/doctor/checks.ts';
+import { installPinnedSurfpool } from '../packages/cli/src/doctor/install.ts';
 import { chooseLocalAction } from '../packages/cli/src/ownership.ts';
 import { parseLaunchOptions, type LaunchOptions } from '../packages/cli/src/harness.ts';
 import { commitStarterRepository, initializeStarterRepository } from '../packages/engine/src/workspace/git.ts';
@@ -403,13 +404,20 @@ export async function selectStarterSession(
   }
 }
 
-function checkLocalPrerequisites(environment: HarnessEnvironment): void {
+async function checkLocalPrerequisites(environment: HarnessEnvironment): Promise<void> {
   try {
     accessSync(environment.binary, constants.X_OK);
   } catch {
-    throw new Error(
-      `Surfpool ${DEFAULT_OPTIONS.pinnedSurfpool} is not installed at ${environment.binary}. Run \`oms doctor --install\`, then run oms again. Startup does not install or download tools.`,
+    process.stdout.write(
+      `Installing Surfpool ${DEFAULT_OPTIONS.pinnedSurfpool}, the local Solana network (one time)...\n`,
     );
+    try {
+      await installPinnedSurfpool(environment.binary);
+    } catch (error) {
+      throw new Error(
+        `Could not install Surfpool: ${error instanceof Error ? error.message : 'unknown error'}. Check your connection and run oms again, or run \`oms doctor\`.`,
+      );
+    }
   }
   if (!backendFor(environment).requiresDocker) return;
   const docker = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { encoding: 'utf8', timeout: 10_000 });
@@ -430,7 +438,7 @@ export async function startLocal(args: string[] = []): Promise<void> {
     throw new Error('Run oms in an interactive terminal such as Ghostty');
   const selected = configuredBackend(launch.values.get('--sandbox'));
   const environment = defaultHarnessEnvironment(undefined, selected);
-  checkLocalPrerequisites(environment);
+  await checkLocalPrerequisites(environment);
   const home = omsHome();
   const options = await prepareLocalStarter(home, environment, launch);
   process.stdout.write(
