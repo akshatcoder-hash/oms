@@ -474,3 +474,27 @@ test('worker receipt token partitions survive replay and reject conflicting or m
   const replay = createBudgetLedger({ caps, clock: () => 100, events, persist() {} });
   assert.equal(replay.receipts()[0]?.usage?.cacheWriteTokens, 2);
 });
+
+test('an interactive chat keeps going after an uncertain dispatch, charged at its reservation', () => {
+  const ledger = createBudgetLedger({ caps, executionMode: 'interactive', clock: () => 0, persist() {} });
+  assert.equal(ledger.beginOperation('turn-1').ok, true);
+  assert.equal(ledger.reserve(reservation).ok, true);
+  ledger.settle({ dispatchId: 'dispatch-1', receiptId: 'u1', outcome: 'uncertain', tokens: null, spendMicroUsd: null });
+  assert.equal(ledger.endOperation('turn-1').ok, true);
+  assert.equal(ledger.snapshot().accounting, 'unknown');
+  assert.equal(ledger.snapshot().admissionBlocked, false);
+  assert.equal(ledger.beginOperation('turn-2').ok, true);
+  assert.equal(
+    ledger.reserve({ ...reservation, dispatchId: 'dispatch-2', logicalTurnId: 'turn-2', spendMicroUsd: 800 }).ok,
+    true,
+  );
+  assert.equal(ledger.snapshot().used.spendMicroUsd, 1000);
+  const overCap = ledger.reserve({
+    ...reservation,
+    dispatchId: 'dispatch-3',
+    logicalTurnId: 'turn-2',
+    attempt: 2,
+    spendMicroUsd: 1,
+  });
+  assert.equal(overCap.ok, false, 'the uncertain charge still counts against the spend cap');
+});
