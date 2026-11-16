@@ -108,7 +108,7 @@ async function decodeCustom(
 export async function diagnose(
   output: string,
   sources: DiagnosisSources,
-  shownDeploymentNotes = new Set<string>(),
+  noteShown: (note: string) => boolean = () => false,
 ): Promise<string | undefined> {
   const signature = sources.transaction ? lastMatch(output, SIGNATURE)?.[0] : undefined;
   const facts = signature ? await sources.transaction!(signature).catch(() => undefined) : undefined;
@@ -182,17 +182,14 @@ export async function diagnose(
     }
   }
   const reference = program ? programReference().programs.find((entry) => entry.id === program) : undefined;
-  const note =
-    reference?.deploymentNote && !shownDeploymentNotes.has(reference.id)
-      ? `\nNote for ${reference.name}: ${reference.deploymentNote}`
-      : '';
+  const line = reference?.deploymentNote ? `Note for ${reference.name}: ${reference.deploymentNote}` : undefined;
+  const note = line && !noteShown(line) ? `\n${line}` : '';
   const diagnosis = wrapUntrusted(
     'solana_diagnosis',
     `Solana failure diagnosis (parsed from the command output; the full log is available via ${RAW_OUTPUT_TOOL})\n${lines.join('\n')}`,
     DIAGNOSIS_LIMIT - Buffer.byteLength(note),
     "the failing command's own output",
   );
-  if (note) shownDeploymentNotes.add(reference!.id);
   return diagnosis + note;
 }
 
@@ -308,7 +305,6 @@ export interface DiagnosisOptions {
  */
 export function createDiagnosisExtension(options: DiagnosisOptions): ExtensionFactory {
   const raw = new Map<string, string>();
-  const shownDeploymentNotes = new Set<string>();
   const sources: DiagnosisSources = {
     idls: () => readLocalIdls(options.codeRoot),
     transaction: (signature) => surfpoolTransaction(options.rpcUrl, signature),
@@ -320,10 +316,20 @@ export function createDiagnosisExtension(options: DiagnosisOptions): ExtensionFa
     },
   };
   return (pi) => {
-    pi.on('tool_result', async (event) => {
+    pi.on('tool_result', async (event, ctx) => {
       if (event.toolName !== 'bash' || !event.isError) return undefined;
       const output = event.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
-      const diagnosis = await diagnose(output, sources, shownDeploymentNotes);
+      // A note is shown once per conversation: the current branch, so /clear shows it again and a resume does not.
+      const noteShown = (line: string) =>
+        ctx.sessionManager
+          .getBranch()
+          .some(
+            (entry) =>
+              entry.type === 'message' &&
+              entry.message.role === 'toolResult' &&
+              entry.message.content.some((part) => part.type === 'text' && part.text.includes(line)),
+          );
+      const diagnosis = await diagnose(output, sources, noteShown);
       if (!diagnosis) return undefined;
       raw.set(event.toolCallId, output);
       for (const key of [...raw.keys()].slice(0, -KEPT_RAW_OUTPUTS)) raw.delete(key);

@@ -38,7 +38,8 @@ const logs = (...lines: string[]) =>
   `not ok 1 - deposit\n  error: 'Transaction simulation failed'\n  logs: [\n${lines.map((l) => `    '${l}',`).join('\n')}\n  ]\n`;
 
 test('simulated Orca and Meteora failures show each deployment note once per session', async () => {
-  const shown = new Set<string>();
+  const shown: string[] = [];
+  const noteShown = (line: string) => shown.some((text) => text.includes(line));
   for (const name of ['Orca Whirlpools', 'Meteora DLMM']) {
     const program = programReference().programs.find((entry) => entry.name === name)!;
     const output = logs(
@@ -47,14 +48,15 @@ test('simulated Orca and Meteora failures show each deployment note once per ses
       `Program ${program.id} failed: custom program error: 0x7d3`,
     );
     const note = `Note for ${name}: ${program.deploymentNote}`;
-    const first = await diagnose(output, none, shown);
+    const first = await diagnose(output, none, noteShown);
+    shown.push(first!);
     assert.ok(first!.endsWith(note));
     assert.equal(first!.split(note).length - 1, 1);
     assert.ok(Buffer.byteLength(first!) <= DIAGNOSIS_LIMIT);
-    const second = await diagnose(output, none, shown);
+    const second = await diagnose(output, none, noteShown);
     assert.match(second!, /Solana failure diagnosis/);
     assert.doesNotMatch(second!, /Note for /);
-    assert.ok((await diagnose(output, none, new Set()))!.endsWith(note));
+    assert.ok((await diagnose(output, none))!.endsWith(note));
   }
 });
 
@@ -66,7 +68,7 @@ test('unrelated failures and a noted program that did not fail get no deployment
       `Program ${orca.id} consumed 100 of 200000 compute units`,
       `Program ${id} failed: custom program error: 0x1`,
     );
-    assert.doesNotMatch((await diagnose(output, none, new Set()))!, /Note for /);
+    assert.doesNotMatch((await diagnose(output, none))!, /Note for /);
   }
 });
 
