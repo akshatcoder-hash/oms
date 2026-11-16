@@ -1,11 +1,17 @@
 import { isAbsolute, relative } from 'node:path';
-import { Container, Text } from '@earendil-works/pi-tui';
+import { Container, Text, type Component } from '@earendil-works/pi-tui';
 import { renderDiff } from '@earendil-works/pi-coding-agent';
-import { displayText, singleLine } from './transcript.ts';
+import { AGENT_TOOL, formatElapsed, formatTokens, type AgentCallDetails } from '@oms/engine';
+import { clipLine, displayText, singleLine } from './transcript.ts';
 
 interface Theme {
   fg(color: string, text: string): string;
   bold(text: string): string;
+}
+
+/** Where a helper's own conversation comes from, for Ctrl+O. */
+export interface HelperDisplay {
+  transcript(id: string): Component | undefined;
 }
 interface RenderContext {
   args?: Record<string, unknown>;
@@ -16,7 +22,7 @@ interface RenderContext {
 }
 interface ToolResult {
   content?: { type: string; text?: string }[];
-  details?: { created?: boolean; lines?: number; diff?: string };
+  details?: { created?: boolean; lines?: number; diff?: string } & Partial<AgentCallDetails>;
 }
 type Definition = Record<string, unknown>;
 
@@ -123,6 +129,46 @@ function writeDefinition(definition: Definition): Definition {
   };
 }
 
+/** One line per helper: the agent and its task, then how it is going; Ctrl+O adds the helper's own conversation. */
+function agentDefinition(definition: Definition, helpers: HelperDisplay | undefined): Definition {
+  const state = (context: RenderContext) => context.state as { call?: Text; head?: string };
+  return {
+    ...definition,
+    renderCall(args: Record<string, unknown>, theme: Theme, context: RenderContext) {
+      const line = reuse(context.lastComponent, () => new Text('', 0, 0));
+      const head = `${theme.fg('toolTitle', theme.bold(clipLine(text(args?.agent), 32)))} ${theme.fg('muted', `"${clipLine(text(args?.task), 44)}"`)}`;
+      Object.assign(state(context), { call: line, head });
+      line.setText(`${head} ${theme.fg('muted', '· starting')}`);
+      return line;
+    },
+    renderResult(result: ToolResult, options: { expanded: boolean }, theme: Theme, context: RenderContext) {
+      const box = reuse(context.lastComponent, () => new Container());
+      box.clear();
+      const details = result.details;
+      const failed = context.isError || details?.status === 'failed';
+      const first = clipLine(
+        resultText(result)
+          .split('\n')
+          .find((line) => line.trim()) ?? '',
+        70,
+      );
+      const elapsed = formatElapsed(details?.elapsedMs ?? 0);
+      let status: string;
+      if (failed) status = `failed · ${first}`;
+      else if (details?.status === 'waiting')
+        status = `waiting${details.waitingFor ? ` for ${details.waitingFor}` : ''}`;
+      else if (details?.status === 'running' || !details?.status) status = `running ${elapsed}`;
+      else
+        status = `${details.status} ${elapsed} · ${formatTokens(details.tokens ?? 0)}${details.summary ? ` · ${clipLine(details.summary, 50)}` : ''}`;
+      const { call, head } = state(context);
+      call?.setText(`${head ?? ''} ${theme.fg(failed ? 'error' : 'muted', `· ${status}`)}`);
+      const transcript = options.expanded && details?.id ? helpers?.transcript(details.id) : undefined;
+      if (transcript) box.addChild(transcript as never);
+      return box;
+    },
+  };
+}
+
 /** pi shows the path the model typed; inside the folder the model's absolute path reads better relative to it. */
 function relativeCalls(definition: Definition): Definition {
   type Draw = (...args: unknown[]) => unknown;
@@ -151,9 +197,10 @@ function relativeCalls(definition: Definition): Definition {
 }
 
 /** The tool as the transcript draws it: pi's own look for pi's tools, one line for OMS's, a diff or one line for write. */
-export function displayDefinition(name: string, definition: unknown): unknown {
+export function displayDefinition(name: string, definition: unknown, helpers?: HelperDisplay): unknown {
   if (!definition || typeof definition !== 'object') return definition;
   const base = definition as Definition;
+  if (name === AGENT_TOOL) return agentDefinition(base, helpers);
   if (name === 'write') return writeDefinition(base);
   if (name === 'read' || name === 'edit') return relativeCalls(base);
   if (['bash', 'ls', 'find', 'grep'].includes(name)) return base;
