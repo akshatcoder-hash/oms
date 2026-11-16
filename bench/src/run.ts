@@ -58,7 +58,7 @@ import {
   type Variant,
 } from './solbench-harness/workspace.ts';
 import { lostSubscriptionAuth, scrubCredentials, stageSubscriptionLogin } from './external.ts';
-import { omsWebArgs, runOmsContender } from './oms-run.ts';
+import { isClaudeCodeCell, omsCellArgs, runOmsContender } from './oms-run.ts';
 
 const IMAGE = 'oms-solbench-harness:1';
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -100,8 +100,12 @@ const CELLS = {
   'oms3-web:gpt-sol': { harness: 'oms3', model: SUBSCRIPTION_MODELS.oms3!['gpt-sol']! },
   'codex-web:gpt-sol': { harness: 'codex', model: SUBSCRIPTION_MODELS.codex!['gpt-sol']! },
   'claude-code-web:opus-sub': { harness: 'claude-code', model: SUBSCRIPTION_MODELS['claude-code']!['opus-sub']! },
+  'oms3-web:opus-sub': { harness: 'oms3', model: SUBSCRIPTION_MODELS.oms3!['opus-sub']! },
 } as const;
 type Cell = keyof typeof CELLS;
+
+/** Run directories are named by cell; the two OMS cells share a harness prefix, so only their model tells them apart. */
+const cellDir = (cell: string) => (cell === 'oms3-web:opus-sub' ? 'oms3-web-opus-sub' : cell.split(':')[0]!);
 
 const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -332,38 +336,33 @@ async function runOms(cell: Cell, runIndex: number, runDir: string, repo: string
   });
   await prepareHarnessTask(workspace, task, environment, definition);
   const jsonOut = join(runDir, 'oms-record.json');
+  const claude = isClaudeCodeCell(model);
+  const home = join(runDir, 'home');
+  if (claude) {
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    stageSubscriptionLogin('claude-code', home);
+  }
   const exit = await runOmsContender({
     contender: cell,
     runIndex,
     selection: { provider: model.provider, id: model.id },
     modelDefinition: model,
     jsonOut,
-    subscriptionCredential: codexCredential(join(homedir(), '.codex/auth.json')),
-    args: [
-      '--sandbox',
-      'docker',
-      '--workspace',
+    ...(claude
+      ? { claudeHome: home }
+      : { subscriptionCredential: codexCredential(join(homedir(), '.codex/auth.json')) }),
+    args: omsCellArgs({
+      cell,
+      model,
       repo,
-      '--state-root',
       stateRoot,
-      '--task',
-      task.id,
-      '--minutes',
-      String(RUN_WALL_MS / 60_000),
-      '--spend-usd',
-      '4',
-      '--output-tokens',
-      String(benchOutputTokens(model)),
-      '--input-tokens',
-      String(benchInputTokens({ modelDefinition: model, funding: 'subscription' })),
-      '--tokens',
-      '20000000',
-      '--surfpool-binary',
-      wrapper,
-      ...omsWebArgs(cell),
-      ...(process.env.OMS_KNOWLEDGE_TOKEN ? ['--knowledge', '--knowledge-inject'] : []),
-    ],
-  });
+      taskId: task.id,
+      surfpoolWrapper: wrapper,
+      wallMinutes: RUN_WALL_MS / 60_000,
+      outputTokens: benchOutputTokens(model),
+      inputTokens: benchInputTokens({ modelDefinition: model, funding: 'subscription' }),
+    }),
+  }).finally(() => scrubCredentials(home));
   const record = JSON.parse(readFileSync(jsonOut, 'utf8')) as {
     status: string;
     reason: string | null;
@@ -476,7 +475,7 @@ function report(outRoot: string, prefix: string): string {
   const results: RunResult[] = [];
   for (const variant of ['basic', 'swap'])
     for (const cell of Object.keys(CELLS)) {
-      const dir = join(outRoot, `${prefix}-solbh-${cell.split(':')[0]}-${variant}`);
+      const dir = join(outRoot, `${prefix}-solbh-${cellDir(cell)}-${variant}`);
       if (!existsSync(dir)) continue;
       for (const run of readdirSync(dir))
         for (const file of ['result.json', 'paused.json']) {
@@ -562,7 +561,7 @@ async function main(argv: string[]): Promise<number> {
         console.log('STOP file present in --out-root: stopping');
         return 0;
       }
-      const runDir = resolve(values['out-root'], `${prefix}-solbh-${cell.split(':')[0]}-${variant}`, `run-${runIndex}`);
+      const runDir = resolve(values['out-root'], `${prefix}-solbh-${cellDir(cell)}-${variant}`, `run-${runIndex}`);
       if (existsSync(join(runDir, 'result.json'))) continue;
       const result = await runOne(cell, variant, runIndex, runDir, { maxSubmissions, imageId });
       console.log(
