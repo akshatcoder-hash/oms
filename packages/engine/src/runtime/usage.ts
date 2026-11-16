@@ -73,6 +73,8 @@ export interface MeteredStreamOptions {
   readonly subscriptionExempt?: boolean;
   /** Whether a provider is signed in with a subscription login, such as SuperGrok; its chat usage is then plan usage. */
   readonly subscribed?: (provider: string) => boolean;
+  /** Helpers: other requests are in flight. Each one's reservation already counts against the caps, so an open one does not pause the rest. */
+  readonly concurrent?: boolean;
   /** Called when the provider rejects a request with a bare 400 that gives no reason, before the turn is retried. */
   readonly onBareBadRequest?: () => void;
 }
@@ -164,12 +166,16 @@ function readinessForBound(
   executionMode: ExecutionMode,
   exempt = false,
   subscribed = false,
+  concurrent = false,
 ): { ready: boolean; detail: string } {
   if (!bound)
     return { ready: false, detail: 'This model has unsupported usage limits. Choose a supported model in /model.' };
   const snapshot = ledger.snapshot();
   // An interactive chat goes on past an uncertain request, which stays charged at its reservation.
-  if (snapshot.accounting === 'pending' || (snapshot.accounting === 'unknown' && executionMode !== 'interactive'))
+  if (
+    (snapshot.accounting === 'pending' && !concurrent) ||
+    (snapshot.accounting === 'unknown' && executionMode !== 'interactive')
+  )
     return {
       ready: false,
       detail:
@@ -214,6 +220,7 @@ export function modelReadiness(
   maxInputTokens?: number,
   subscriptionExempt = false,
   subscribed = false,
+  concurrent = false,
 ): { ready: boolean; detail: string } {
   if (isClaudeCodeModel(model) && maxInputTokens !== undefined)
     return {
@@ -227,6 +234,7 @@ export function modelReadiness(
     executionMode,
     subscriptionExempt,
     subscribed,
+    concurrent,
   );
 }
 
@@ -374,6 +382,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           config.maxInputTokens,
           config.subscriptionExempt,
           subscribed,
+          config.concurrent,
         );
         if (!bound || !readiness.ready) {
           failed(`${readiness.detail} No provider request sent.`);
@@ -432,6 +441,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                   undefined,
                   config.subscriptionExempt,
                   subscribed,
+                  config.concurrent,
                 ).detail
               : admission.code === 'E_UNKNOWN'
                 ? 'A previous request has unconfirmed usage. Open /status; its usage record has been retained.'

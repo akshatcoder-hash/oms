@@ -70,6 +70,11 @@ export interface SandboxTools {
   extension: ExtensionFactory;
   setHostApproval(approve: HostApproval | undefined): void;
   execute(argv: string[], signal?: AbortSignal, timeoutMs?: number): Promise<SandboxResult>;
+  /**
+   * The file and shell tools for one helper, on a queue of its own. A read-only helper's commands run with the folder
+   * unwritable (Seatbelt on macOS) and it gets no edit or write tool.
+   */
+  helperTools(helper: { label: string; readOnly: boolean }): { extension: ExtensionFactory; close(): void };
   /** Untrusted (id, offset, maxBytes); validated by the session log store. */
   readLog(...request: readonly unknown[]): LogPage;
   files: TaskFileAccess;
@@ -105,20 +110,32 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   const uncertainCleanup: unknown[] = [];
   let terminal: OwnedTaskTerminal | undefined;
   let terminalStarting = false;
-  let queueTail = Promise.resolve();
-  let queued = 0;
   let disposed = false;
   let disposal: Promise<void> | undefined;
+  /** The task's own commands run one at a time. Each helper gets a lane of its own, so a long build in one never holds up another's reads. */
+  interface Lane {
+    tail: Promise<void>;
+    queued: number;
+    /** Helper lanes only: commands cannot write the folder. */
+    readOnly: boolean;
+    label?: string;
+  }
+  const mainLane: Lane = { tail: Promise.resolve(), queued: 0, readOnly: false };
+  const helperLanes = new Set<Lane>();
+  const laneStore = new AsyncLocalStorage<Lane>();
+  const currentLane = () => laneStore.getStore() ?? mainLane;
   const enqueue = <T>(action: () => Promise<T>): Promise<T> => {
     if (disposed || lifetimeSignal.aborted) return Promise.reject(new Error('Task sandbox is closed'));
-    if (queued >= 64) return Promise.reject(new Error('Task sandbox operation queue is full; wait for current work'));
-    queued++;
-    const operation = queueTail.then(() => {
+    const lane = currentLane();
+    if (lane.queued >= 64)
+      return Promise.reject(new Error('Task sandbox operation queue is full; wait for current work'));
+    lane.queued++;
+    const operation = lane.tail.then(() => {
       lifetimeSignal.throwIfAborted();
       if (uncertainCleanup.length) throw new AggregateError(uncertainCleanup, 'Sandbox cleanup requires host recovery');
       return action();
     });
-    queueTail = operation
+    lane.tail = operation
       .then(
         () => {},
         (error) => {
@@ -126,7 +143,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
         },
       )
       .finally(() => {
-        queued--;
+        lane.queued--;
       });
     return operation;
   };
@@ -148,8 +165,19 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
     stdoutLimitBytes: MAX_TASK_FILE_BYTES * 2,
     stderrLimitBytes: MAX_TASK_FILE_BYTES,
   };
-  const runOptions = (argv: string[], signal: AbortSignal, timeoutMs: number) =>
-    backend.runOptions(runSpec, { argv, signal, timeoutMs });
+  const runOptions = (argv: string[], signal: AbortSignal, timeoutMs: number) => {
+    const lane = currentLane();
+    // The spread reads the live YOLO flag, so a helper's next command follows /yolo like the parent's.
+    const spec: ToolRunSpec =
+      lane === mainLane
+        ? runSpec
+        : {
+            ...runSpec,
+            sharedSource: true,
+            protectedPaths: [...(runSpec.protectedPaths ?? []), ...(lane.readOnly ? [root] : [])],
+          };
+    return backend.runOptions(spec, { argv, signal, timeoutMs });
+  };
   // One container serves every command and file operation of the task. Host mode runs processes directly.
   const session = backend.openSession(runSpec, lifetimeSignal);
   const run = (argv: string[], signal: AbortSignal | undefined, timeoutMs: number, capture: boolean) =>
@@ -160,6 +188,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       if (remaining <= 0) throw new Error('Task wall-clock budget exhausted');
       const timeout = Math.min(timeoutMs, remaining, options.buildProfile ? BUILD_TIMEOUT_MS : Infinity);
       const log = capture ? logs.start() : undefined;
+      if (currentLane() !== mainLane && (terminal || terminalStarting))
+        throw new Error('The interactive terminal is open; helpers cannot run commands until it is closed');
       try {
         const result = terminal
           ? await terminal.execute(argv, operationSignal, timeout, log?.push)
@@ -183,6 +213,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       approve: hostApproval,
       signal,
       allowed: hostTrust?.allowed,
+      requester: currentLane().label,
     });
   };
   const execute = (argv: string[], signal?: AbortSignal, timeoutMs = defaultTimeout) =>
@@ -193,6 +224,8 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
   const startTerminal = (columns: number, rows: number): Promise<TaskTerminal> =>
     enqueue(async () => {
       if (terminal) return terminal;
+      if ([...helperLanes].some((lane) => lane.queued > 0))
+        throw new Error('Helpers are running; wait for them to finish');
       await approve('interactive host terminal (unrestricted shell)', lifetimeSignal);
       const remaining = Math.floor(options.remainingWallClockMs?.() ?? defaultTimeout);
       if (remaining <= 0) throw new Error('Task wall-clock budget exhausted');
@@ -410,6 +443,28 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       pi.on('user_bash', () => ({ operations: shell }));
     },
     execute,
+    helperTools({ label, readOnly }) {
+      const lane: Lane = { tail: Promise.resolve(), queued: 0, readOnly, label };
+      helperLanes.add(lane);
+      const inLane = <P extends TSchema, D, S>(tool: ToolDefinition<P, D, S>): ToolDefinition<P, D, S> => {
+        const wrapped = withCancellation(tool);
+        return { ...wrapped, execute: (...args) => laneStore.run(lane, () => wrapped.execute(...args)) };
+      };
+      return {
+        extension: (pi) => {
+          pi.registerTool(inLane(read));
+          if (!readOnly) {
+            pi.registerTool(inLane(edit));
+            pi.registerTool(inLane(write));
+          }
+          pi.registerTool(inLane(bash));
+          if (options.outputMode === 'head-tail') pi.registerTool(inLane(readLog));
+        },
+        close: () => {
+          helperLanes.delete(lane);
+        },
+      };
+    },
     readLog: (...[id, offset, maxBytes]) => {
       if (disposed || lifetimeSignal.aborted) throw new Error('Task sandbox is closed');
       return logs.read(id, offset, maxBytes);
@@ -422,7 +477,7 @@ export function createSandboxTools(options: SandboxToolsOptions): SandboxTools {
       return (disposal ??= (async () => {
         disposed = true;
         lifetime.abort(new Error('Task sandbox closed'));
-        await queueTail;
+        await Promise.all([mainLane, ...helperLanes].map((lane) => lane.tail));
         try {
           await terminal?.close();
         } catch (error) {

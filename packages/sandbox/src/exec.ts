@@ -52,6 +52,11 @@ export interface HostRunOptions extends RunOptionsBase {
   surfnet?: { port: number };
   /** The user turned Seatbelt off (YOLO): the command runs as the user, with their HOME, network and writes. */
   unsandboxed?: boolean;
+  /**
+   * Commands of one process may overlap: they share a single source lease, released with the last of them. Only a caller that
+   * already keeps its own writers apart (helpers holding write claims) sets it.
+   */
+  sharedSource?: boolean;
 }
 
 /** A command in a container with its own egress network. */

@@ -99,6 +99,19 @@ export function createSessionTools(
   return { taskRoot, backend, sandboxTools, toolchainReadiness, toolchainSummary, web, knowledgeSource, edgeCheck };
 }
 
+/** What the main chat and every helper read with: the program reference, the transaction diagnosis and the knowledge tools. */
+export function readingExtensions(env: RuntimeEnvironment, tools: SessionTools): ExtensionFactory[] {
+  return [
+    programReferenceExtension,
+    createDiagnosisExtension({
+      codeRoot: env.root.codeRoot,
+      rpcUrl: `http://127.0.0.1:${env.surfnetPort}`,
+      knowledge: tools.knowledgeSource,
+    }),
+    ...[createKnowledgeExtension(tools.knowledgeSource)].filter((extension) => extension !== undefined),
+  ];
+}
+
 /** Composes the pi extensions: proposal and verification when the session has them, guards, trace, budget, the sandbox tools, prompt hooks and knowledge. */
 export function createSessionExtensions(
   options: CommonSessionOptions,
@@ -108,22 +121,18 @@ export function createSessionExtensions(
   hooks: SessionHooks,
   initiallyKnown: boolean,
   endRunOnProposal?: boolean,
+  helpers?: ExtensionFactory,
 ): ExtensionFactory[] {
   const { taskRoot, knowledgeSource } = tools;
   const extra: ExtensionFactory[] = [
     tools.sandboxTools.extension,
     hooks.policy,
-    programReferenceExtension,
-    createDiagnosisExtension({
-      codeRoot: env.root.codeRoot,
-      rpcUrl: `http://127.0.0.1:${env.surfnetPort}`,
-      knowledge: knowledgeSource,
-    }),
+    ...readingExtensions(env, tools),
     ...[
-      createKnowledgeExtension(knowledgeSource),
       createKnowledgeVisibility(knowledgeSource, hooks.promptFor, () => initiallyKnown),
       tools.web?.extension,
       tools.edgeCheck?.extension,
+      helpers,
     ].filter((extension) => extension !== undefined),
   ];
   const shared = {

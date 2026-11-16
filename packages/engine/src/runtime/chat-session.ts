@@ -6,7 +6,8 @@ import { acquireMutationLease, inspectMutationLease, type MutationLease } from '
 import { assertPrivate, WorkspaceError } from '../workspace/storage.ts';
 import type { ChatFolder } from './chat-folder.ts';
 import { backendFor } from './execution-backend.ts';
-import type { HostTrust } from './host-approval.ts';
+import { serialized, type HostTrust } from './host-approval.ts';
+import { createHelpers } from './helpers/index.ts';
 import { recoverSession } from './recovery.ts';
 import { createCoreApi } from './session-api.ts';
 import { assembleSession, startSession } from './session-assembly.ts';
@@ -77,9 +78,19 @@ export async function createChatSession(options: ChatSessionOptions): Promise<Ch
       ...planMounts(options, root, execution, protectedFiles),
       protectedFiles,
     };
-    const parts = await assembleSession(options, life, env, { owner: 'this folder' });
+    const helpers = createHelpers({
+      dirs: { personal: join(stateRoot, 'agents'), project: join(folder.path, '.oms-agents') },
+      trust,
+    });
+    life.helpers = helpers;
+    const parts = await assembleSession(options, life, env, { owner: 'this folder', helpers: helpers.extension });
+    helpers.bind(parts);
+    const core = createCoreApi(parts);
     return {
-      ...createCoreApi(parts),
+      ...core,
+      // Helpers can ask together; the terminal shows one question at a time.
+      setHostApproval: (approve) => core.setHostApproval?.(approve && serialized(approve)),
+      helpers: helpers.api,
       kind: 'chat',
       folder,
       yolo: {

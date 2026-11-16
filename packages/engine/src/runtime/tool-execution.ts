@@ -1,12 +1,14 @@
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
+import { AGENT_TOOL } from './helpers/agents.ts';
 import { KNOWLEDGE_TOOL_NAMES } from './knowledge-service.ts';
 import { PROGRAM_REFERENCE_TOOL } from './program-reference.ts';
 
-/** Tools that only read: no writes, no shared counters or budgets, so a turn's calls to them may overlap. */
+/** Tools that only read, or that keep their own work apart (helpers), so a turn's calls to them may overlap. */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'read',
   'task_status',
   'toolchain_check',
+  AGENT_TOOL,
   PROGRAM_REFERENCE_TOOL,
   ...KNOWLEDGE_TOOL_NAMES,
 ]);

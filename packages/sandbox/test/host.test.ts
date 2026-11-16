@@ -140,3 +140,29 @@ test('empty dependency mountpoint is restored with its exact mode despite umask'
     rmSync(dependencyRoot, { recursive: true, force: true });
   }
 });
+
+test('runs that share the source lease overlap, while a run that does not share is refused beside them', async () => {
+  const sleep = [process.execPath, '-e', 'setTimeout(() => console.log("slept"), 400)'];
+  const control = mkdtempSync(path.join(tmpdir(), 'oms-control-'));
+  const o = { ...fixture(), argv: sleep, sourceControlDir: control, timeoutMs: 10_000 };
+  try {
+    const started = Date.now();
+    const results = await Promise.all([
+      runInSandbox({ ...o, sharedSource: true }),
+      runInSandbox({ ...o, sharedSource: true }),
+    ]);
+    assert.deepEqual(
+      results.map((result) => result.stdout.trim()),
+      ['slept', 'slept'],
+    );
+    assert.ok(Date.now() - started < 1500, 'both ran in the time of one');
+    const shared = runInSandbox({ ...o, sharedSource: true });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await assert.rejects(runInSandbox(o), /source is in use/);
+    await shared;
+    assert.equal((await runInSandbox(o)).stdout.trim(), 'slept', 'the lease is free again afterwards');
+  } finally {
+    rmSync(o.mounts.projectMount.hostPath, { recursive: true, force: true });
+    rmSync(control, { recursive: true, force: true });
+  }
+});

@@ -106,9 +106,35 @@ function hostDependencyLink(o: HostRunOptions): () => void {
   };
 }
 
+const sharedLeases = new Map<string, { count: number; release: () => void }>();
+
+/** One lease for every overlapping run that asked to share it; the file lease is given up when the last one ends. */
+function acquireSharedSourceAccess(root: string, control: string): () => void {
+  const key = `${control}\0${root}`;
+  const held = sharedLeases.get(key);
+  if (held) held.count++;
+  else
+    sharedLeases.set(key, {
+      count: 1,
+      release: acquireSourceAccess(root, { sourceControlDir: control, kind: 'sandbox' }),
+    });
+  let released = false;
+  return () => {
+    const entry = sharedLeases.get(key);
+    if (released || !entry) return;
+    released = true;
+    if (--entry.count > 0) return;
+    sharedLeases.delete(key);
+    entry.release();
+  };
+}
+
 /** Source lease, dependency link and private HOME for one host execution; the returned function releases all three. */
 export function acquireHostRun(o: HostRunOptions, root: string): { home: string; cleanup: () => void } {
-  const release = acquireSourceAccess(root, { sourceControlDir: sourceControlDirectory(o), kind: 'sandbox' });
+  const control = sourceControlDirectory(o);
+  const release = o.sharedSource
+    ? acquireSharedSourceAccess(root, control)
+    : acquireSourceAccess(root, { sourceControlDir: control, kind: 'sandbox' });
   let removeDependency: () => void;
   try {
     removeDependency = hostDependencyLink(o);
