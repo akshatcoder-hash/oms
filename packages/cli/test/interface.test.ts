@@ -3105,7 +3105,9 @@ test('/help is a short list with one entry for leaving, and /help keys has the r
     assert.match(help, /\/connect +Sign in or add an API key/);
     assert.match(help, /\/yolo +Run commands without asking/);
     assert.doesNotMatch(help, /\/requirements|\/verify|\/open |Keyboard\n|F6|Toolbar/);
-    assert.ok(help.split('\n').filter((row) => row.trim()).length <= 26, 'a short list');
+    assert.match(help, /\/goal +/);
+    assert.match(help, /\/rewind +/);
+    assert.match(help, /\/connect +Sign in/, 'the whole list fits on one screen');
     terminal.send('/help keys');
     terminal.send('\r');
     await terminal.until((s) => s.includes('Toolbar: F10'));

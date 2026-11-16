@@ -119,17 +119,24 @@ const CHAT_HELP = [
   'model',
   'yolo',
   'web',
+  'goal',
   'run',
   'test',
   'diff',
   'status',
   'usage',
+  'session',
   'clear',
+  'cancel',
   'files',
+  'terminal',
+  'workbench',
   'review',
   'chain',
+  'rewind',
   'airdrop',
   'tx',
+  'account',
   'program',
   'error',
 ];
@@ -139,7 +146,7 @@ const CHAT_KEYS =
 
 export function chatHelp(): string {
   const rows = CHAT_HELP.map((name) => findCommand(name)!).map((command) => [`/${command.name}`, command.description]);
-  rows.push(['/exit (or /quit)', 'Leave']);
+  rows.push(['/theme /art /settings /login /logout', 'Look and account'], ['/exit (or /quit)', 'Leave']);
   const width = Math.max(...rows.map(([name]) => name!.length)) + 2;
   return rows.map(([name, text]) => `${name!.padEnd(width)}${text}`).join('\n') + '\n\n' + CHAT_KEYS;
 }
