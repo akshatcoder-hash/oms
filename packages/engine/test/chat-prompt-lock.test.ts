@@ -7,13 +7,13 @@ import { omsChatPrompt } from '../src/runtime/system-prompt.ts';
 // Any change here, including whitespace, must be a deliberate decision: re-measure, then update these hashes.
 const locked: Record<string, { bytes: number; sha256: string; text: () => string }> = {
   chat_plain: {
-    bytes: 23105,
-    sha256: 'ef385c8523b2be746b82b595041251e98a5274d5704a938b88ef39e306d8ae88',
+    bytes: 23293,
+    sha256: 'ac9cbcc87356199d9fd2367163f6812df583cc9f0f8dd4750ae60cff28124958',
     text: () => omsChatPrompt('/work', 'ok'),
   },
   chat_tail: {
-    bytes: 23140,
-    sha256: 'fede1e9d0aaac77734781d9e5605f4d291522a21b2b719cba27120eba45440a8',
+    bytes: 23328,
+    sha256: '9df7677d508065bfd2df3b68b118886b4b07c186d8d5476e63221da615321aef',
     text: () => omsChatPrompt('/home/dev/app', 'toolchain: anchor 0.32.1', '\nTAIL'),
   },
 };
