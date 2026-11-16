@@ -10,6 +10,7 @@ import {
   anchorDiscriminator,
 } from '../../../scripts/program-reference/adapters.ts';
 import { validateProgramReference } from '../../../scripts/program-reference/validate.ts';
+import { APPLICATIONS } from '../../../scripts/program-reference/sources.ts';
 import type { ProgramReferenceData } from '../src/runtime/program-reference-data.ts';
 import {
   installedProgramClients,
@@ -91,6 +92,32 @@ test('single-instruction lookups retain the program purpose and governance deplo
   const text = lookupProgramReference('Governance', 'createRealm');
   assert.ok(text.includes(`\n${program('Governance').purpose}\n`));
   assert.match(text, /public Realms registry \(governance-ui public\/realms\/mainnet-beta.json, field programId\)/);
+});
+
+test('single-instruction lookups include the SDK-verified Orca and Meteora deployment notes', () => {
+  for (const [name, flow, authority, discovery] of [
+    ['Orca Whirlpools', 'openConcentratedPosition', 'feeAuthority', 'fetchWhirlpoolsByTokenPair'],
+    ['Meteora DLMM', 'initializePositionAndAddLiquidityByStrategy', 'pool creator', 'DLMM.getLbPairs'],
+  ] as const) {
+    const note = program(name).deploymentNote;
+    assert.ok(note);
+    assert.ok(note.includes(flow));
+    assert.ok(note.includes(authority));
+    assert.ok(note.includes(discovery));
+    assert.ok(lookupProgramReference(name, 'swap').includes(`\nDeployment: ${note}\n`));
+  }
+});
+
+test('deployment notes match the generator inputs and leave every program index line unchanged', () => {
+  const withoutNotes = structuredClone(data);
+  for (const name of ['Orca Whirlpools', 'Meteora DLMM', 'Raydium CPMM', 'Raydium CLMM', 'Raydium AMM v4']) {
+    const note = program(name).deploymentNote;
+    assert.ok(note && note.length <= 600, `${name} has a concise deployment note`);
+    assert.equal(note, APPLICATIONS.find((spec) => spec.name === name)?.deploymentNote);
+    assert.ok(!programReferenceIndex().includes(note));
+  }
+  for (const entry of withoutNotes.programs) delete entry.deploymentNote;
+  assert.equal(programReferenceIndex(), programReferenceIndex(withoutNotes));
 });
 
 test('deployment notes appear in program and instruction lookups but never in the prompt index', () => {
