@@ -18,6 +18,8 @@ Helper agents: the chat's agent can hand work to helpers that run beside it.
 - One helper's long command no longer holds up another helper. The chat's own commands still run one at a time, and the terminal is not shared with helpers.
 - Approval questions are asked one at a time, so two helpers asking together do not deny each other. YOLO skips them as it does for the chat.
 - Pinned tasks and `oms run` are unchanged.
+- Sandboxed commands can no longer read Cargo or npm credentials inside toolchain folders, such as `~/.cargo/credentials.toml` or an `npmrc` under a Node install.
+- `.env` and `.env.*` files in the project are unreadable to sandboxed commands, as documented; `.env.example`, `.env.sample` and `.env.template` stay readable. A build that needs a `.env` file has to get those values another way.
 
 ### Claude Code
 
@@ -26,6 +28,7 @@ Helper agents: the chat's agent can hand work to helpers that run beside it.
 - `program_reference` shows what an instruction is for, and for Orca, Meteora and Raydium, which pool and position operations a wallet can do on existing pools.
 - A Solana failure diagnosis adds the failing program's deployment note once per conversation.
 - The Claude Code model is resolved inside the OMS session, where its provider registers.
+- An empty reply from Claude Code is retried up to twice instead of ending the run. A tool never runs twice: after a tool result, the retry sends a short note to continue. Sign-in, usage-limit, cancel and budget stops still end the run.
 
 ## 0.1.1
 
