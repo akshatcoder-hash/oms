@@ -23,6 +23,10 @@ In OMS, enter `/connect`, choose your access method, then `/model` to select a m
 
 See [quickstart](docs/quickstart.md) for each access path and [release checklist](docs/release.md) for the installable archive and clean-machine smoke test.
 
+## Helper agents
+
+The chat's agent can hand work to helpers that run beside it: `explore`, `review` and `build`, or your own agents from `~/.oms/agents/` and `.oms-agents/`. `/team <goal>` splits a goal across helpers, and `/agents` lists them. Helpers use the chat's model and limits, and need a direct model, so they are off while Claude Code is selected. See [how to use helper agents](docs/helpers.md) and the [helper reference](docs/helpers-reference.md).
+
 ## Model access
 
 OMS uses the model access you already have. Provider credentials stay in private configuration and are never placed in chat or task files. Claude Code keeps its own login; OMS checks it through the installed CLI.
@@ -37,7 +41,7 @@ OMS uses the model access you already have. Provider credentials stay in private
 
 OMS makes no claim of a higher pass rate than any single model.
 
-Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. Running `oms` again in the folder and the standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining your files and, in a task, its verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription).
+Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. Running `oms` again in the folder and the standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining your files and, in a task, its verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription). To change Claude Code's effort (`high` by default), see [How to use Claude Code in OMS](docs/claude-code.md).
 
 ## What “done” means
 
