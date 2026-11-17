@@ -23,7 +23,11 @@ import {
 } from '@earendil-works/pi-ai';
 
 export const CLAUDE_CODE_PROVIDER = 'claude-code';
+export const CLAUDE_CODE_EMPTY_RESPONSE = 'claude-code-empty-response';
+export const CLAUDE_CODE_EMPTY_CONTINUATION =
+  'Your previous reply came back empty. Continue the task from where you stopped; the earlier tool results are already in this conversation.';
 const CLAUDE_CODE_BASE_URL = 'claude-code://local';
+class NativeEmptyResponseError extends Error {}
 export interface ClaudeCodeStatus {
   installed: boolean;
   configured: boolean;
@@ -358,6 +362,8 @@ export class ClaudeCodeSession implements NativeChatControls {
   private configurationKey?: string;
   private active?: Completion;
   private failure?: string;
+  private retryUser?: string;
+  private toolResultDelivered = false;
   private waiting: { socket: Socket; name: string; args: unknown }[] = [];
   private delivered = new Set<string>();
   private results = new Map<string, { content: unknown; isError: boolean }>();
@@ -432,6 +438,8 @@ export class ClaudeCodeSession implements NativeChatControls {
       ...(this.state.lastUser ? { lastUser: this.state.lastUser } : {}),
     };
     this.failure = undefined;
+    this.retryUser = undefined;
+    this.toolResultDelivered = false;
     this.save();
   }
   configure(model: Model<Api>, context: TranscriptContext, maxTokens: number): void {
@@ -495,13 +503,14 @@ export class ClaudeCodeSession implements NativeChatControls {
         : error instanceof Error
           ? error.message
           : 'Invalid native protocol';
-    this.state.blocked =
-      'Native protocol failed verification; review the OMS transcript, select Claude Code in /model, then use /clear to start a fresh native chat and clear the OMS conversation view; task files and verification are retained';
+    if (!(error instanceof NativeEmptyResponseError))
+      this.state.blocked =
+        'Native protocol failed verification; review the OMS transcript, select Claude Code in /model, then use /clear to start a fresh native chat and clear the OMS conversation view; task files and verification are retained';
     this.save();
     this.handshake?.reject(new Error(this.failure));
     if (this.active) {
       this.active.failed = true;
-      this.active.reject(new Error(this.failure));
+      this.active.reject(error instanceof NativeEmptyResponseError ? error : new Error(this.failure));
     }
     this.kill('SIGTERM');
     // Reap the whole native/MCP process group even when a protocol peer stalls.
@@ -509,6 +518,15 @@ export class ClaudeCodeSession implements NativeChatControls {
     setTimeout(() => {
       if (this.child === child) this.kill('SIGKILL');
     }, 500).unref();
+  }
+  private emptyResponse(): boolean {
+    return (
+      !!this.active &&
+      !this.active.message.content.some(
+        (block) => block.type === 'toolCall' || (block.type === 'text' && block.text.trim()),
+      ) &&
+      this.state.pending.every((call) => this.delivered.has(call.id))
+    );
   }
   private async start(signal?: AbortSignal): Promise<void> {
     if (this.child) return;
@@ -638,7 +656,11 @@ export class ClaudeCodeSession implements NativeChatControls {
         this.child = undefined;
         this.initialized = false;
         this.transportReady = false;
-        this.active?.reject(new Error('Native process exited before completing its response'));
+        this.active?.reject(
+          this.emptyResponse()
+            ? new NativeEmptyResponseError('Native process exited before completing its response')
+            : new Error('Native process exited before completing its response'),
+        );
         this.handshake?.reject(new Error('Native process exited before session initialization'));
         resolve();
       }),
@@ -714,6 +736,7 @@ export class ClaudeCodeSession implements NativeChatControls {
       const result = this.results.get(call.id);
       if (!result) continue;
       this.delivered.add(call.id);
+      this.toolResultDelivered = true;
       request.socket.end(JSON.stringify(result) + '\n');
     }
   }
@@ -878,7 +901,6 @@ export class ClaudeCodeSession implements NativeChatControls {
           current.stopped ||
           !current.stop ||
           !current.rawUsage ||
-          !current.message.content.length ||
           [...current.blocks.values()].some((block) => !block.stopped)
         )
           throw new Error('Incomplete or duplicate native response');
@@ -900,6 +922,18 @@ export class ClaudeCodeSession implements NativeChatControls {
     }
     if (event.type === 'result') {
       const current = this.active;
+      if (current && event.is_error === true && event.subtype === 'error_during_execution' && this.emptyResponse()) {
+        const usage = nativeUsage(event.usage);
+        const reason = JSON.stringify([event.errors, event.error, event.result]);
+        if (
+          (usageKeys.every((key) => usage[key] === 0) ||
+            usageKeys.every((key) => usage[key] === this.state.emitted[key])) &&
+          !/auth|log(?:ged)?.?in|sign.?in|credential|api.?key|subscription|limit|quota|billing|payment|credit|account|\b(?:401|403|unauthorized|forbidden)\b/i.test(
+            reason,
+          )
+        )
+          throw new NativeEmptyResponseError('Unexpected or failed native receipt');
+      }
       if (
         !current ||
         current.finishing ||
@@ -932,6 +966,9 @@ export class ClaudeCodeSession implements NativeChatControls {
       const hosted = object(event.usage).server_tool_use;
       if (hosted && Object.values(object(hosted)).some((value) => value !== 0))
         throw new Error('Unpriced hosted tool usage');
+      if (this.emptyResponse() && usageKeys.every((key) => response[key] === 0))
+        throw new NativeEmptyResponseError('Native returned an empty response without usage');
+      if (!current.message.content.length) throw new Error('Incomplete or duplicate native response');
       this.state.pending = [];
       this.state.emitted = emptyUsage();
       this.save();
@@ -1026,7 +1063,12 @@ export class ClaudeCodeSession implements NativeChatControls {
           };
         });
         void completion.catch(() => {});
-        timer = setTimeout(abort, options?.timeoutMs || 120_000);
+        timer = setTimeout(() => {
+          if (this.emptyResponse()) {
+            this.active?.reject(new NativeEmptyResponseError('Native turn timed out without a response'));
+            this.kill('SIGTERM');
+          } else abort?.();
+        }, options?.timeoutMs || 120_000);
         output.push({ type: 'start', partial: message });
         if (pending.length) {
           if (userKey !== this.state.lastUser)
@@ -1044,17 +1086,23 @@ export class ClaudeCodeSession implements NativeChatControls {
           this.flushResults();
           // Native owns the exact tool_result history; do not send a duplicate user message.
         } else {
-          if (!user || user.role !== 'user' || userKey === this.state.lastUser)
+          if (!user || user.role !== 'user' || (userKey === this.state.lastUser && userKey !== this.retryUser))
             throw new Error('No new user message for the native chat');
           if (typeof user.content !== 'string' && user.content.some((block) => block.type !== 'text'))
             throw new Error('Native chat currently supports text only');
+          const retrying = userKey === this.retryUser;
+          if (!retrying) this.toolResultDelivered = false;
           this.state.lastUser = userKey;
+          this.retryUser = undefined;
           this.state.emitted = emptyUsage();
           this.save();
           this.child!.stdin.write(
             JSON.stringify({
               type: 'user',
-              message: { role: 'user', content: user.content },
+              message: {
+                role: 'user',
+                content: retrying && this.toolResultDelivered ? CLAUDE_CODE_EMPTY_CONTINUATION : user.content,
+              },
               parent_tool_use_id: null,
               session_id: this.state.sessionId,
             }) + '\n',
@@ -1066,6 +1114,14 @@ export class ClaudeCodeSession implements NativeChatControls {
         this.initialized = false;
         this.transportReady = false;
         message.stopReason = options?.signal?.aborted || this.options.signal?.aborted ? 'aborted' : 'error';
+        if (error instanceof NativeEmptyResponseError && message.stopReason === 'error' && !this.state.blocked) {
+          message.rawStopReason = CLAUDE_CODE_EMPTY_RESPONSE;
+          this.retryUser = this.state.lastUser;
+          // Delivered tool results remain in the native session; retry with a continuation after any delivery.
+          this.state.pending = [];
+          this.state.emitted = emptyUsage();
+          this.save();
+        }
         message.errorMessage = `Claude Code native chat stopped: ${this.failure}. No API-key fallback was used.`;
         // Error completion is not visible until the owned CLI/MCP process group
         // has exited, including the bounded SIGKILL escalation in stop().

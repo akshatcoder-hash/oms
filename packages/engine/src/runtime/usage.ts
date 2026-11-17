@@ -12,6 +12,7 @@ import {
   type Stats,
 } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { StreamFn } from '@earendil-works/pi-agent-core';
 import {
   createAssistantMessageEventStream,
@@ -50,6 +51,7 @@ import {
   isClaudeCodeModel,
 } from '@oms/core/usage';
 import type { DispatchAllocator } from '@oms/core/dispatch';
+import { CLAUDE_CODE_EMPTY_RESPONSE } from './claude-code.ts';
 
 function count(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -253,7 +255,12 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
   if (config.maxInputTokens !== undefined && !count(config.maxInputTokens))
     throw new Error('explicit input cap required');
   const clock = config.clock ?? Date.now;
-  return (selectedModel, context, options) => {
+  const streamAttempt = (
+    selectedModel: Parameters<StreamFn>[0],
+    context: Parameters<StreamFn>[1],
+    options: Parameters<StreamFn>[2],
+    retries = 2,
+  ) => {
     const output = createAssistantMessageEventStream();
     let model = selectedModel;
     let dispatchId: string | undefined;
@@ -601,7 +608,27 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                 JSON.stringify({ reason: event.reason, message: errorMessage }).slice(0, 600),
               );
             if (releaseUnsent() || releaseRejected()) return;
-            if (event.reason !== 'aborted' && interrupted(errorMessage)) return;
+            if (
+              isClaudeCodeModel(model) &&
+              event.error.rawStopReason === CLAUDE_CODE_EMPTY_RESPONSE &&
+              event.reason !== 'aborted' &&
+              !controller.signal.aborted &&
+              retries > 0 &&
+              settleAtBound()
+            ) {
+              // Charge the failed attempt at its full bound, then admit the retry against the remaining budget.
+              await delay(3_000, undefined, { signal: controller.signal });
+              const retry = streamAttempt(
+                selectedModel,
+                context,
+                { ...options, signal: controller.signal },
+                retries - 1,
+              );
+              for await (const next of retry) output.push(next);
+              output.end();
+              return;
+            }
+            if (!isClaudeCodeModel(model) && event.reason !== 'aborted' && interrupted(errorMessage)) return;
             uncertain();
             failed(describeFailure(model.provider), event.reason === 'aborted');
             return;
@@ -647,14 +674,19 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           }
           output.push({ ...event, partial: cleanMessage(event.partial) });
         }
-        if (interrupted('stream disconnected before completion')) return;
+        if (!isClaudeCodeModel(model) && interrupted('stream disconnected before completion')) return;
         uncertain();
         failed(
           'Provider stream ended without a final receipt; budget usage is unknown and its reservation is retained.',
         );
       } catch (error) {
+        if (controller.signal.aborted && settled) {
+          failed('Request cancelled during retry backoff; usage was counted at its maximum cost.', true);
+          return;
+        }
         if (releaseUnsent() || releaseRejected()) return;
-        if (dispatched && interrupted(error instanceof Error ? error.message : undefined)) return;
+        if (!isClaudeCodeModel(model) && dispatched && interrupted(error instanceof Error ? error.message : undefined))
+          return;
         uncertain();
         failed(
           dispatched
@@ -672,6 +704,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
     void run();
     return output;
   };
+  return streamAttempt;
 }
 
 export interface BudgetJournalOptions {
