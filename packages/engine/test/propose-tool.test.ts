@@ -14,12 +14,8 @@ import {
   type TaskContract,
 } from '@oms/contract';
 import { createHarness } from '../test-support/harness.ts';
-import {
-  PROPOSE_DONE_TOOL_NAME,
-  createProposeDoneExtension,
-} from '../src/propose-tool.ts';
+import { PROPOSE_DONE_TOOL_NAME, createProposeDoneExtension } from '../src/propose-tool.ts';
 import { createSettleExtension, type VerifierPort } from '../src/settle.ts';
-
 
 interface Project {
   root: string;
@@ -44,7 +40,7 @@ function makeProject(t: TestContext): Project {
   const contractPath = join(stateRoot, 'task.json');
   const pinFile = join(outside, 'oms-pin.json');
 
-  writeFileSync(join(root, 'tests', 'verifier.test.ts'), "// verifier: do not edit\n");
+  writeFileSync(join(root, 'tests', 'verifier.test.ts'), '// verifier: do not edit\n');
   writeFileSync(join(root, 'src', 'main.ts'), 'export const amount = 10;\n');
 
   const contract: TaskContract = {
@@ -98,7 +94,9 @@ function transcript(h: { session: { messages: unknown[] } }): string {
   return JSON.stringify(h.session.messages);
 }
 
-const idleBudget: BudgetSource = { snapshot: () => snapshotFor(DEFAULT_BUDGET_CAPS, { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 }) };
+const idleBudget: BudgetSource = {
+  snapshot: () => snapshotFor(DEFAULT_BUDGET_CAPS, { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 }),
+};
 
 test('propose_done proposes the active item; the evaluator, not the tool, closes', async (t) => {
   const project = makeProject(t);
@@ -188,7 +186,7 @@ test('a tampered contract surfaces the store pin error code, unwritten', async (
     ],
   });
   try {
-    // The generator edits the contract behind the pin's back (eng-review C1).
+    // The generator edits the contract behind the pin's back.
     writeFileSync(project.contractPath, '{"version":0,"items":[]}');
     const tampered = project.readContractText();
     await h.session.prompt('done');
@@ -210,9 +208,7 @@ test('the model-visible tool set has propose_done and no closing tool', async (t
     const names = h.session.getAllTools().map((tool) => tool.name);
     assert.ok(names.includes(PROPOSE_DONE_TOOL_NAME), `propose_done registered, got: ${names.join(', ')}`);
     const closers = names.filter(
-      (name) =>
-        name !== PROPOSE_DONE_TOOL_NAME &&
-        /close|evaluat|finish|complete_|set_item|approve/i.test(name),
+      (name) => name !== PROPOSE_DONE_TOOL_NAME && /close|evaluat|finish|complete_|set_item|approve/i.test(name),
     );
     assert.deepEqual(closers, [], 'no model-visible tool may close or evaluate an item');
   } finally {
@@ -267,13 +263,18 @@ for (const endRunOnProposal of [true, false]) {
     const verifier: VerifierPort = {
       hasProposal: () => {
         const read = project.proposer.read();
-        return read.ok && read.value.items.some(item => item.status === 'proposed');
+        return read.ok && read.value.items.some((item) => item.status === 'proposed');
       },
-      run: async () => { verified++; return { status: 'pass', summary: 'all verifier tests passed' }; },
+      run: async () => {
+        verified++;
+        return { status: 'pass', summary: 'all verifier tests passed' };
+      },
     };
     const h = await createHarness({
-      extensions: [createProposeDoneExtension({ proposer: project.proposer, getActiveItemId: () => 'item-1', endRunOnProposal }),
-        createSettleExtension({ verifier, budget: idleBudget, maxAttempts: 3 })],
+      extensions: [
+        createProposeDoneExtension({ proposer: project.proposer, getActiveItemId: () => 'item-1', endRunOnProposal }),
+        createSettleExtension({ verifier, budget: idleBudget, maxAttempts: 3 }),
+      ],
       responses: [
         fauxAssistantMessage(fauxToolCall(PROPOSE_DONE_TOOL_NAME, { itemId: 'item-1' }), { stopReason: 'toolUse' }),
         fauxAssistantMessage(fauxText('Proposed; waiting for the verdict.')),

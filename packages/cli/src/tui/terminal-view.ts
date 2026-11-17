@@ -1,14 +1,30 @@
 import xterm from '@xterm/headless';
 import type { Terminal as HeadlessTerminal } from '@xterm/headless';
 import unicodeGraphemes from '@xterm/addon-unicode-graphemes';
-import { CURSOR_MARKER, ScrollView, decodeKittyPrintable, isKeyRelease, parseKey, type Component, type Focusable, type TuiMouseEvent, type TuiMouseEventResult } from '@earendil-works/pi-tui';
+import {
+  CURSOR_MARKER,
+  ScrollView,
+  decodeKittyPrintable,
+  isKeyRelease,
+  parseKey,
+  type Component,
+  type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
+} from '@earendil-works/pi-tui';
 
 export const MAX_PENDING_VT_BYTES = 256 * 1024;
 export const MAX_TERMINAL_INPUT_BYTES = 64 * 1024;
 const MAX_SCROLLBACK = 1000;
 const CONTROL_PUNCTUATION: Readonly<Record<string, string>> = {
-  '@': '\x00', '[': '\x1b', '\\': '\x1c', ']': '\x1d',
-  '^': '\x1e', '_': '\x1f', '-': '\x1f', '?': '\x7f',
+  '@': '\x00',
+  '[': '\x1b',
+  '\\': '\x1c',
+  ']': '\x1d',
+  '^': '\x1e',
+  _: '\x1f',
+  '-': '\x1f',
+  '?': '\x7f',
 };
 
 /** Layout allocates the scroll viewport after rendering its child. */
@@ -46,14 +62,20 @@ export class TerminalView implements Component, Focusable {
 
   constructor(options: TerminalViewOptions) {
     this.options = options;
-    if (![options.columns, options.rows].every(value => Number.isInteger(value) && value > 0 && value <= 500)) {
+    if (![options.columns, options.rows].every((value) => Number.isInteger(value) && value > 0 && value <= 500)) {
       throw new Error('terminal dimensions must be integers between 1 and 500');
     }
-    this.terminal = new xterm.Terminal({ cols: options.columns, rows: options.rows, scrollback: MAX_SCROLLBACK, allowProposedApi: true, logLevel: 'off' });
+    this.terminal = new xterm.Terminal({
+      cols: options.columns,
+      rows: options.rows,
+      scrollback: MAX_SCROLLBACK,
+      allowProposedApi: true,
+      logLevel: 'off',
+    });
     this.terminal.loadAddon(new unicodeGraphemes.UnicodeGraphemesAddon());
     this.terminal.unicode.activeVersion = '15-graphemes';
     this.view = new TerminalScrollView(this, { follow: 'end', scrollbar: 'hidden', overscroll: 'contain' });
-    this.terminal.onData(data => {
+    this.terminal.onData((data) => {
       if (this.inputClosed || this.disposed || !data) return;
       data = this.pendingHighSurrogate + data;
       this.pendingHighSurrogate = '';
@@ -68,7 +90,7 @@ export class TerminalView implements Component, Focusable {
     });
     // Cursor visibility is not exposed by the public buffer API.
     for (const final of ['h', 'l']) {
-      this.terminal.parser.registerCsiHandler({ prefix: '?', final }, params => {
+      this.terminal.parser.registerCsiHandler({ prefix: '?', final }, (params) => {
         if (params.includes(25)) this.cursorVisible = final === 'h';
         return false;
       });
@@ -85,10 +107,13 @@ export class TerminalView implements Component, Focusable {
 
   write(data: Uint8Array): Promise<void> {
     if (this.disposed) return Promise.reject(new Error('terminal is disposed'));
-    if (this.pendingBytes + data.byteLength > MAX_PENDING_VT_BYTES) return Promise.reject(new Error('terminal pending output limit exceeded'));
+    if (this.pendingBytes + data.byteLength > MAX_PENDING_VT_BYTES)
+      return Promise.reject(new Error('terminal pending output limit exceeded'));
     this.pendingBytes += data.byteLength;
     let resolve!: () => void;
-    const pending = new Promise<void>(done => { resolve = done; });
+    const pending = new Promise<void>((done) => {
+      resolve = done;
+    });
     this.writes.add(pending);
     this.terminal.write(data, () => {
       this.pendingBytes -= data.byteLength;
@@ -123,13 +148,15 @@ export class TerminalView implements Component, Focusable {
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (!this.options.requestFocus || this.disposed || event.button !== 'left' || event.type !== 'press') return undefined;
+    if (!this.options.requestFocus || this.disposed || event.button !== 'left' || event.type !== 'press')
+      return undefined;
     this.options.requestFocus();
     return { handled: true, focus: true };
   }
 
   handleInput(data: string): void {
-    if (this.inputClosed || this.disposed || Buffer.byteLength(data) > MAX_TERMINAL_INPUT_BYTES || isKeyRelease(data)) return;
+    if (this.inputClosed || this.disposed || Buffer.byteLength(data) > MAX_TERMINAL_INPUT_BYTES || isKeyRelease(data))
+      return;
     this.view.scrollToEnd();
     if (data.length === 1 && /[\x00-\x1f\x7f]/.test(data)) {
       this.terminal.input(data, true);
@@ -137,7 +164,10 @@ export class TerminalView implements Component, Focusable {
     }
     if (data.startsWith('\x1b[200~') && data.endsWith('\x1b[201~')) {
       const text = data.slice(6, -6);
-      this.terminal.input(this.terminal.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text.replace(/\r?\n/g, '\r'), true);
+      this.terminal.input(
+        this.terminal.modes.bracketedPasteMode ? `\x1b[200~${text}\x1b[201~` : text.replace(/\r?\n/g, '\r'),
+        true,
+      );
       return;
     }
     const enhancedKeys = [...data.matchAll(/\x1b\[[\d:;]*u/g)];
@@ -166,22 +196,42 @@ export class TerminalView implements Component, Focusable {
       const ctrl = parts.includes('ctrl');
       if (parts.includes('super')) return;
       const arrows: Record<string, string> = { up: 'A', down: 'B', right: 'C', left: 'D', home: 'H', end: 'F' };
-      const tilde: Record<string, number> = { insert: 2, delete: 3, pageUp: 5, pageDown: 6, f5: 15, f6: 17, f7: 18, f8: 19, f9: 20, f10: 21, f11: 23, f12: 24 };
+      const tilde: Record<string, number> = {
+        insert: 2,
+        delete: 3,
+        pageUp: 5,
+        pageDown: 6,
+        f5: 15,
+        f6: 17,
+        f7: 18,
+        f8: 19,
+        f9: 20,
+        f10: 21,
+        f11: 23,
+        f12: 24,
+      };
       const modifier = 1 + Number(shift) + 2 * Number(alt) + 4 * Number(ctrl);
-      if (arrows[base]) translated = modifier === 1
-        ? `\x1b${this.terminal.modes.applicationCursorKeysMode ? 'O' : '['}${arrows[base]}`
-        : `\x1b[1;${modifier}${arrows[base]}`;
+      if (arrows[base])
+        translated =
+          modifier === 1
+            ? `\x1b${this.terminal.modes.applicationCursorKeysMode ? 'O' : '['}${arrows[base]}`
+            : `\x1b[1;${modifier}${arrows[base]}`;
       else if (tilde[base]) translated = `\x1b[${tilde[base]}${modifier === 1 ? '' : `;${modifier}`}~`;
-      else if (/^f[1-4]$/.test(base)) translated = modifier === 1 ? `\x1bO${'PQRS'[Number(base.slice(1)) - 1]}` : `\x1b[1;${modifier}${'PQRS'[Number(base.slice(1)) - 1]}`;
+      else if (/^f[1-4]$/.test(base))
+        translated =
+          modifier === 1
+            ? `\x1bO${'PQRS'[Number(base.slice(1)) - 1]}`
+            : `\x1b[1;${modifier}${'PQRS'[Number(base.slice(1)) - 1]}`;
       else if (base === 'tab') translated = shift ? '\x1b[Z' : '\t';
       else if (base === 'enter' || base === 'return') translated = '\r';
       else if (base === 'backspace') translated = '\x7f';
       else if (base === 'escape' || base === 'esc') translated = '\x1b';
       else if (base === 'space') translated = ctrl ? '\x00' : ' ';
       else if (!functional && base.length === 1) {
-        if (ctrl) translated = /^[a-z]$/i.test(base)
-          ? String.fromCharCode(base.toUpperCase().charCodeAt(0) - 64)
-          : CONTROL_PUNCTUATION[base];
+        if (ctrl)
+          translated = /^[a-z]$/i.test(base)
+            ? String.fromCharCode(base.toUpperCase().charCodeAt(0) - 64)
+            : CONTROL_PUNCTUATION[base];
         else translated = shift ? base.toUpperCase() : base;
       }
       if (alt && translated && !arrows[base] && !tilde[base]) translated = `\x1b${translated}`;
@@ -222,11 +272,16 @@ export class TerminalView implements Component, Focusable {
         if (current.isStrikethrough()) codes.push(9);
         for (const foreground of [true, false]) {
           const color = foreground ? current.getFgColor() : current.getBgColor();
-          if (foreground ? current.isFgRGB() : current.isBgRGB()) codes.push(foreground ? 38 : 48, 2, (color >>> 16) & 255, (color >>> 8) & 255, color & 255);
-          else if (foreground ? current.isFgPalette() : current.isBgPalette()) codes.push(foreground ? 38 : 48, 5, color & 255);
+          if (foreground ? current.isFgRGB() : current.isBgRGB())
+            codes.push(foreground ? 38 : 48, 2, (color >>> 16) & 255, (color >>> 8) & 255, color & 255);
+          else if (foreground ? current.isFgPalette() : current.isBgPalette())
+            codes.push(foreground ? 38 : 48, 5, color & 255);
         }
         const style = codes.join(';');
-        if (style !== lastStyle) { rendered += `\x1b[0m${style ? `\x1b[${style}m` : ''}`; lastStyle = style; }
+        if (style !== lastStyle) {
+          rendered += `\x1b[0m${style ? `\x1b[${style}m` : ''}`;
+          lastStyle = style;
+        }
         const chars = current.getChars().replace(/[\x00-\x1f\x7f-\x9f]/g, '');
         rendered += current.isInvisible() ? ' '.repeat(current.getWidth()) : chars || ' ';
       }

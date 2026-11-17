@@ -4,8 +4,23 @@ import { mergeFindings } from '../src/merge.ts';
 import type { StaticHit, ModelFinding } from '../src/types.ts';
 
 const files = new Map([['src/lib.rs', 100]]);
-const hit = (line: number, handler = 'withdraw'): StaticHit => ({ tool: 'oms-sast', ruleId: 'missing-signer/field', class: 'missing-signer', severity: 'high', location: { file: 'src/lib.rs', line, handler }, message: 'Missing authority check' });
-const model = (line: number): ModelFinding => ({ class: 'missing-signer', handler: 'withdraw', location: { file: 'src/lib.rs', line }, title: 'Authority check', explanation: 'Review the authority check.', fix: 'Add a regression test and signer constraint.', confidence: 'high' });
+const hit = (line: number, handler = 'withdraw'): StaticHit => ({
+  tool: 'oms-sast',
+  ruleId: 'missing-signer/field',
+  class: 'missing-signer',
+  severity: 'high',
+  location: { file: 'src/lib.rs', line, handler },
+  message: 'Missing authority check',
+});
+const model = (line: number): ModelFinding => ({
+  class: 'missing-signer',
+  handler: 'withdraw',
+  location: { file: 'src/lib.rs', line },
+  title: 'Authority check',
+  explanation: 'Review the authority check.',
+  fix: 'Add a regression test and signer constraint.',
+  confidence: 'high',
+});
 const severity = { 'missing-signer': 'high' } as const;
 
 test('merges nearby static and model evidence without confirmation or input mutation', () => {
@@ -27,14 +42,21 @@ test('deduplication is deterministic and does not chain beyond five lines', () =
   const inputs = [hit(20), hit(10), hit(15)];
   const result = mergeFindings(inputs, [], files, severity);
   assert.deepEqual(result, mergeFindings([...inputs].reverse(), [], files, severity));
-  assert.deepEqual(result.findings.map(f => f.location.line), [10, 20]);
-  assert.equal(new Set(result.findings.map(f => f.id)).size, 2);
+  assert.deepEqual(
+    result.findings.map((f) => f.location.line),
+    [10, 20],
+  );
+  assert.equal(new Set(result.findings.map((f) => f.id)).size, 2);
   assert.equal(mergeFindings([hit(10), hit(10, 'deposit')], [], files, severity).findings.length, 2);
 });
 
 test('invalid locations and unknown fields are rejected and counted', () => {
-  const result = mergeFindings([{ ...hit(1), location: { file: '../secret', line: 1 } }],
-    [model(101), { ...model(10), label: 'confirmed' }], files, severity);
+  const result = mergeFindings(
+    [{ ...hit(1), location: { file: '../secret', line: 1 } }],
+    [model(101), { ...model(10), label: 'confirmed' }],
+    files,
+    severity,
+  );
   assert.deepEqual(result.findings, []);
   assert.equal(result.invalidStaticHits, 1);
   assert.equal(result.invalidModelOutputs, 2);

@@ -98,7 +98,12 @@ export function createSurfnet(options: SurfnetOptions): Surfnet {
   async function inspectSnapshot(path: string): Promise<SnapshotInfo> {
     const canonical = await realpath(path);
     if (!(await stat(canonical)).isFile()) throw new Error('snapshot must be a regular file');
-    return { path: canonical, digest: createHash('sha256').update(await readFile(canonical)).digest('hex') };
+    return {
+      path: canonical,
+      digest: createHash('sha256')
+        .update(await readFile(canonical))
+        .digest('hex'),
+    };
   }
 
   async function validateSnapshot(snapshot: SnapshotInfo | undefined): Promise<void> {

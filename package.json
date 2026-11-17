@@ -15,16 +15,20 @@
     "start": "node packages/cli/src/bin.ts",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "pack:release": "node scripts/pack-release.mjs"
+    "pack:release": "node scripts/pack-release.mjs",
+    "format": "prettier --write \"packages/**/*.{ts,mjs,json}\" \"scripts/**/*.{ts,mjs,json}\" \"bench/**/*.{ts,mjs,json}\"",
+    "format:check": "prettier --check \"packages/**/*.{ts,mjs,json}\" \"scripts/**/*.{ts,mjs,json}\" \"bench/**/*.{ts,mjs,json}\""
   },
   "overrides": {
-    "undici": "8.12.2"
+    "undici": "8.12.2",
+    "minimatch": "11.0.3"
   },
   "devDependencies": {
     "@earendil-works/pi-tui": "1.4.0",
-    "@xterm/headless": "6.0.0",
+    "@types/node": "^22.10.0",
     "@xterm/addon-unicode-graphemes": "0.4.0",
-    "typescript": "^5.9.3",
-    "@types/node": "^22.10.0"
+    "@xterm/headless": "6.0.0",
+    "prettier": "3.10.1",
+    "typescript": "^5.9.3"
   }
 }

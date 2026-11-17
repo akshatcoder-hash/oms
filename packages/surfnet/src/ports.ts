@@ -36,8 +36,7 @@ export async function findFreePortPair(options?: {
   /** First rpc port to try; defaults to a random port in [20000, 40000). */
   from?: number;
 }): Promise<PortPair> {
-  const start =
-    options?.from ?? 20000 + Math.floor(Math.random() * 10_000) * 2;
+  const start = options?.from ?? 20000 + Math.floor(Math.random() * 10_000) * 2;
   const from = start % 2 === 0 ? start : start + 1;
   const limit = 40000;
   for (let rpc = from; rpc < limit; rpc += 2) {

@@ -1,5 +1,5 @@
 /**
- * Tool-call guards for the generator agent (SPEC.md sections 3 and 7, eng-review C1).
+ * Tool-call guards for the generator agent.
  *
  * Three rules, all fail-closed:
  *
@@ -8,35 +8,33 @@
  *    directory, Solana CLI config, `~/.ssh`, oms state) is refused. Every path is
  *    resolved through `realpath` on its deepest existing ancestor first, so a symlink,
  *    a `..` segment or a `~` prefix cannot walk around the rule.
- * 2. Repetition guard (L6). The same tool with the same canonical input N times inside
+ * 2. Repetition guard. The same tool with the same canonical input N times inside
  *    a sliding window is blocked, so a stuck loop costs one call instead of a turn.
  * 3. Diff-size guard. One call may not carry more than `maxEditBytes` of new text.
  *
  * For `bash`/`powershell` the path rule is a text scan and is best effort by
  * construction: a command can build a path at runtime (`p=~/.ss; cat ${p}h/id`). The
- * Docker sandbox in SPEC.md section 2 is the real control. This hook only keeps the
+ * sandbox is the real control. This hook only keeps the
  * obvious forms from reaching a shell at all.
  *
- * The symlink-safe resolution helpers (`isInside`, `resolveWithExistingAncestor`,
- * `realpathOfNearest`, `pathVariants`) are copied from `packages/signer/src/guard.ts`
- * in this repo. `@oms/engine` does not depend on `@oms/signer`, so importing them would
- * mean adding a dependency to a package manifest this worker does not own.
+ * Path containment and symlink-safe resolution (`isInside`, `realpathAllowingMissing`) come from `@oms/contract`,
+ * so the guards and the contract resolve paths with one implementation.
  */
 
 import { realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import type { ExtensionFactory } from '@earendil-works/pi-coding-agent';
+import { isInside, realpathAllowingMissing } from '@oms/contract';
 
-export const DEFAULT_MAX_EDIT_BYTES = 64 * 1024;
-export const DEFAULT_REPETITION_THRESHOLD = 3;
-export const DEFAULT_REPETITION_WINDOW = 12;
+const DEFAULT_MAX_EDIT_BYTES = 64 * 1024;
+const DEFAULT_REPETITION_THRESHOLD = 3;
+const DEFAULT_REPETITION_WINDOW = 12;
 
 export type GuardBlockRule = 'protected_write' | 'denied_root' | 'repetition' | 'diff_size' | 'guard_error';
 
 export type GuardDecision =
-  | { readonly block: false }
-  | { readonly block: true; readonly rule: GuardBlockRule; readonly reason: string };
+  { readonly block: false } | { readonly block: true; readonly rule: GuardBlockRule; readonly reason: string };
 
 /** The part of a Pi `tool_call` event the guards need; kept Pi-free so it is unit-testable. */
 export interface GuardedToolCall {
@@ -63,8 +61,6 @@ export interface GuardsConfig {
   /** Base for relative paths. Defaults to `process.cwd()`. */
   readonly cwd?: string;
 }
-
-export type GuardsExtensionOptions = GuardsConfig;
 
 /** One already-decided call, kept so a repeat can be recognised. */
 export interface ToolCallSample {
@@ -93,40 +89,9 @@ const PATH_TOOL_SPECS: Record<string, { readonly access: 'read' | 'write'; reado
 const REQUIRED_PATH_TOOLS = new Set(['read', 'write', 'edit']);
 const COMMAND_TOOLS = new Set(['bash', 'powershell']);
 
-// --- copied from packages/signer/src/guard.ts (see file header) -------------------
-
-function isInside(parent: string, candidate: string): boolean {
-  if (candidate === parent) return true;
-  const withSep = parent.endsWith(sep) ? parent : parent + sep;
-  return candidate.startsWith(withSep);
-}
-
-/**
- * Resolve as far as the filesystem allows: realpath the deepest existing ancestor and
- * re-append the non-existent tail. This is what makes a symlinked ancestor directory
- * (e.g. `root/evil -> ~/.ssh`) detectable even when the final component does not exist.
- */
-function resolveWithExistingAncestor(absolutePath: string): string {
-  let current = absolutePath;
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = realpathSync(current);
-      return tail.length === 0 ? real : join(real, ...tail.reverse());
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-      const parent = resolve(current, '..');
-      if (parent === current) return absolutePath;
-      tail.push(current.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)));
-      current = parent;
-    }
-  }
-}
-
 function realpathOfNearest(p: string): string {
   try {
-    const resolved = resolveWithExistingAncestor(p);
+    const resolved = realpathAllowingMissing(p);
     try {
       return realpathSync(resolved);
     } catch {
@@ -231,13 +196,16 @@ function prepareTargets(config: GuardsConfig, cwd: string, home: string): Prepar
     // so the dotted parent (`/.config`) and a bare dotted name (`cd ~ && cat .ssh/id`) must trip the guard too.
     if (rule === 'denied_root') {
       const parent = parts[parts.length - 2];
-      if (parent !== undefined && parent.startsWith('.') && parent.length >= 3 && !ownSegments.has(parent)) addNeedle(`${sep}${parent}`, rule);
-      if (shortName && last !== undefined && last.startsWith('.') && last.length >= 3) for (const lead of [' ', '"', "'", ';', '=']) addNeedle(`${lead}${last}`, rule);
+      if (parent !== undefined && parent.startsWith('.') && parent.length >= 3 && !ownSegments.has(parent))
+        addNeedle(`${sep}${parent}`, rule);
+      if (shortName && last !== undefined && last.startsWith('.') && last.length >= 3)
+        for (const lead of [' ', '"', "'", ';', '=']) addNeedle(`${lead}${last}`, rule);
     }
   };
   for (const target of protectedTargets) addTarget(target, 'protected_write');
   // The bare folder-name needle (`/.oms`) is dropped when it would match the task's own path (host worktrees live under `.oms`).
-  for (const target of deniedTargets) addTarget(target, 'denied_root', !config.approveHostCommands || !ownSegments.has(basename(target.absolute)));
+  for (const target of deniedTargets)
+    addTarget(target, 'denied_root', !config.approveHostCommands || !ownSegments.has(basename(target.absolute)));
 
   return {
     protectedTargets,
@@ -254,7 +222,12 @@ function label(target: ResolvedPath): string {
   return isAbsolute(target.raw) ? basename(target.raw) : target.raw;
 }
 
-function pathDecision(call: GuardedToolCall, targets: PreparedTargets, cwd: string, home: string): GuardDecision | null {
+function pathDecision(
+  call: GuardedToolCall,
+  targets: PreparedTargets,
+  cwd: string,
+  home: string,
+): GuardDecision | null {
   const spec = PATH_TOOL_SPECS[call.toolName];
   if (spec === undefined) return null;
 
@@ -287,10 +260,7 @@ function pathDecision(call: GuardedToolCall, targets: PreparedTargets, cwd: stri
   }
   for (const deniedTarget of targets.deniedTargets) {
     if (matchesTarget(candidates, deniedTarget)) {
-      return block(
-        'denied_root',
-        'that path holds key material or signer state; the model may not read or write it',
-      );
+      return block('denied_root', 'that path holds key material or signer state; the model may not read or write it');
     }
   }
   return null;
@@ -412,7 +382,7 @@ export function canonicalizeToolCall(call: GuardedToolCall): string {
 }
 
 /** Sliding-window size the repetition guard reads, so the caller can bound its history. */
-export function repetitionWindow(config: GuardsConfig): number {
+function repetitionWindow(config: GuardsConfig): number {
   const window = config.repetition?.window ?? DEFAULT_REPETITION_WINDOW;
   return Number.isFinite(window) && window >= 0 ? Math.floor(window) : DEFAULT_REPETITION_WINDOW;
 }
@@ -455,14 +425,15 @@ export function decideToolCall(call: GuardedToolCall, config: GuardsConfig, hist
 const GUARD_FAILED_CLOSED: GuardDecision = Object.freeze({
   block: true,
   rule: 'guard_error',
-  reason: 'blocked (guard_error): the guard could not verify that this call is allowed, so it was refused. Change approach or ask the user',
+  reason:
+    'blocked (guard_error): the guard could not verify that this call is allowed, so it was refused. Change approach or ask the user',
 });
 
 /**
  * Pi extension: one `tool_call` handler applying all three rules. A throw anywhere in
  * the decision path blocks the call.
  */
-export function createGuardsExtension(options: GuardsExtensionOptions = {}): ExtensionFactory {
+export function createGuardsExtension(options: GuardsConfig = {}): ExtensionFactory {
   const window = Math.max(repetitionWindow(options), 1);
   return (pi) => {
     const history: ToolCallSample[] = [];

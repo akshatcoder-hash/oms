@@ -1,8 +1,20 @@
 export const MODEL_POLICY_VERSION = '2026-11-07.1';
 
-export type WorkerKey = 'sol' | 'astra' | 'terra' | 'sonnet' | 'opus' | 'haiku'
-  | 'mimo-pro' | 'mimo-flash' | 'deepseek-pro' | 'deepseek-flash' | 'grok' | 'grok-build'
-  | 'muse-spark' | 'muse-wonder';
+export type WorkerKey =
+  | 'sol'
+  | 'astra'
+  | 'terra'
+  | 'sonnet'
+  | 'opus'
+  | 'haiku'
+  | 'mimo-pro'
+  | 'mimo-flash'
+  | 'deepseek-pro'
+  | 'deepseek-flash'
+  | 'grok'
+  | 'grok-build'
+  | 'muse-spark'
+  | 'muse-wonder';
 export type MimoProvider = 'xiaomi' | 'xiaomi-token-plan-cn' | 'xiaomi-token-plan-sgp' | 'xiaomi-token-plan-ams';
 export type CatalogProvider = 'openai' | 'anthropic' | 'opencode' | MimoProvider;
 
@@ -63,36 +75,88 @@ function spec(value: WorkerSpec): WorkerSpec {
 }
 function openai(key: 'sol' | 'astra' | 'terra', modelId: string, rates: TokenRates): WorkerSpec {
   const sourceUrl = `https://developers.openai.com/api/docs/models/${modelId}`;
-  return spec({ key, modelId, provider: 'openai', api: 'openai-responses', baseUrl: 'https://api.openai.com/v1',
-    publishedContextWindow: 1_050_000, effectiveContextWindow: 272_000, maxOutputTokens: 128_000,
-    cost: { ...rates, tiers: [{ inputTokensAbove: 272_000, input: rates.input * 2, output: rates.output * 1.5,
-      cacheRead: rates.cacheRead * 2, cacheWrite: rates.cacheWrite! * 2 }] },
-    cachePolicy: { write: 'priced', writeTtlSeconds: [1800], sourceUrl: 'https://developers.openai.com/api/docs/guides/prompt-caching' },
-    sourceUrl, pricingSourceUrl: OPENAI_PRICING, windowSource: sourceUrl });
+  return spec({
+    key,
+    modelId,
+    provider: 'openai',
+    api: 'openai-responses',
+    baseUrl: 'https://api.openai.com/v1',
+    publishedContextWindow: 1_050_000,
+    effectiveContextWindow: 272_000,
+    maxOutputTokens: 128_000,
+    cost: {
+      ...rates,
+      tiers: [
+        {
+          inputTokensAbove: 272_000,
+          input: rates.input * 2,
+          output: rates.output * 1.5,
+          cacheRead: rates.cacheRead * 2,
+          cacheWrite: rates.cacheWrite! * 2,
+        },
+      ],
+    },
+    cachePolicy: {
+      write: 'priced',
+      writeTtlSeconds: [1800],
+      sourceUrl: 'https://developers.openai.com/api/docs/guides/prompt-caching',
+    },
+    sourceUrl,
+    pricingSourceUrl: OPENAI_PRICING,
+    windowSource: sourceUrl,
+  });
 }
 function anthropic(key: 'sonnet' | 'opus' | 'haiku', cost: WorkerCost): WorkerSpec {
-  return spec({ key, modelId: `claude-${key}-5-5`, provider: 'anthropic', api: 'anthropic-messages',
-    baseUrl: 'https://api.anthropic.com', publishedContextWindow: 1_000_000, effectiveContextWindow: 1_000_000,
-    maxOutputTokens: 128_000, cost,
+  return spec({
+    key,
+    modelId: `claude-${key}-5-5`,
+    provider: 'anthropic',
+    api: 'anthropic-messages',
+    baseUrl: 'https://api.anthropic.com',
+    publishedContextWindow: 1_000_000,
+    effectiveContextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+    cost,
     cachePolicy: { write: 'priced', writeTtlSeconds: [300, 3600], sourceUrl: ANTHROPIC_PRICING },
-    sourceUrl: ANTHROPIC_MODELS, pricingSourceUrl: ANTHROPIC_PRICING, windowSource: ANTHROPIC_MODELS });
+    sourceUrl: ANTHROPIC_MODELS,
+    pricingSourceUrl: ANTHROPIC_PRICING,
+    windowSource: ANTHROPIC_MODELS,
+  });
 }
 function mimo(key: 'mimo-pro' | 'mimo-flash', cost: WorkerCost): WorkerSpec {
-  return spec({ key, modelId: key === 'mimo-pro' ? 'mimo-v2.6-pro' : 'mimo-v2.6-flash',
-    provider: 'xiaomi', api: 'openai-completions', baseUrl: 'https://api.xiaomimimo.com/v1',
+  return spec({
+    key,
+    modelId: key === 'mimo-pro' ? 'mimo-v2.6-pro' : 'mimo-v2.6-flash',
+    provider: 'xiaomi',
+    api: 'openai-completions',
+    baseUrl: 'https://api.xiaomimimo.com/v1',
     // Published 1M/128K are kept conservative rather than expanding to the SDK's binary units.
-    publishedContextWindow: 1_000_000, effectiveContextWindow: 1_000_000, maxOutputTokens: 128_000, cost,
+    publishedContextWindow: 1_000_000,
+    effectiveContextWindow: 1_000_000,
+    maxOutputTokens: 128_000,
+    cost,
     cachePolicy: { write: 'temporary-free', writeTtlSeconds: [], sourceUrl: MIMO_PRICING },
-    sourceUrl: MIMO_MODELS, pricingSourceUrl: MIMO_PRICING, windowSource: MIMO_MODELS });
+    sourceUrl: MIMO_MODELS,
+    pricingSourceUrl: MIMO_PRICING,
+    windowSource: MIMO_MODELS,
+  });
 }
-function opencode(key: WorkerKey, modelId: string, window: number,
-  output: number, cost: WorkerCost): WorkerSpec {
-  return spec({ key, modelId, provider: 'opencode',
+function opencode(key: WorkerKey, modelId: string, window: number, output: number, cost: WorkerCost): WorkerSpec {
+  return spec({
+    key,
+    modelId,
+    provider: 'opencode',
     api: key.startsWith('deepseek') ? 'openai-completions' : 'openai-responses',
-    baseUrl: 'https://opencode.ai/inference/openai/v1', publishedContextWindow: window,
-    effectiveContextWindow: window, maxOutputTokens: output, cost,
+    baseUrl: 'https://opencode.ai/inference/openai/v1',
+    publishedContextWindow: window,
+    effectiveContextWindow: window,
+    maxOutputTokens: output,
+    cost,
     cachePolicy: { write: 'unsupported', writeTtlSeconds: [], sourceUrl: OPENCODE_MODELS },
-    sourceUrl: OPENCODE_MODELS, pricingSourceUrl: OPENCODE_MODELS, windowSource: OPENCODE_WINDOWS });
+    sourceUrl: OPENCODE_MODELS,
+    pricingSourceUrl: OPENCODE_MODELS,
+    windowSource: OPENCODE_WINDOWS,
+  });
 }
 
 /** Reviewed policy over canonical models; not an authentication or provider registry. */
@@ -102,23 +166,55 @@ export const MODEL_CATALOG: Readonly<Record<WorkerKey, WorkerSpec>> = freeze({
   terra: openai('terra', 'gpt-6.1-terra', { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 }),
   sonnet: anthropic('sonnet', { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWriteLong: 4 }),
   opus: anthropic('opus', { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, cacheWriteLong: 8 }),
-  haiku: anthropic('haiku', { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWriteLong: 0.2,
-    tiers: [{ inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWriteLong: 1 }] }),
+  haiku: anthropic('haiku', {
+    input: 0.1,
+    output: 0.5,
+    cacheRead: 0.01,
+    cacheWrite: 0.125,
+    cacheWriteLong: 0.2,
+    tiers: [
+      { inputTokensAbove: 100_000, input: 0.5, output: 2.5, cacheRead: 0.05, cacheWrite: 0.625, cacheWriteLong: 1 },
+    ],
+  }),
   'mimo-pro': mimo('mimo-pro', { input: 0.435, output: 0.87, cacheRead: 0.0036, cacheWrite: 0 }),
   'mimo-flash': mimo('mimo-flash', { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 }),
-  'deepseek-pro': opencode('deepseek-pro', 'deepseek-v4-pro', 1_000_000, 384_000,
-    { input: 1.74, output: 3.48, cacheRead: 0.145, cacheWrite: null }),
-  'deepseek-flash': opencode('deepseek-flash', 'deepseek-v4.1-flash', 1_000_000, 384_000,
-    { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: null }),
-  grok: opencode('grok', 'grok-4.7', 500_000, 500_000,
-    { input: 2, output: 6, cacheRead: 0.5, cacheWrite: null,
-      tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: null }] }),
-  'grok-build': opencode('grok-build', 'grok-build-0.1', 256_000, 256_000,
-    { input: 1, output: 2, cacheRead: 0.2, cacheWrite: null }),
-  'muse-spark': opencode('muse-spark', 'muse-spark-1.3', 1_048_576, 131_072,
-    { input: 1.25, output: 4.25, cacheRead: 0.15, cacheWrite: null }),
-  'muse-wonder': opencode('muse-wonder', 'muse-wonder-1.0', 1_048_576, 131_072,
-    { input: 4, output: 20, cacheRead: 0.2, cacheWrite: null }),
+  'deepseek-pro': opencode('deepseek-pro', 'deepseek-v4-pro', 1_000_000, 384_000, {
+    input: 1.74,
+    output: 3.48,
+    cacheRead: 0.145,
+    cacheWrite: null,
+  }),
+  'deepseek-flash': opencode('deepseek-flash', 'deepseek-v4.1-flash', 1_000_000, 384_000, {
+    input: 0.3,
+    output: 1.2,
+    cacheRead: 0.006,
+    cacheWrite: null,
+  }),
+  grok: opencode('grok', 'grok-4.7', 500_000, 500_000, {
+    input: 2,
+    output: 6,
+    cacheRead: 0.5,
+    cacheWrite: null,
+    tiers: [{ inputTokensAbove: 200_000, input: 4, output: 12, cacheRead: 1, cacheWrite: null }],
+  }),
+  'grok-build': opencode('grok-build', 'grok-build-0.1', 256_000, 256_000, {
+    input: 1,
+    output: 2,
+    cacheRead: 0.2,
+    cacheWrite: null,
+  }),
+  'muse-spark': opencode('muse-spark', 'muse-spark-1.3', 1_048_576, 131_072, {
+    input: 1.25,
+    output: 4.25,
+    cacheRead: 0.15,
+    cacheWrite: null,
+  }),
+  'muse-wonder': opencode('muse-wonder', 'muse-wonder-1.0', 1_048_576, 131_072, {
+    input: 4,
+    output: 20,
+    cacheRead: 0.2,
+    cacheWrite: null,
+  }),
 });
 
 interface MimoBinding {
@@ -133,7 +229,8 @@ export const MIMO_BINDINGS: Readonly<Record<MimoProvider, MimoBinding>> = freeze
 
 /** The caller supplies the MiMo provider explicitly: PAYG or a regional Token Plan. */
 export function resolveMimoWorker(key: 'mimo-pro' | 'mimo-flash', provider: MimoProvider | null): WorkerSpec {
-  if (provider === null || !Object.hasOwn(MIMO_BINDINGS, provider)) throw new Error('MiMo configuration required: explicitly select PAYG or a regional Token Plan provider');
+  if (provider === null || !Object.hasOwn(MIMO_BINDINGS, provider))
+    throw new Error('MiMo configuration required: explicitly select PAYG or a regional Token Plan provider');
   if (provider === 'xiaomi') return MODEL_CATALOG[key];
   const binding = MIMO_BINDINGS[provider];
   return freeze({ ...MODEL_CATALOG[key], provider, baseUrl: binding.baseUrl });

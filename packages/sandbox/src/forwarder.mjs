@@ -74,8 +74,12 @@ function startProxy() {
     delete headers['proxy-connection'];
     const socketPath = relaySocket(target.host, target.port);
     const upstream = http.request(
-      { ...(socketPath ? { socketPath } : { host: target.host, port: target.port }),
-        method: req.method, path: url.pathname + url.search, headers },
+      {
+        ...(socketPath ? { socketPath } : { host: target.host, port: target.port }),
+        method: req.method,
+        path: url.pathname + url.search,
+        headers,
+      },
       (up) => {
         res.writeHead(up.statusCode ?? 502, up.headers);
         up.pipe(res);

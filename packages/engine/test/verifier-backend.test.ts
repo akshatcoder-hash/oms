@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -8,7 +17,12 @@ import { createEvaluator, createProposer, EMPTY_SNAPSHOT_DIGEST, type RunnerCont
 import type { RunInSandboxOptions } from '@oms/sandbox';
 import { createSurfnet, type Surfnet, type SurfnetOptions } from '@oms/surfnet';
 import { createVerifierRunner } from '../src/verifier.ts';
-import { createVerifierBackend, type VerifierBackend, type VerifierBackendDependencies } from '../src/runtime/verifier-backend.ts';
+import { dockerBackend } from '../src/runtime/execution-backend.ts';
+import {
+  createVerifierBackend,
+  type VerifierBackend,
+  type VerifierBackendDependencies,
+} from '../src/runtime/verifier-backend.ts';
 import { makeProject } from '../../contract/test-support/fixture.ts';
 import { skipUnavailable } from '../../sandbox/test-support/infrastructure.ts';
 import { exportSnapshot } from '../../surfnet/test-support/snapshot.ts';
@@ -23,7 +37,14 @@ function fixture(t: TestContext) {
   writeFileSync(binary, '#!/bin/sh\nexit 1\n');
   chmodSync(binary, 0o700);
   for (const name of ['work', 'leases', 'code']) mkdirSync(join(root, name), { mode: 0o700 });
-  const options = { taskName: 'proof-test', binary, image: IMAGE, forwarderImage: IMAGE, workDir: join(root, 'work'), leaseDir: join(root, 'leases'), sourceControlDir: join(root, 'source-control') };
+  const options = {
+    taskName: 'proof-test',
+    backend: dockerBackend({ image: IMAGE, forwarderImage: IMAGE }),
+    binary,
+    workDir: join(root, 'work'),
+    leaseDir: join(root, 'leases'),
+    sourceControlDir: join(root, 'source-control'),
+  };
   const starts: SurfnetOptions[] = [];
   const runs: RunInSandboxOptions[] = [];
   let stops = 0;
@@ -36,13 +57,21 @@ function fixture(t: TestContext) {
       let running = false;
       return {
         mode: 'offline-snapshot',
-        start: async () => { await onStart(options); running = true; },
-        stop: async () => { stops++; running = false; },
-        ports: () => running ? { rpc: 18899, ws: 18900 } : undefined,
-        rpcUrl: () => running ? 'http://127.0.0.1:18899' : undefined,
-        pid: () => running ? 123 : undefined,
+        start: async () => {
+          await onStart(options);
+          running = true;
+        },
+        stop: async () => {
+          stops++;
+          running = false;
+        },
+        ports: () => (running ? { rpc: 18899, ws: 18900 } : undefined),
+        rpcUrl: () => (running ? 'http://127.0.0.1:18899' : undefined),
+        pid: () => (running ? 123 : undefined),
         rpc: { url: 'http://127.0.0.1:18899', call: () => onRpc() },
-        rewindToStart: async () => { throw new Error('not used'); },
+        rewindToStart: async () => {
+          throw new Error('not used');
+        },
         health: async () => ({ ok: running }),
       };
     },
@@ -52,7 +81,23 @@ function fixture(t: TestContext) {
       return { exitCode: 0, stdout: 'ok', stderr: '', timedOut: false, cancelled: false, truncated: false };
     },
   };
-  return { root, options, dependencies, starts, runs, stops: () => stops, onStart: (fn: typeof onStart) => { onStart = fn; }, onRun: (fn: typeof onRun) => { onRun = fn; }, onRpc: (fn: typeof onRpc) => { onRpc = fn; } };
+  return {
+    root,
+    options,
+    dependencies,
+    starts,
+    runs,
+    stops: () => stops,
+    onStart: (fn: typeof onStart) => {
+      onStart = fn;
+    },
+    onRun: (fn: typeof onRun) => {
+      onRun = fn;
+    },
+    onRpc: (fn: typeof onRpc) => {
+      onRpc = fn;
+    },
+  };
 }
 
 test('execution identity derives from binary bytes and immutable images, not caller expectations', async (t) => {
@@ -63,13 +108,19 @@ test('execution identity derives from binary bytes and immutable images, not cal
   writeFileSync(f.options.binary, '#!/bin/sh\nexit 2\n');
   const changed = await createVerifierBackend(f.options, f.dependencies);
   assert.notEqual(first.executionIdentity, changed.executionIdentity);
-  const imageChanged = await createVerifierBackend({ ...f.options, image: `node@sha256:${'2'.repeat(64)}` }, f.dependencies);
+  const imageChanged = await createVerifierBackend(
+    { ...f.options, backend: dockerBackend({ image: `node@sha256:${'2'.repeat(64)}`, forwarderImage: IMAGE }) },
+    f.dependencies,
+  );
   assert.notEqual(changed.executionIdentity, imageChanged.executionIdentity);
   await assert.rejects(first.surfnets.start(undefined), /binary.*changed/i);
   assert.equal(f.starts.length, 0);
   const runner = createVerifierRunner(changed);
   const context = { evaluatorConfig: { executionIdentity: first.executionIdentity } } as RunnerContext;
-  await assert.rejects(runner({ id: 'one', title: 'proof', status: 'proposed', reopenCount: 0, done: [] }, context), /execution identity/);
+  await assert.rejects(
+    runner({ id: 'one', title: 'proof', status: 'proposed', reopenCount: 0, done: [] }, context),
+    /execution identity/,
+  );
   assert.equal(f.starts.length, 0);
 });
 
@@ -115,12 +166,20 @@ test('verifier mounts only immutable inputs read-only and fresh writable outputs
     assert.equal(options.env?.SOLANA_RPC_URL, `http://host.docker.internal:${session.port}`);
     assert.equal(options.timeoutMs, 1234);
   });
-  await backend.sandbox.run(['node', 'verify.js'], { codeRoot: join(f.root, 'code'), surfnetPort: session.port, timeoutMs: 1234 });
+  await backend.sandbox.run(['node', 'verify.js'], {
+    codeRoot: join(f.root, 'code'),
+    surfnetPort: session.port,
+    timeoutMs: 1234,
+  });
   assert.equal(existsSync(f.runs[0]!.mounts.extraMounts[0]!.hostPath), false);
   await backend.dispose();
 });
 
-test('locked dependencies and the trusted in-container Surfpool stay read-only beside the writable output', async t => {
+test('locked dependencies and the trusted in-container Surfpool stay read-only beside the writable output', async (t) => {
+  if (process.platform !== 'linux') {
+    t.skip('the in-container Surfpool needs the Linux loader and libraries');
+    return;
+  }
   const f = fixture(t);
   const dependencies = join(f.root, 'dependencies');
   mkdirSync(join(dependencies, 'node_modules'), { recursive: true });
@@ -128,16 +187,22 @@ test('locked dependencies and the trusted in-container Surfpool stay read-only b
   const backend = await createVerifierBackend({ ...f.options, dependencies }, f.dependencies);
   const session = await backend.surfnets.start(undefined);
   await backend.sandbox.run(['node', '--test', 'visible.test.ts'], {
-    codeRoot: join(f.root, 'code'), surfnetPort: session.port, timeoutMs: 120_000,
+    codeRoot: join(f.root, 'code'),
+    surfnetPort: session.port,
+    timeoutMs: 120_000,
   });
   const mounts = f.runs[0]!.mounts.extraMounts;
-  const byTarget = new Map(mounts.map(mount => [mount.containerPath, mount]));
+  const byTarget = new Map(mounts.map((mount) => [mount.containerPath, mount]));
   assert.equal(byTarget.get('/work/node_modules')?.hostPath, join(dependencies, 'node_modules'));
   assert.equal(byTarget.get('/work/node_modules')?.mode, 'ro');
   assert.equal(byTarget.get('/trusted/surfpool')?.hostPath, f.options.binary);
   assert.equal(byTarget.get('/trusted/surfpool')?.mode, 'ro');
-  for (const path of ['/lib64/ld-linux-x86-64.so.2', '/lib/x86_64-linux-gnu/libc.so.6',
-    '/lib/x86_64-linux-gnu/libm.so.6', '/lib/x86_64-linux-gnu/libgcc_s.so.1']) {
+  for (const path of [
+    '/lib64/ld-linux-x86-64.so.2',
+    '/lib/x86_64-linux-gnu/libc.so.6',
+    '/lib/x86_64-linux-gnu/libm.so.6',
+    '/lib/x86_64-linux-gnu/libgcc_s.so.1',
+  ]) {
     assert.equal(byTarget.get(path)?.hostPath, path);
     assert.equal(byTarget.get(path)?.mode, 'ro');
   }
@@ -147,32 +212,44 @@ test('locked dependencies and the trusted in-container Surfpool stay read-only b
   await backend.dispose();
 });
 
-test('an execution timeout cancels verification without disposing its lifetime owner', async t => {
+test('an execution timeout cancels verification without disposing its lifetime owner', async (t) => {
   const f = fixture(t);
   const owner = new AbortController();
   let operation = new AbortController();
-  const backend = await createVerifierBackend({ ...f.options, signal: owner.signal, operationSignal: () => operation.signal }, f.dependencies);
+  const backend = await createVerifierBackend(
+    { ...f.options, signal: owner.signal, operationSignal: () => operation.signal },
+    f.dependencies,
+  );
   try {
     const first = await backend.surfnets.start(undefined);
-    f.onRun(async options => {
+    f.onRun(async (options) => {
       operation.abort(new Error('execution deadline'));
       assert.equal(options.signal?.aborted, true);
       options.signal!.throwIfAborted();
     });
-    await assert.rejects(backend.sandbox.run(['node', 'verify.js'], {
-      codeRoot: join(f.root, 'code'), surfnetPort: first.port, timeoutMs: 1234,
-    }), /execution deadline/);
+    await assert.rejects(
+      backend.sandbox.run(['node', 'verify.js'], {
+        codeRoot: join(f.root, 'code'),
+        surfnetPort: first.port,
+        timeoutMs: 1234,
+      }),
+      /execution deadline/,
+    );
     await first.stop();
     assert.equal(owner.signal.aborted, false);
     operation = new AbortController();
     f.onRun(async () => {});
     const second = await backend.surfnets.start(undefined);
     const result = await backend.sandbox.run(['node', 'verify.js'], {
-      codeRoot: join(f.root, 'code'), surfnetPort: second.port, timeoutMs: 1234,
+      codeRoot: join(f.root, 'code'),
+      surfnetPort: second.port,
+      timeoutMs: 1234,
     });
     assert.equal(result.exitCode, 0);
     await second.stop();
-  } finally { await backend.dispose(); }
+  } finally {
+    await backend.dispose();
+  }
 });
 
 test('startup failure and modified consumed snapshot clean up the child and temporary directories', async (t) => {
@@ -180,11 +257,16 @@ test('startup failure and modified consumed snapshot clean up the child and temp
   const path = join(f.root, 'code', 'snapshot.json');
   writeFileSync(path, '{}');
   const backend = await createVerifierBackend(f.options, f.dependencies);
-  f.onStart(async () => { throw new Error('startup rejected'); });
+  f.onStart(async () => {
+    throw new Error('startup rejected');
+  });
   await assert.rejects(backend.surfnets.start(path), /startup rejected/);
   assert.equal(f.stops(), 1);
   assert.equal(existsSync(f.starts[0]!.workDir), false);
-  f.onStart(async (options) => { chmodSync(options.snapshot!, 0o600); writeFileSync(options.snapshot!, '{"changed":true}'); });
+  f.onStart(async (options) => {
+    chmodSync(options.snapshot!, 0o600);
+    writeFileSync(options.snapshot!, '{"changed":true}');
+  });
   await assert.rejects(backend.surfnets.start(path), /snapshot.*changed/i);
   assert.equal(f.stops(), 2);
   assert.equal(existsSync(f.starts[1]!.workDir), false);
@@ -192,11 +274,23 @@ test('startup failure and modified consumed snapshot clean up the child and temp
 
 test('invalid paths/images and pre-aborted requests fail before spawning', async (t) => {
   const f = fixture(t);
-  await assert.rejects(createVerifierBackend({ ...f.options, binary: join(f.root, 'missing') }, f.dependencies), /ENOENT/);
-  await assert.rejects(createVerifierBackend({ ...f.options, image: 'node:latest' }, f.dependencies), /immutable|sha256/);
+  await assert.rejects(
+    createVerifierBackend({ ...f.options, binary: join(f.root, 'missing') }, f.dependencies),
+    /ENOENT/,
+  );
+  await assert.rejects(
+    createVerifierBackend(
+      { ...f.options, backend: dockerBackend({ image: 'node:latest', forwarderImage: IMAGE }) },
+      f.dependencies,
+    ),
+    /immutable|sha256/,
+  );
   const controller = new AbortController();
   controller.abort(new Error('user cancelled'));
-  await assert.rejects(createVerifierBackend({ ...f.options, signal: controller.signal }, f.dependencies), /user cancelled/);
+  await assert.rejects(
+    createVerifierBackend({ ...f.options, signal: controller.signal }, f.dependencies),
+    /user cancelled/,
+  );
   const backend = await createVerifierBackend(f.options, f.dependencies);
   await assert.rejects(backend.surfnets.start(join(f.root, 'missing')), /ENOENT/);
   await assert.rejects(backend.surfnets.start(f.options.workDir), /regular file/);
@@ -214,7 +308,14 @@ test('cancellation reaches sandbox execution and stops the active process before
     assert.equal(options.signal?.aborted, true);
     options.signal!.throwIfAborted();
   });
-  await assert.rejects(backend.sandbox.run(['node', 'verify.js'], { codeRoot: join(f.root, 'code'), surfnetPort: session.port, timeoutMs: 1000 }), /cancel proof/);
+  await assert.rejects(
+    backend.sandbox.run(['node', 'verify.js'], {
+      codeRoot: join(f.root, 'code'),
+      surfnetPort: session.port,
+      timeoutMs: 1000,
+    }),
+    /cancel proof/,
+  );
   await backend.dispose();
   assert.equal(f.stops(), 1);
   assert.equal(existsSync(f.starts[0]!.workDir), false);
@@ -225,10 +326,21 @@ test('sandbox setup failures remove outputs and do not let foreign ports or over
   const f = fixture(t);
   const backend = await createVerifierBackend(f.options, f.dependencies);
   const session = await backend.surfnets.start(undefined);
-  await assert.rejects(backend.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: 9, timeoutMs: 1000 }), /active.*surfnet/);
-  await assert.rejects(backend.sandbox.run(['node'], { codeRoot: f.root, surfnetPort: session.port, timeoutMs: 1000 }), /overlap/);
-  f.onRun(async () => { throw new Error('Docker setup failed'); });
-  await assert.rejects(backend.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: session.port, timeoutMs: 1000 }), /Docker setup failed/);
+  await assert.rejects(
+    backend.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: 9, timeoutMs: 1000 }),
+    /active.*surfnet/,
+  );
+  await assert.rejects(
+    backend.sandbox.run(['node'], { codeRoot: f.root, surfnetPort: session.port, timeoutMs: 1000 }),
+    /overlap/,
+  );
+  f.onRun(async () => {
+    throw new Error('Docker setup failed');
+  });
+  await assert.rejects(
+    backend.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: session.port, timeoutMs: 1000 }),
+    /Docker setup failed/,
+  );
   assert.equal(existsSync(f.runs[0]!.mounts.extraMounts[0]!.hostPath), false);
   await backend.dispose();
 });
@@ -244,15 +356,24 @@ test('timeout results remain failures and ambiguous sandbox cleanup preserves it
   };
   const backend = await createVerifierBackend(f.options, dependencies);
   const session = await backend.surfnets.start(undefined);
-  const result = await backend.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: session.port, timeoutMs: 1 });
+  const result = await backend.sandbox.run(['node'], {
+    codeRoot: join(f.root, 'code'),
+    surfnetPort: session.port,
+    timeoutMs: 1,
+  });
   assert.equal(result.timedOut, true);
   assert.equal(result.exitCode, 124);
   await backend.dispose();
 
-  f.onRun(async () => { throw new AggregateError([new Error('daemon unavailable')], 'sandbox cleanup failed'); });
+  f.onRun(async () => {
+    throw new AggregateError([new Error('daemon unavailable')], 'sandbox cleanup failed');
+  });
   const failed = await createVerifierBackend(f.options, f.dependencies);
   const failedSession = await failed.surfnets.start(undefined);
-  await assert.rejects(failed.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: failedSession.port, timeoutMs: 1000 }), /sandbox cleanup failed/);
+  await assert.rejects(
+    failed.sandbox.run(['node'], { codeRoot: join(f.root, 'code'), surfnetPort: failedSession.port, timeoutMs: 1000 }),
+    /sandbox cleanup failed/,
+  );
   assert.equal(existsSync(f.runs[1]!.mounts.extraMounts[0]!.hostPath), true);
   await failed.dispose();
 });
@@ -272,26 +393,37 @@ test('abort interrupts an outstanding account read rather than waiting for the R
   assert.equal(f.stops(), 1);
 });
 
-test('real offline verifier closes only after Docker tests and snapshot account evidence pass', { timeout: 120_000 }, async (t) => {
-  const binary = process.env.SURFPOOL_BINARY;
-  const image = process.env.OMS_SANDBOX_IMAGE;
-  const forwarderImage = process.env.OMS_FORWARDER_IMAGE ?? image;
-  if (await skipUnavailable(t, { docker: [image, forwarderImage], surfpool: binary }) || !binary || !image || !forwarderImage) return;
-  const project = makeProject();
-  const workDir = join(project.outside, 'runtime');
-  const leaseDir = join(project.outside, 'leases');
-  mkdirSync(workDir, { mode: 0o700 });
-  mkdirSync(leaseDir, { mode: 0o700 });
-  const address = '9jpoP5z8H8u21sSS5etPxS63LL4WXsxVkKsqBBU3c8rL';
-  const seed = createSurfnet({ binary, workDir: join(project.outside, 'seed') });
-  let backend: VerifierBackend | undefined;
-  try {
-    await seed.start();
-    await seed.rpc.call('surfnet_setAccount', [address, { lamports: 777 }]);
-    const snapshot = Buffer.from(await exportSnapshot(seed.rpcUrl()!));
-    await seed.stop();
-    writeFileSync(join(project.root, '.oms', 'snapshots', 'offline.json'), snapshot);
-    writeFileSync(join(project.root, 'tests', 'verifier.mjs'), `
+test(
+  'real offline verifier closes only after Docker tests and snapshot account evidence pass',
+  { timeout: 120_000 },
+  async (t) => {
+    const binary = process.env.SURFPOOL_BINARY;
+    const image = process.env.OMS_SANDBOX_IMAGE;
+    const forwarderImage = process.env.OMS_FORWARDER_IMAGE ?? image;
+    if (
+      (await skipUnavailable(t, { docker: [image, forwarderImage], surfpool: binary })) ||
+      !binary ||
+      !image ||
+      !forwarderImage
+    )
+      return;
+    const project = makeProject();
+    const workDir = join(project.outside, 'runtime');
+    const leaseDir = join(project.outside, 'leases');
+    mkdirSync(workDir, { mode: 0o700 });
+    mkdirSync(leaseDir, { mode: 0o700 });
+    const address = '9jpoP5z8H8u21sSS5etPxS63LL4WXsxVkKsqBBU3c8rL';
+    const seed = createSurfnet({ binary, workDir: join(project.outside, 'seed') });
+    let backend: VerifierBackend | undefined;
+    try {
+      await seed.start();
+      await seed.rpc.call('surfnet_setAccount', [address, { lamports: 777 }]);
+      const snapshot = Buffer.from(await exportSnapshot(seed.rpcUrl()!));
+      await seed.stop();
+      writeFileSync(join(project.root, '.oms', 'snapshots', 'offline.json'), snapshot);
+      writeFileSync(
+        join(project.root, 'tests', 'verifier.mjs'),
+        `
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 assert.match(readFileSync('src/main.ts', 'utf8'), /amount = 10/);
@@ -303,49 +435,76 @@ const response = await fetch(process.env.SOLANA_RPC_URL, {
 });
 const account = await response.json();
 assert.equal(account.result.value.lamports, 777);
-`);
-    backend = await createVerifierBackend({ taskName: 'real-verifier', binary, image, forwarderImage, workDir, leaseDir, sourceControlDir: project.roots.sourceControlDir });
-    project.config.executionIdentity = backend.executionIdentity;
-    project.config.snapshotDigest = hash(snapshot);
-    const pin = project.pin({ verifierPaths: ['tests/verifier.mjs'] });
-    assert.equal(pin.ok, true, JSON.stringify(pin));
-    project.setContract({
-      version: 0, template: 'spl-token',
-      items: [{
-        id: 'real-proof', title: 'actual readonly Docker tests and offline account evidence',
-        status: 'active', reopenCount: 0,
-        done: [
-          { kind: 'tests', command: ['node', 'tests/verifier.mjs'], expect: 'pass' },
-          { kind: 'account', address, field: 'lamports', equals: '777' },
+`,
+      );
+      backend = await createVerifierBackend({
+        taskName: 'real-verifier',
+        backend: dockerBackend({ image, forwarderImage }),
+        binary,
+        workDir,
+        leaseDir,
+        sourceControlDir: project.roots.sourceControlDir,
+      });
+      project.config.executionIdentity = backend.executionIdentity;
+      project.config.snapshotDigest = hash(snapshot);
+      const pin = project.pin({ verifierPaths: ['tests/verifier.mjs'] });
+      assert.equal(pin.ok, true, JSON.stringify(pin));
+      project.setContract({
+        version: 0,
+        template: 'spl-token',
+        items: [
+          {
+            id: 'real-proof',
+            title: 'actual readonly Docker tests and offline account evidence',
+            status: 'active',
+            reopenCount: 0,
+            done: [
+              { kind: 'tests', command: ['node', 'tests/verifier.mjs'], expect: 'pass' },
+              { kind: 'account', address, field: 'lamports', equals: '777' },
+            ],
+          },
         ],
-      }],
-    });
-    const proposer = createProposer({ ...project.roots, pinFile: project.pinFile });
-    const evaluator = createEvaluator({ ...project.roots, pinFile: project.pinFile, runner: createVerifierRunner(backend) });
-    assert.equal(proposer.propose('real-proof').ok, true);
-    const verdict = await evaluator.evaluate('real-proof');
-    assert.equal(verdict.closed, true, JSON.stringify(verdict));
-    const state = evaluator.read();
-    assert.equal(state.ok, true);
-    if (state.ok) assert.equal(state.value.items[0]?.status, 'closed');
+      });
+      const proposer = createProposer({ ...project.roots, pinFile: project.pinFile });
+      const evaluator = createEvaluator({
+        ...project.roots,
+        pinFile: project.pinFile,
+        runner: createVerifierRunner(backend),
+      });
+      assert.equal(proposer.propose('real-proof').ok, true);
+      const verdict = await evaluator.evaluate('real-proof');
+      assert.equal(verdict.closed, true, JSON.stringify(verdict));
+      const state = evaluator.read();
+      assert.equal(state.ok, true);
+      if (state.ok) assert.equal(state.value.items[0]?.status, 'closed');
 
-    project.setContract({
-      version: 0, template: 'spl-token',
-      items: [{
-        id: 'real-failure', title: 'a nonzero test exit cannot close',
-        status: 'active', reopenCount: 0,
-        done: [{ kind: 'tests', command: ['node', '-e', 'process.exit(9)'], expect: 'pass' }],
-      }],
-    });
-    const failingProposer = createProposer({ ...project.roots, pinFile: project.pinFile });
-    const failingEvaluator = createEvaluator({ ...project.roots, pinFile: project.pinFile, runner: createVerifierRunner(backend) });
-    assert.equal(failingProposer.propose('real-failure').ok, true);
-    const failed = await failingEvaluator.evaluate('real-failure');
-    assert.equal(failed.closed, false, JSON.stringify(failed));
-    assert.equal('reason' in failed && failed.reason, 'failed', JSON.stringify(failed));
-  } finally {
-    await seed.stop();
-    await backend?.dispose();
-    project.cleanup();
-  }
-});
+      project.setContract({
+        version: 0,
+        template: 'spl-token',
+        items: [
+          {
+            id: 'real-failure',
+            title: 'a nonzero test exit cannot close',
+            status: 'active',
+            reopenCount: 0,
+            done: [{ kind: 'tests', command: ['node', '-e', 'process.exit(9)'], expect: 'pass' }],
+          },
+        ],
+      });
+      const failingProposer = createProposer({ ...project.roots, pinFile: project.pinFile });
+      const failingEvaluator = createEvaluator({
+        ...project.roots,
+        pinFile: project.pinFile,
+        runner: createVerifierRunner(backend),
+      });
+      assert.equal(failingProposer.propose('real-failure').ok, true);
+      const failed = await failingEvaluator.evaluate('real-failure');
+      assert.equal(failed.closed, false, JSON.stringify(failed));
+      assert.equal('reason' in failed && failed.reason, 'failed', JSON.stringify(failed));
+    } finally {
+      await seed.stop();
+      await backend?.dispose();
+      project.cleanup();
+    }
+  },
+);

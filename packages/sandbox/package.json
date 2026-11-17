@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Docker sandbox builder: two phases, mount allowlist, egress control",
+  "description": "Command sandbox: host (Seatbelt on macOS) or Docker, with two phases, a mount allowlist and egress control",
   "license": "MIT",
   "engines": {
     "node": ">=22.6"

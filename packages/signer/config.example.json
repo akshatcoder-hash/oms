@@ -4,10 +4,7 @@
   "socketDir": "/abs/path/to/private-oms-signer-sockets",
   "config": {
     "allowlist": {
-      "programIds": [
-        "11111111111111111111111111111111",
-        "ComputeBudget111111111111111111111111111111"
-      ],
+      "programIds": ["11111111111111111111111111111111", "ComputeBudget111111111111111111111111111111"],
       "accountIds": []
     },
     "spend": {

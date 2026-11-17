@@ -24,24 +24,42 @@ export function createDispatchAllocator(
 ): DispatchAllocator {
   const attempts = new Map<string, number>();
   for (const reservation of previous) {
-    if (typeof reservation.logicalTurnId !== 'string' || reservation.logicalTurnId.length === 0 ||
-        !Number.isSafeInteger(reservation.attempt) || reservation.attempt <= 0) {
+    if (
+      typeof reservation.logicalTurnId !== 'string' ||
+      reservation.logicalTurnId.length === 0 ||
+      !Number.isSafeInteger(reservation.attempt) ||
+      reservation.attempt <= 0
+    ) {
       throw new Error('Invalid dispatch allocation history');
     }
-    attempts.set(reservation.logicalTurnId, Math.max(attempts.get(reservation.logicalTurnId) ?? 0, reservation.attempt));
+    attempts.set(
+      reservation.logicalTurnId,
+      Math.max(attempts.get(reservation.logicalTurnId) ?? 0, reservation.attempt),
+    );
   }
   return (turnId, role, model) => {
-    if (typeof turnId !== 'string' || turnId.length === 0 ||
-        role !== 'worker' ||
-        !model || ![model.provider, model.modelId, model.endpointId].every((value) => typeof value === 'string' && value.length > 0)) {
+    if (
+      typeof turnId !== 'string' ||
+      turnId.length === 0 ||
+      role !== 'worker' ||
+      !model ||
+      ![model.provider, model.modelId, model.endpointId].every((value) => typeof value === 'string' && value.length > 0)
+    ) {
       throw new Error('Invalid dispatch identity');
     }
     const attempt = (attempts.get(turnId) ?? 0) + 1;
     if (!Number.isSafeInteger(attempt)) throw new Error('Dispatch attempt range exhausted');
     const dispatchId = globalThis.crypto.randomUUID();
     attempts.set(turnId, attempt);
-    return Object.freeze({ dispatchId, logicalTurnId: turnId, attempt, role,
-      provider: model.provider, modelId: model.modelId, endpointId: model.endpointId,
-      policyVersion: MODEL_POLICY_VERSION });
+    return Object.freeze({
+      dispatchId,
+      logicalTurnId: turnId,
+      attempt,
+      role,
+      provider: model.provider,
+      modelId: model.modelId,
+      endpointId: model.endpointId,
+      policyVersion: MODEL_POLICY_VERSION,
+    });
   };
 }

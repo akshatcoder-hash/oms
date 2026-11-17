@@ -11,17 +11,29 @@ import { SandboxError } from './errors.ts';
 
 export async function dockerOut(args: string[], timeoutMs = 30_000, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('docker', args, {
-      timeout: timeoutMs, signal, killSignal: 'SIGKILL', encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
-    }, (err, stdout, stderr) => {
-      if (err) {
-        reject(new SandboxError('E_DOCKER', `docker ${args[0] ?? ''} failed: ${(stderr || stderrOf(err)).trim()}`, {
-          args, stderr: stderr.trim(),
-        }));
-        return;
-      }
-      resolve(stdout);
-    });
+    execFile(
+      'docker',
+      args,
+      {
+        timeout: timeoutMs,
+        signal,
+        killSignal: 'SIGKILL',
+        encoding: 'utf8',
+        maxBuffer: 8 * 1024 * 1024,
+      },
+      (err, stdout, stderr) => {
+        if (err) {
+          reject(
+            new SandboxError('E_DOCKER', `docker ${args[0] ?? ''} failed: ${(stderr || stderrOf(err)).trim()}`, {
+              args,
+              stderr: stderr.trim(),
+            }),
+          );
+          return;
+        }
+        resolve(stdout);
+      },
+    );
   });
 }
 
@@ -45,22 +57,31 @@ export const sandboxDocker: DockerClient = {
       const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
       // The supervisor removes the separately-created owned container before
       // releasing its resource lease; abort only stops this attach client.
-      const abort = () => { child.kill('SIGKILL'); };
+      const abort = () => {
+        child.kill('SIGKILL');
+      };
       options.signal.addEventListener('abort', abort, { once: true });
       let captureError: unknown;
       const deliver = (sink: (chunk: Buffer) => void) => (chunk: Buffer) => {
         if (captureError) return;
-        try { sink(chunk); }
-        catch (error) { captureError = error; child.kill('SIGKILL'); }
+        try {
+          sink(chunk);
+        } catch (error) {
+          captureError = error;
+          child.kill('SIGKILL');
+        }
       };
       child.stdout.on('data', deliver(options.stdout));
       child.stderr.on('data', deliver(options.stderr));
-      child.once('error', error => {
+      child.once('error', (error) => {
         reject(new SandboxError('E_DOCKER', `failed to spawn docker: ${error.message}`));
       });
-      child.once('close', code => {
+      child.once('close', (code) => {
         options.signal.removeEventListener('abort', abort);
-        if (captureError) { reject(captureError); return; }
+        if (captureError) {
+          reject(captureError);
+          return;
+        }
         resolve(options.signal.aborted ? 130 : (code ?? 127));
       });
       if (options.signal.aborted) abort();

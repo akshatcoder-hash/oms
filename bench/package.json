@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Solana Bench harness and runner, kept out of the shipped product",
   "license": "MIT",
-  "engines": { "node": ">=22.19.0" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",

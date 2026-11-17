@@ -3,7 +3,15 @@ import { readFileSync } from 'node:fs';
 import { release } from 'node:os';
 import { convertToPng } from '@earendil-works/pi-coding-agent';
 import { cropKittyImageLine } from '@earendil-works/pi-tui/dist/terminal-image.js';
-import { allocateImageId, getCapabilities, getCellDimensions, getPngDimensions, renderImage, setCapabilities, type ImageDimensions } from '@earendil-works/pi-tui';
+import {
+  allocateImageId,
+  getCapabilities,
+  getCellDimensions,
+  getPngDimensions,
+  renderImage,
+  setCapabilities,
+  type ImageDimensions,
+} from '@earendil-works/pi-tui';
 import { ART_DIR, artRows, decodeArt, renderArt, type ArtTier, type Pixels } from './art.ts';
 
 /** The startup picture setting: detect the best way to draw it, force one, or show nothing. */
@@ -14,7 +22,14 @@ type ArtShowPicture = 'image' | ArtTier;
 export type ArtShow = ArtShowPicture | 'title' | 'off';
 
 /** `file` is the mosaic's pixels (.ycc), `image` the real picture (JPEG); width and height are the .ycc's. */
-interface ArtEntry { number: number; title: string; file: string; image: string; width: number; height: number }
+interface ArtEntry {
+  number: number;
+  title: string;
+  file: string;
+  image: string;
+  width: number;
+  height: number;
+}
 /** Narrower than this the picture reads as noise; wider than this adds bytes, not detail (the assets are 640 px). */
 const MIN_COLS = 60;
 const MAX_COLS = 220;
@@ -32,12 +47,21 @@ export interface ArtHost {
 }
 
 const HOST: ArtHost = {
-  get kitty() { return getCapabilities().images === 'kitty'; },
+  get kitty() {
+    return getCapabilities().images === 'kitty';
+  },
   tmuxRgb() {
     try {
-      return /\bRGB\b/.test(execFileSync('tmux', ['display-message', '-p', '#{client_termfeatures}'],
-        { encoding: 'utf8', timeout: 200, stdio: ['ignore', 'pipe', 'ignore'] }));
-    } catch { return false; }
+      return /\bRGB\b/.test(
+        execFileSync('tmux', ['display-message', '-p', '#{client_termfeatures}'], {
+          encoding: 'utf8',
+          timeout: 200,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      );
+    } catch {
+      return false;
+    }
   },
   darwin: process.platform === 'darwin' ? Number.parseInt(release(), 10) || 0 : 0,
 };
@@ -53,12 +77,14 @@ const HOST: ArtHost = {
 export function artShow(mode: StartupArtMode, env: Record<string, string | undefined>, host: ArtHost = HOST): ArtShow {
   if (mode !== 'auto') return mode;
   if (env.NO_COLOR) return 'title';
-  const term = env.TERM ?? '', truecolor = env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit';
+  const term = env.TERM ?? '',
+    truecolor = env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit';
   if (env.TMUX) return truecolor || host.tmuxRgb() ? 'truecolor' : '256';
   if (env.STY) return '256';
   if (host.kitty) return 'image';
   if (env.TERM_PROGRAM === 'Apple_Terminal') return host.darwin >= 25 ? 'truecolor' : '256';
-  if (truecolor || TRUECOLOR_PROGRAMS.has(env.TERM_PROGRAM ?? '') || /kitty|ghostty|wezterm|256color/.test(term)) return 'truecolor';
+  if (truecolor || TRUECOLOR_PROGRAMS.has(env.TERM_PROGRAM ?? '') || /kitty|ghostty|wezterm|256color/.test(term))
+    return 'truecolor';
   return 'title';
 }
 
@@ -71,9 +97,12 @@ const DA1 = '\x1b[c';
  * graphics (the protocol's own capability query). True only for an OK followed by the DA1 reply; DA1 alone or
  * `timeoutMs` (1 s, for slow SSH links) without DA1 means no. Run before the interface starts reading the terminal.
  */
-export function queryKittyGraphics(input: NodeJS.ReadableStream & { isRaw?: boolean; setRawMode?(raw: boolean): unknown },
-  output: { write(data: string): unknown }, timeoutMs = 1000): Promise<boolean> {
-  return new Promise(resolve => {
+export function queryKittyGraphics(
+  input: NodeJS.ReadableStream & { isRaw?: boolean; setRawMode?(raw: boolean): unknown },
+  output: { write(data: string): unknown },
+  timeoutMs = 1000,
+): Promise<boolean> {
+  return new Promise((resolve) => {
     const wasRaw = input.isRaw ?? false;
     let reply = '';
     const done = (ok: boolean) => {
@@ -100,16 +129,23 @@ export function queryKittyGraphics(input: NodeJS.ReadableStream & { isRaw?: bool
  * Settle Kitty graphics before the renderer starts (it decides there how image lines are uploaded and placed):
  * forced by the setting, or, over SSH where pi-tui's environment check cannot see the terminal, one query.
  */
-export async function settleKittyGraphics(mode: StartupArtMode, env: Record<string, string | undefined>,
-  query = () => queryKittyGraphics(process.stdin, process.stdout)): Promise<void> {
+export async function settleKittyGraphics(
+  mode: StartupArtMode,
+  env: Record<string, string | undefined>,
+  query = () => queryKittyGraphics(process.stdin, process.stdout),
+): Promise<void> {
   const capabilities = getCapabilities();
   if (capabilities.images === 'kitty' || (mode !== 'auto' && mode !== 'image')) return;
   const ssh = !!(env.SSH_TTY || env.SSH_CONNECTION) && !capabilities.images && !env.TMUX && !env.STY && !env.NO_COLOR;
-  if (mode === 'image' || (ssh && await query())) setCapabilities({ ...capabilities, images: 'kitty' });
+  if (mode === 'image' || (ssh && (await query()))) setCapabilities({ ...capabilities, images: 'kitty' });
 }
 
 /** A picture's lines and the columns it covers; an image is one Kitty placement on the first line. */
-interface Picture { cols: number; lines: string[]; image?: true }
+interface Picture {
+  cols: number;
+  lines: string[];
+  image?: true;
+}
 
 /** One picture per launch: the real picture over Kitty graphics, or a quadrant mosaic, cached per size and tier. */
 export class StartupArt {
@@ -125,11 +161,13 @@ export class StartupArt {
     this.entry = INDEX[Math.floor(random() * INDEX.length)]!;
   }
 
-  get title(): string { return `${this.entry.number} / ${this.entry.title}`; }
+  get title(): string {
+    return `${this.entry.number} / ${this.entry.title}`;
+  }
 
   /** Switch to a different picture. */
   next(): void {
-    const others = INDEX.filter(entry => entry !== this.entry);
+    const others = INDEX.filter((entry) => entry !== this.entry);
     this.entry = others[Math.floor(this.random() * others.length)]!;
     this.pixels = undefined;
     this.png = undefined;
@@ -157,14 +195,15 @@ export class StartupArt {
    */
   block(width: number, maxRows: number, show: ArtShow, muted: (text: string) => string, hidden = 0): string[] {
     if (show === 'off') return [];
-    const picture = show === 'image'
-      ? this.image(width, maxRows) ?? this.mosaic(width, maxRows, 'truecolor')
-      : this.mosaic(width, maxRows, show);
+    const picture =
+      show === 'image'
+        ? (this.image(width, maxRows) ?? this.mosaic(width, maxRows, 'truecolor'))
+        : this.mosaic(width, maxRows, show);
     if (!picture) return [];
     const pad = ' '.repeat(Math.floor((width - picture.cols) / 2));
     const title = [pad + muted(this.title), ''];
     if (show === 'title') return title;
-    const lines = picture.lines.map(line => pad + line);
+    const lines = picture.lines.map((line) => pad + line);
     if (picture.image && hidden > 0 && hidden < lines.length) {
       lines[hidden] = pad + cropKittyImageLine(picture.lines[0]!, hidden, lines.length - hidden);
       lines[0] = pad;
@@ -192,13 +231,22 @@ export class StartupArt {
    */
   private image(width: number, maxRows: number): Picture | undefined {
     if (!this.png || getCapabilities().images !== 'kitty' || maxRows < 1) return undefined;
-    const cell = getCellDimensions(), key = `image ${width} ${maxRows} ${cell.widthPx}x${cell.heightPx}`;
+    const cell = getCellDimensions(),
+      key = `image ${width} ${maxRows} ${cell.widthPx}x${cell.heightPx}`;
     let picture = this.cache.get(key);
     if (!picture) {
-      const placed = renderImage(this.png.data, this.png.size,
-        { maxWidthCells: Math.min(width - 2, MAX_COLS), maxHeightCells: maxRows, imageId: this.png.id, moveCursor: false });
+      const placed = renderImage(this.png.data, this.png.size, {
+        maxWidthCells: Math.min(width - 2, MAX_COLS),
+        maxHeightCells: maxRows,
+        imageId: this.png.id,
+        moveCursor: false,
+      });
       if (!placed) return undefined;
-      picture = { cols: placed.columns, lines: [placed.sequence, ...Array.from({ length: placed.rows - 1 }, () => '')], image: true };
+      picture = {
+        cols: placed.columns,
+        lines: [placed.sequence, ...Array.from({ length: placed.rows - 1 }, () => '')],
+        image: true,
+      };
       this.cache.set(key, picture);
     }
     return picture.cols >= MIN_COLS ? picture : undefined;

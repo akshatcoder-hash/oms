@@ -14,10 +14,7 @@ import { realpathSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 
 export type GuardDenialCode =
-  | 'E_GUARD_BAD_PATH'
-  | 'E_GUARD_OUTSIDE_ROOT'
-  | 'E_GUARD_DENIED_PATH'
-  | 'E_GUARD_RESOLVE_FAILED';
+  'E_GUARD_BAD_PATH' | 'E_GUARD_OUTSIDE_ROOT' | 'E_GUARD_DENIED_PATH' | 'E_GUARD_RESOLVE_FAILED';
 
 export interface GuardDecision {
   allowed: boolean;

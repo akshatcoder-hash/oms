@@ -42,10 +42,7 @@ test('the store refuses to write over a contract edited behind its back', (t) =>
   t.after(() => project.cleanup());
   const store = createContractStore({ ...project.roots, pinFile: project.pinFile });
 
-  writeFileSync(
-    project.contractPath,
-    project.readContractText().replace('"active"', '"proposed"'),
-  );
+  writeFileSync(project.contractPath, project.readContractText().replace('"active"', '"proposed"'));
 
   const refused = store.activate('item-1');
   assert.equal(refused.ok, false);
@@ -59,7 +56,7 @@ test('the store reports a missing pin and a missing contract without throwing', 
   const project = makeProject();
   t.after(() => project.cleanup());
 
-  const noPin = createContractStore({ ...project.roots, pinFile: join(project.outside, 'missing-pin.json'), });
+  const noPin = createContractStore({ ...project.roots, pinFile: join(project.outside, 'missing-pin.json') });
   assert.equal(noPin.contractPath(), null);
   const read = noPin.read();
   assert.equal(read.ok, false);

@@ -24,8 +24,14 @@ export function taskContext(workspace: Workspace, task: Task): TaskContext {
   const sourceControlDir = join(workspace.stateDir, 'source-control');
   for (const dir of [workDir, leaseDir, sourceControlDir]) privateDirectory(dir);
   const roots: TaskRoots = {
-    workspaceRoot: workspace.root, stateRoot: dirname(task.taskFile), codeRoot: task.codeRoot, sourceControlDir,
+    workspaceRoot: workspace.root,
+    stateRoot: dirname(task.taskFile),
+    codeRoot: task.codeRoot,
+    sourceControlDir,
   };
-  const taskName = `h-${createHash('sha256').update(workspace.id + ':' + task.id).digest('hex').slice(0, 40)}`;
+  const taskName = `h-${createHash('sha256')
+    .update(workspace.id + ':' + task.id)
+    .digest('hex')
+    .slice(0, 40)}`;
   return { stateDir, workDir, leaseDir, sourceControlDir, roots, taskName };
 }

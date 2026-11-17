@@ -1,8 +1,15 @@
-import type { HealthReport, Surfnet, SurfnetMode } from "@oms/surfnet";
+import type { HealthReport, Surfnet, SurfnetMode } from '@oms/surfnet';
 
 /** Read methods plus the airdrop faucet: all a user-facing chain command needs, all local-only. Cheat codes are not reachable. */
 export const CHAIN_METHODS: ReadonlySet<string> = new Set([
-  "getHealth", "getSlot", "getVersion", "getEpochInfo", "getBalance", "getAccountInfo", "getTransaction", "requestAirdrop",
+  'getHealth',
+  'getSlot',
+  'getVersion',
+  'getEpochInfo',
+  'getBalance',
+  'getAccountInfo',
+  'getTransaction',
+  'requestAirdrop',
 ]);
 
 /** The task's own local Surfpool, as the TUI's chain commands may use it. Nothing here can reach another network. */
@@ -21,7 +28,9 @@ export interface ChainControls {
 }
 
 export function createChainControls(options: {
-  surfnet: Surfnet; clock?: () => number; withUserOperation<T>(action: () => Promise<T>): Promise<T>;
+  surfnet: Surfnet;
+  clock?: () => number;
+  withUserOperation<T>(action: () => Promise<T>): Promise<T>;
 }): ChainControls {
   const { surfnet } = options;
   const clock = options.clock ?? Date.now;
@@ -32,12 +41,14 @@ export function createChainControls(options: {
     uptimeMs: () => clock() - startedAt,
     health: () => surfnet.health(),
     call(method, params = []) {
-      if (!CHAIN_METHODS.has(method)) return Promise.reject(new Error(`Chain method ${method} is not available from commands`));
+      if (!CHAIN_METHODS.has(method))
+        return Promise.reject(new Error(`Chain method ${method} is not available from commands`));
       return surfnet.rpc.call(method, params, { timeoutMs: 15_000 });
     },
-    rewind: () => options.withUserOperation(async () => {
-      await surfnet.rewindToStart();
-      startedAt = clock();
-    }),
+    rewind: () =>
+      options.withUserOperation(async () => {
+        await surfnet.rewindToStart();
+        startedAt = clock();
+      }),
   };
 }

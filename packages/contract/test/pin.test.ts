@@ -200,10 +200,13 @@ test('pinContract rejects a missing contract or an unusable root', (t) => {
   const project = makeProject();
   t.after(() => project.cleanup());
 
-  const missingContract = pinContract({ ...project.roots, contractPath: '.oms/missing.json',
-  verifierPaths: ['tests/verifier.test.ts'],
-  evaluatorConfig: evaluatorConfig(),
-  pinFile: join(project.outside, 'pin-2.json'), });
+  const missingContract = pinContract({
+    ...project.roots,
+    contractPath: '.oms/missing.json',
+    verifierPaths: ['tests/verifier.test.ts'],
+    evaluatorConfig: evaluatorConfig(),
+    pinFile: join(project.outside, 'pin-2.json'),
+  });
   assert.equal(missingContract.ok, false);
   if (!missingContract.ok) assert.equal(missingContract.code, 'E_NOT_FOUND');
 

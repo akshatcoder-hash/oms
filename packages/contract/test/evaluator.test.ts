@@ -9,31 +9,14 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { readContractFile } from '../src/contract-io.ts';
-import {
-  createEvaluator,
-  createProposer,
-  type EvaluatorOptions,
-  type Runner,
-} from '../src/evaluator.ts';
+import { createEvaluator, createProposer, type EvaluatorOptions, type Runner } from '../src/evaluator.ts';
 import { createVerifierCache } from '../src/evidence.ts';
 import { verifyPin } from '../src/pin.ts';
 import type { TaskContract } from '../src/types.ts';
-import {
-  FIXED_TIME,
-  countingRunner,
-  evidenceFor,
-  makeProject,
-  type Project,
-} from '../test-support/fixture.ts';
+import { FIXED_TIME, countingRunner, evidenceFor, makeProject, type Project } from '../test-support/fixture.ts';
 
-function makeEvaluator(
-  project: Project,
-  runner: Runner,
-  extra: Partial<EvaluatorOptions> = {},
-) {
-  return createEvaluator({ pinFile: project.pinFile, ...project.roots, runner,
-  clock: () => FIXED_TIME,
-  ...extra, });
+function makeEvaluator(project: Project, runner: Runner, extra: Partial<EvaluatorOptions> = {}) {
+  return createEvaluator({ pinFile: project.pinFile, ...project.roots, runner, clock: () => FIXED_TIME, ...extra });
 }
 
 function propose(project: Project, itemId = 'item-1'): void {
@@ -280,8 +263,7 @@ test('a runner crash counts as a failed attempt and never closes', async (t) => 
 test('evidence not bound to the pinned digests cannot close an item', async (t) => {
   const project = makeProject();
   t.after(() => project.cleanup());
-  const runner: Runner = async (item, ctx) =>
-    evidenceFor(item, ctx, { verifierDigest: 'f'.repeat(64) });
+  const runner: Runner = async (item, ctx) => evidenceFor(item, ctx, { verifierDigest: 'f'.repeat(64) });
   const evaluator = makeEvaluator(project, runner);
 
   propose(project);
@@ -299,8 +281,7 @@ test('evidence not bound to the pinned digests cannot close an item', async (t) 
 test('stale evidence from another code revision cannot close an item', async (t) => {
   const project = makeProject();
   t.after(() => project.cleanup());
-  const runner: Runner = async (item, ctx) =>
-    evidenceFor(item, ctx, { codeDigest: '0'.repeat(64) });
+  const runner: Runner = async (item, ctx) => evidenceFor(item, ctx, { codeDigest: '0'.repeat(64) });
   const evaluator = makeEvaluator(project, runner);
 
   propose(project);

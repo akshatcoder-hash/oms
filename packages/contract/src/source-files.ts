@@ -2,7 +2,10 @@ import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, realpat
 import { dirname } from 'node:path';
 import { PathError } from './paths.ts';
 
-export interface DirectoryIdentity { path: string; stat: Stats }
+export interface DirectoryIdentity {
+  path: string;
+  stat: Stats;
+}
 
 export function sameIdentity(a: Stats, b: Stats): boolean {
   return a.dev === b.dev && a.ino === b.ino && a.mode === b.mode && a.uid === b.uid && a.gid === b.gid;
@@ -10,9 +13,10 @@ export function sameIdentity(a: Stats, b: Stats): boolean {
 
 export function directoryIdentities(path: string): DirectoryIdentity[] {
   const chain: DirectoryIdentity[] = [];
-  for (let current = path;; current = dirname(current)) {
+  for (let current = path; ; current = dirname(current)) {
     const stat = lstatSync(current);
-    if (!stat.isDirectory() || realpathSync(current) !== current) throw new PathError('E_BAD_ROOT', 'input directory identity is invalid', current);
+    if (!stat.isDirectory() || realpathSync(current) !== current)
+      throw new PathError('E_BAD_ROOT', 'input directory identity is invalid', current);
     chain.push({ path: current, stat });
     if (dirname(current) === current) return chain;
   }
@@ -31,14 +35,25 @@ export function assertDirectories(chain: readonly DirectoryIdentity[]): void {
  * symlink or block opening a FIFO; opened identity/type is checked before bytes.
  * Ancestor validation is defense in depth, not an openat/descriptor-walk claim.
  */
-export function readCheckedFile(path: string, expected: Stats, maxBytes: number, directories = directoryIdentities(dirname(path))): Buffer {
+export function readCheckedFile(
+  path: string,
+  expected: Stats,
+  maxBytes: number,
+  directories = directoryIdentities(dirname(path)),
+): Buffer {
   if (!expected.isFile()) throw new PathError('E_NOT_A_FILE', 'input is not a regular file', path);
-  if (!Number.isSafeInteger(expected.size) || expected.size < 0 || expected.size > maxBytes) throw new RangeError('input exceeds the proof byte limit');
+  if (!Number.isSafeInteger(expected.size) || expected.size < 0 || expected.size > maxBytes)
+    throw new RangeError('input exceeds the proof byte limit');
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const opened = fstatSync(fd);
-    if (!opened.isFile() || !sameIdentity(opened, expected) || opened.size !== expected.size ||
-        opened.mtimeMs !== expected.mtimeMs || opened.ctimeMs !== expected.ctimeMs) {
+    if (
+      !opened.isFile() ||
+      !sameIdentity(opened, expected) ||
+      opened.size !== expected.size ||
+      opened.mtimeMs !== expected.mtimeMs ||
+      opened.ctimeMs !== expected.ctimeMs
+    ) {
       throw new PathError('E_NOT_A_FILE', 'opened input identity changed before reading', path);
     }
     assertDirectories(directories);
@@ -49,12 +64,20 @@ export function readCheckedFile(path: string, expected: Stats, maxBytes: number,
       if (read === 0) throw new PathError('E_NOT_A_FILE', 'input shortened while reading', path);
       offset += read;
     }
-    if (readSync(fd, Buffer.allocUnsafe(1), 0, 1, offset) !== 0) throw new PathError('E_NOT_A_FILE', 'input grew while reading', path);
+    if (readSync(fd, Buffer.allocUnsafe(1), 0, 1, offset) !== 0)
+      throw new PathError('E_NOT_A_FILE', 'input grew while reading', path);
     const after = fstatSync(fd);
-    if (!sameIdentity(after, opened) || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) {
+    if (
+      !sameIdentity(after, opened) ||
+      after.size !== opened.size ||
+      after.mtimeMs !== opened.mtimeMs ||
+      after.ctimeMs !== opened.ctimeMs
+    ) {
       throw new PathError('E_NOT_A_FILE', 'input changed while reading', path);
     }
     assertDirectories(directories);
     return bytes;
-  } finally { closeSync(fd); }
+  } finally {
+    closeSync(fd);
+  }
 }

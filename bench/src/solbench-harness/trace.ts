@@ -19,7 +19,11 @@ export function startWorkspaceTrace(workspace: string, outDir: string, intervalM
   let total = 0;
   const walk = (dir: string, out: string[]) => {
     let entries;
-    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const entry of entries) {
       if (SKIP.has(entry.name)) continue;
       const path = join(dir, entry.name);
@@ -35,7 +39,9 @@ export function startWorkspaceTrace(workspace: string, outDir: string, intervalM
       try {
         if (statSync(path).size > MAX_FILE_BYTES) continue;
         bytes = readFileSync(path);
-      } catch { continue; }
+      } catch {
+        continue;
+      }
       if (bytes.includes(0)) continue;
       const hash = createHash('sha256').update(bytes).digest('hex');
       const rel = relative(workspace, path);
@@ -47,21 +53,37 @@ export function startWorkspaceTrace(workspace: string, outDir: string, intervalM
         total += bytes.length;
         copyFileSync(path, stored);
       }
-      appendFileSync(index, JSON.stringify({ t: Math.round((Date.now() - started) / 1000), path: rel, bytes: bytes.length, sha256: hash }) + '\n');
+      appendFileSync(
+        index,
+        JSON.stringify({ t: Math.round((Date.now() - started) / 1000), path: rel, bytes: bytes.length, sha256: hash }) +
+          '\n',
+      );
     }
   };
   snap();
   const timer = setInterval(snap, intervalMs);
-  return () => { clearInterval(timer); snap(); };
+  return () => {
+    clearInterval(timer);
+    snap();
+  };
 }
 
 /** The egress proxy's host log, cut to one run's time window (hosts only: traffic is TLS). Shared when runs overlap in time. */
 export function sliceEgressLog(egressLog: string, fromMs: number, toMs: number, out: string): void {
   let text: string;
-  try { text = readFileSync(egressLog, 'utf8'); } catch { return; }
-  const lines = text.split('\n').filter(line => {
+  try {
+    text = readFileSync(egressLog, 'utf8');
+  } catch {
+    return;
+  }
+  const lines = text.split('\n').filter((line) => {
     if (!line) return false;
-    try { const at = Date.parse((JSON.parse(line) as { at?: string }).at ?? ''); return at >= fromMs && at <= toMs; } catch { return false; }
+    try {
+      const at = Date.parse((JSON.parse(line) as { at?: string }).at ?? '');
+      return at >= fromMs && at <= toMs;
+    } catch {
+      return false;
+    }
   });
   appendFileSync(out, lines.join('\n') + (lines.length ? '\n' : ''));
 }

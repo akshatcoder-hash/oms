@@ -28,10 +28,11 @@ function run(file: string, pattern: string, unavailable?: string, flag?: string)
   };
   // This is an independent test runner, not a recursive node:test invocation.
   delete env.NODE_TEST_CONTEXT;
-  const result = spawnSync(process.execPath, [
-    '--test', '--test-reporter=tap', '--test-timeout=20000',
-    `--test-name-pattern=${pattern}`, `packages/${file}`,
-  ], { cwd: root, env, encoding: 'utf8', timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
+  const result = spawnSync(
+    process.execPath,
+    ['--test', '--test-reporter=tap', '--test-timeout=20000', `--test-name-pattern=${pattern}`, `packages/${file}`],
+    { cwd: root, env, encoding: 'utf8', timeout: 30_000, maxBuffer: 2 * 1024 * 1024 },
+  );
   assert.ifError(result.error);
   assert.equal(result.signal, null, result.stdout + result.stderr);
   return { status: result.status, tap: result.stdout + result.stderr };
@@ -56,7 +57,7 @@ for (const [file, pattern, flags] of cases) {
 }
 
 for (const [file, pattern] of cases.slice(0, 2)) {
-  test(`${file}: present infrastructure executes without skips`, t => {
+  test(`${file}: present infrastructure executes without skips`, (t) => {
     if (!process.env.OMS_SANDBOX_IMAGE || !process.env.OMS_SANDBOX_FORWARDER_IMAGE || !process.env.SURFPOOL_BINARY) {
       return t.skip('set the approved integration environment for the present-infrastructure proof');
     }

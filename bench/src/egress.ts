@@ -16,9 +16,26 @@ export interface EgressOptions {
 }
 
 const PRIVATE = new BlockList();
-for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
-  ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3]] as const) PRIVATE.addSubnet(net, bits, 'ipv4');
-for (const [net, bits] of [['::', 127], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) PRIVATE.addSubnet(net, bits, 'ipv6');
+for (const [net, bits] of [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['224.0.0.0', 3],
+] as const)
+  PRIVATE.addSubnet(net, bits, 'ipv4');
+for (const [net, bits] of [
+  ['::', 127],
+  ['fc00::', 7],
+  ['fe80::', 10],
+  ['ff00::', 8],
+] as const)
+  PRIVATE.addSubnet(net, bits, 'ipv6');
 
 /** True for a globally routable address. IPv4-mapped IPv6 is judged as its IPv4 address. */
 export function publicAddress(ip: string): boolean {
@@ -34,12 +51,16 @@ async function admit(host: string, allow: EgressOptions['allow']): Promise<strin
   try {
     const { address } = await lookup(host);
     return publicAddress(address) ? address : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 export const hostAllowed = (host: string, allow: readonly string[]) => {
   const name = host.toLowerCase();
-  return allow.some(rule => rule.startsWith('*.') ? name.endsWith(rule.slice(1)) && name.length > rule.length - 1 : name === rule);
+  return allow.some((rule) =>
+    rule.startsWith('*.') ? name.endsWith(rule.slice(1)) && name.length > rule.length - 1 : name === rule,
+  );
 };
 
 /**
@@ -47,12 +68,18 @@ export const hostAllowed = (host: string, allow: readonly string[]) => {
  * and the container reaches nothing else. Subscription traffic cannot go through the key-injecting metering proxy.
  */
 export async function startEgressProxy(o: EgressOptions): Promise<{ port: number; close(): Promise<void> }> {
-  const log = (entry: Record<string, unknown>) => appendFileSync(o.logFile, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n', { mode: 0o600 });
+  const log = (entry: Record<string, unknown>) =>
+    appendFileSync(o.logFile, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n', { mode: 0o600 });
   const open = new Set<import('node:stream').Duplex>();
-  const server = createServer((_req, res) => { res.writeHead(403); res.end('CONNECT only'); });
+  const server = createServer((_req, res) => {
+    res.writeHead(403);
+    res.end('CONNECT only');
+  });
   server.on('clientError', (_error, socket) => socket.destroy());
   server.on('connect', async (req, client, head) => {
-    client.on('error', () => { /* a reset from the container must never crash the tunnel */ });
+    client.on('error', () => {
+      /* a reset from the container must never crash the tunnel */
+    });
     const [host = '', portText = ''] = (req.url ?? '').split(':');
     const port = Number(portText);
     const address = port === 443 ? await admit(host, o.allow) : null;
@@ -67,17 +94,34 @@ export async function startEgressProxy(o: EgressOptions): Promise<{ port: number
       upstream.pipe(client);
       client.pipe(upstream);
     });
-    open.add(client); open.add(upstream);
-    const done = () => { client.destroy(); upstream.destroy(); open.delete(client); open.delete(upstream); };
-    upstream.on('error', () => { if (!client.destroyed) client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n'); done(); });
+    open.add(client);
+    open.add(upstream);
+    const done = () => {
+      client.destroy();
+      upstream.destroy();
+      open.delete(client);
+      open.delete(upstream);
+    };
+    upstream.on('error', () => {
+      if (!client.destroyed) client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+      done();
+    });
     client.on('error', done);
     upstream.on('close', done);
     client.on('close', done);
     log({ host, port, allowed: true });
   });
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(o.port, o.host, resolve); });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(o.port, o.host, resolve);
+  });
   return {
     port: (server.address() as AddressInfo).port,
-    close: () => new Promise<void>(resolve => { for (const socket of open) socket.destroy(); server.closeAllConnections(); server.close(() => resolve()); }),
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const socket of open) socket.destroy();
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   };
 }

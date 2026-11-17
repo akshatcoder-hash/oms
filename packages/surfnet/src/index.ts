@@ -1,12 +1,6 @@
 export { findFreePortPair, releasePorts, type PortPair } from './ports.ts';
 export { spawnSurfpool, type SurfnetProcess, type SpawnOptions } from './process.ts';
-export {
-  createRpcClient,
-  SurfnetRpcError,
-  isSurfnetRpcError,
-  type RpcClient,
-  type RpcCallOptions,
-} from './rpc.ts';
+export { createRpcClient, SurfnetRpcError, isSurfnetRpcError, type RpcClient, type RpcCallOptions } from './rpc.ts';
 export {
   normalizeError,
   normalizeTransportError,
@@ -15,10 +9,4 @@ export {
   type RawRpcFailure,
 } from './normalize.ts';
 export { createStateQueue, isReadMethod, type StateQueue } from './queue.ts';
-export {
-  createSurfnet,
-  type Surfnet,
-  type SurfnetOptions,
-  type SurfnetMode,
-  type HealthReport,
-} from './manager.ts';
+export { createSurfnet, type Surfnet, type SurfnetOptions, type SurfnetMode, type HealthReport } from './manager.ts';

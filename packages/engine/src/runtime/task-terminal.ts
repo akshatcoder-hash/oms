@@ -2,7 +2,13 @@ import { createHostTerminal } from './host-terminal.ts';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
-import { runInSandbox, type RunInSandboxOptions, type SandboxResult, type DockerClient, SandboxError } from '@oms/sandbox';
+import {
+  runInSandbox,
+  type RunInSandboxOptions,
+  type SandboxResult,
+  type DockerClient,
+  SandboxError,
+} from '@oms/sandbox';
 
 export interface TaskTerminal {
   write(data: Uint8Array): void;
@@ -20,7 +26,12 @@ export interface TaskTerminalOptions {
 }
 
 export interface OwnedTaskTerminal extends TaskTerminal {
-  execute(argv: string[], signal?: AbortSignal, timeoutMs?: number, onOutput?: (chunk: Buffer) => void): Promise<SandboxResult>;
+  execute(
+    argv: string[],
+    signal?: AbortSignal,
+    timeoutMs?: number,
+    onOutput?: (chunk: Buffer) => void,
+  ): Promise<SandboxResult>;
 }
 
 const MAX_TERMINAL_INPUT_BYTES = 64 * 1024;
@@ -35,12 +46,17 @@ export class TerminalOutput {
   private closed = false;
 
   private readonly fail: (error: unknown) => void;
-  constructor(fail: (error: unknown) => void) { this.fail = fail; }
+  constructor(fail: (error: unknown) => void) {
+    this.fail = fail;
+  }
 
-  get subscribed(): boolean { return this.listener !== undefined; }
+  get subscribed(): boolean {
+    return this.listener !== undefined;
+  }
   write(data: Uint8Array): Promise<void> {
     if (this.closed) return Promise.resolve();
-    if (this.bytes + data.byteLength > MAX_STARTUP_OUTPUT_BYTES) return Promise.reject(new Error('terminal pending output limit exceeded'));
+    if (this.bytes + data.byteLength > MAX_STARTUP_OUTPUT_BYTES)
+      return Promise.reject(new Error('terminal pending output limit exceeded'));
     // ES2023 is the declared library baseline; Promise.withResolvers requires ES2024.
     const promise = new Promise<void>((resolve, reject) => {
       this.bytes += data.byteLength;
@@ -57,7 +73,9 @@ export class TerminalOutput {
     if (this.closed) throw new Error('terminal output is closed');
     this.listener = listener;
     void this.drain();
-    return () => { if (this.listener === listener) this.listener = undefined; };
+    return () => {
+      if (this.listener === listener) this.listener = undefined;
+    };
   }
 
   private async drain(): Promise<void> {
@@ -66,17 +84,29 @@ export class TerminalOutput {
     try {
       while (this.listener && this.pending.length) {
         const next = this.pending.shift()!;
-        try { await this.listener(next.data); next.resolve(); }
-        catch (error) { next.reject(error); this.close(); this.fail(error); }
-        finally { this.bytes -= next.data.byteLength; }
+        try {
+          await this.listener(next.data);
+          next.resolve();
+        } catch (error) {
+          next.reject(error);
+          this.close();
+          this.fail(error);
+        } finally {
+          this.bytes -= next.data.byteLength;
+        }
       }
-    } finally { this.draining = false; }
+    } finally {
+      this.draining = false;
+    }
   }
 
   close(): void {
     this.closed = true;
     this.listener = undefined;
-    for (const next of this.pending) { this.bytes -= next.data.byteLength; next.resolve(); }
+    for (const next of this.pending) {
+      this.bytes -= next.data.byteLength;
+      next.resolve();
+    }
     this.pending = [];
   }
 }
@@ -94,7 +124,8 @@ export async function resolveDockerSocket(out: DockerOut, env: NodeJS.ProcessEnv
     if (!context || /[\x00-\x1f]/.test(context)) throw new Error('invalid Docker context');
     endpoint = (await out(['context', 'inspect', context, '--format', '{{.Endpoints.docker.Host}}'])).trim();
   }
-  if (!endpoint?.startsWith('unix:///') || /[\x00-\x1f]/.test(endpoint)) throw new Error('unsupported Docker endpoint: terminal requires a local Unix socket context');
+  if (!endpoint?.startsWith('unix:///') || /[\x00-\x1f]/.test(endpoint))
+    throw new Error('unsupported Docker endpoint: terminal requires a local Unix socket context');
   const socket = endpoint.slice('unix://'.length);
   if (socket.includes('?') || socket.includes('#')) throw new Error('unsupported Docker Unix socket endpoint');
   return socket;
@@ -107,13 +138,17 @@ function record(value: unknown): value is Record<string, unknown> {
 /** Non-destructive checks precede every private exec/resize operation. */
 export function assertOwnedContainer(value: unknown, id: string, labels: Labels, requireRunning = true): void {
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('immutable container identity required');
-  if (!record(value) || value.Id !== id || !record(value.Config) || !record(value.Config.Labels)) throw new Error('container identity/ownership mismatch');
+  if (!record(value) || value.Id !== id || !record(value.Config) || !record(value.Config.Labels))
+    throw new Error('container identity/ownership mismatch');
   for (const key of ['oms.component', 'oms.task', 'oms.execution', 'oms.phase']) {
-    if (!labels[key] || value.Config.Labels[key] !== labels[key]) throw new Error('container ownership labels mismatch');
+    if (!labels[key] || value.Config.Labels[key] !== labels[key])
+      throw new Error('container ownership labels mismatch');
   }
   if (labels['oms.component'] !== 'sandbox') throw new Error('container ownership component mismatch');
-  if (value.Config.Tty !== true || value.Config.OpenStdin !== true) throw new Error('container must have an interactive TTY');
-  if (requireRunning && (!record(value.State) || value.State.Running !== true)) throw new Error('owned terminal container is not running');
+  if (value.Config.Tty !== true || value.Config.OpenStdin !== true)
+    throw new Error('container must have an interactive TTY');
+  if (requireRunning && (!record(value.State) || value.State.Running !== true))
+    throw new Error('owned terminal container is not running');
 }
 
 /** A resize was not applied because the registered terminal has stopped. */
@@ -145,7 +180,8 @@ export class LatestResizeQueue {
 
   resize(columns: number, rows: number): void {
     if (this.closed) throw new Error('terminal resize queue is closing');
-    if (![columns, rows].every(value => Number.isInteger(value) && value > 0 && value <= 500)) throw new Error('invalid terminal dimensions');
+    if (![columns, rows].every((value) => Number.isInteger(value) && value > 0 && value <= 500))
+      throw new Error('invalid terminal dimensions');
     if (this.failure) throw this.failure;
     this.pending = [columns, rows];
     if (!this.active) this.start();
@@ -185,19 +221,22 @@ export class LatestResizeQueue {
 
 function engineResize(socketPath: string, id: string, columns: number, rows: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const request = http.request({ socketPath, method: 'POST', path: `/containers/${id}/resize?h=${rows}&w=${columns}`, agent: false }, response => {
-      let bytes = 0;
-      response.on('data', (chunk: Buffer) => {
-        bytes += chunk.length;
-        if (bytes > 16 * 1024) request.destroy(new Error('Docker resize response exceeds limit'));
-      });
-      response.once('aborted', () => reject(new Error('Docker resize response aborted')));
-      response.once('error', reject);
-      response.once('end', () => {
-        if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) resolve();
-        else reject(new DockerResizeError(response.statusCode));
-      });
-    });
+    const request = http.request(
+      { socketPath, method: 'POST', path: `/containers/${id}/resize?h=${rows}&w=${columns}`, agent: false },
+      (response) => {
+        let bytes = 0;
+        response.on('data', (chunk: Buffer) => {
+          bytes += chunk.length;
+          if (bytes > 16 * 1024) request.destroy(new Error('Docker resize response exceeds limit'));
+        });
+        response.once('aborted', () => reject(new Error('Docker resize response aborted')));
+        response.once('error', reject);
+        response.once('end', () => {
+          if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) resolve();
+          else reject(new DockerResizeError(response.statusCode));
+        });
+      },
+    );
     const deadline = setTimeout(() => request.destroy(new Error('Docker resize timed out')), 5000);
     request.once('close', () => clearTimeout(deadline));
     request.once('error', reject);
@@ -205,19 +244,37 @@ function engineResize(socketPath: string, id: string, columns: number, rows: num
   });
 }
 
-
 export async function createTaskTerminal(options: TaskTerminalOptions): Promise<OwnedTaskTerminal> {
-  if (![options.columns, options.rows].every(value => Number.isInteger(value) && value > 0 && value <= 500)) throw new Error('invalid terminal dimensions');
-  if (options.run.backend === 'host') return createHostTerminal(options);
+  if (![options.columns, options.rows].every((value) => Number.isInteger(value) && value > 0 && value <= 500))
+    throw new Error('invalid terminal dimensions');
+  if (options.run.backend === 'host') return createHostTerminal({ ...options, run: options.run });
   const environment = { ...process.env };
-  const out: DockerOut = (args, signal) => new Promise((resolve, reject) => {
-    execFile('docker', args, { env: environment, signal, timeout: 30_000, killSignal: 'SIGKILL', maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
-      if (error) {
-        // Existing ownership cleanup needs the Docker stderr to distinguish absence.
-        reject(new SandboxError('E_DOCKER', `docker ${args[0]} failed: ${(stderr || error.message).trim()}`, { args, stderr }));
-      } else resolve(stdout);
+  const out: DockerOut = (args, signal) =>
+    new Promise((resolve, reject) => {
+      execFile(
+        'docker',
+        args,
+        {
+          env: environment,
+          signal,
+          timeout: 30_000,
+          killSignal: 'SIGKILL',
+          maxBuffer: 8 * 1024 * 1024,
+          encoding: 'utf8',
+        },
+        (error, stdout, stderr) => {
+          if (error) {
+            // Existing ownership cleanup needs the Docker stderr to distinguish absence.
+            reject(
+              new SandboxError('E_DOCKER', `docker ${args[0]} failed: ${(stderr || error.message).trim()}`, {
+                args,
+                stderr,
+              }),
+            );
+          } else resolve(stdout);
+        },
+      );
     });
-  });
   const socket = await resolveDockerSocket(out, environment);
   // Freeze the resolved daemon for every later CLI/HTTP operation, even if a
   // user's current-context configuration changes while the pane is alive.
@@ -237,10 +294,16 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
   const execCancellations = new Set<() => void>();
   let readyResolve!: () => void;
   let readyReject!: (error: unknown) => void;
-  const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+  const ready = new Promise<void>((resolve, reject) => {
+    readyResolve = resolve;
+    readyReject = reject;
+  });
   let lifecycle: Promise<SandboxResult>;
   let identityConfirmed = false;
-  const output = new TerminalOutput(error => { transportFailure = error; abort.abort(error); });
+  const output = new TerminalOutput((error) => {
+    transportFailure = error;
+    abort.abort(error);
+  });
 
   async function inspect(requireRunning = true): Promise<Record<string, unknown>> {
     if (!id) throw new Error('terminal container identity is not ready');
@@ -252,28 +315,36 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
 
   async function requireResizableContainer(): Promise<void> {
     let value: Record<string, unknown>;
-    try { value = await inspect(false); }
-    catch (error) {
+    try {
+      value = await inspect(false);
+    } catch (error) {
       const stderr = error instanceof SandboxError ? error.details.stderr : undefined;
-      const missing = typeof stderr === 'string'
-        ? /^(?:Error(?: response from daemon)?:\s*)?No such (?:object|container):\s*([a-f0-9]{64})\s*$/i.exec(stderr.trim()) : null;
+      const missing =
+        typeof stderr === 'string'
+          ? /^(?:Error(?: response from daemon)?:\s*)?No such (?:object|container):\s*([a-f0-9]{64})\s*$/i.exec(
+              stderr.trim(),
+            )
+          : null;
       if (identityConfirmed && id && missing?.[1] === id) {
         throw new TerminalStoppedError();
       }
       throw error;
     }
-    if (!record(value.State) || typeof value.State.Running !== 'boolean') throw new Error('invalid owned terminal running state');
+    if (!record(value.State) || typeof value.State.Running !== 'boolean')
+      throw new Error('invalid owned terminal running state');
     if (!value.State.Running) throw new TerminalStoppedError();
   }
 
   const resizes = new LatestResizeQueue(async (columns, rows) => {
     try {
       await requireResizableContainer();
-      try { await engineResize(socket, id!, columns, rows); }
-      catch (error) {
+      try {
+        await engineResize(socket, id!, columns, rows);
+      } catch (error) {
         // Only explicit stopped/missing HTTP responses warrant another identity
         // check. Timeouts, daemon failures and ownership mismatches stay errors.
-        if (error instanceof DockerResizeError && (error.status === 404 || error.status === 409)) await requireResizableContainer();
+        if (error instanceof DockerResizeError && (error.status === 404 || error.status === 409))
+          await requireResizableContainer();
         throw error;
       }
     } catch (error) {
@@ -301,16 +372,22 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
       return created;
     },
     async capture(args, capture) {
-      if (!id || args.length !== 3 || args[0] !== 'start' || args[1] !== '--attach' || args[2] !== id) throw new Error('unexpected terminal attach identity');
+      if (!id || args.length !== 3 || args[0] !== 'start' || args[1] !== '--attach' || args[2] !== id)
+        throw new Error('unexpected terminal attach identity');
       await inspect(false);
       if (capture.signal.aborted) return 130;
-      attach = spawn('docker', ['start', '--attach', '--interactive', id], { env: environment, stdio: ['pipe', 'pipe', 'pipe'] });
+      attach = spawn('docker', ['start', '--attach', '--interactive', id], {
+        env: environment,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
       const child = attach;
       let childClosed = false;
       let childError: unknown;
-      const childExit = new Promise<number>(resolve => {
-        child.once('error', error => { childError = error; });
-        child.once('close', code => {
+      const childExit = new Promise<number>((resolve) => {
+        child.once('error', (error) => {
+          childError = error;
+        });
+        child.once('close', (code) => {
           childClosed = true;
           closing = true;
           void resizes.close().catch(() => {});
@@ -326,8 +403,11 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
       };
       capture.signal.addEventListener('abort', stop, { once: true });
       if (capture.signal.aborted) stop();
-      child.stdin.on('error', error => {
-        if (!closing && (error as NodeJS.ErrnoException).code !== 'EPIPE') { transportFailure = error; stop(); }
+      child.stdin.on('error', (error) => {
+        if (!closing && (error as NodeJS.ErrnoException).code !== 'EPIPE') {
+          transportFailure = error;
+          stop();
+        }
       });
       // Async iteration supplies real pipe backpressure through the subscriber.
       const stdout = (async () => {
@@ -345,7 +425,10 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
         }
       })();
       const streams = Promise.all([stdout, stderr]);
-      void streams.catch(error => { transportFailure = error; stop(); });
+      void streams.catch((error) => {
+        transportFailure = error;
+        stop();
+      });
       try {
         const deadline = Date.now() + 10_000;
         for (;;) {
@@ -374,30 +457,42 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
         capture.signal.removeEventListener('abort', stop);
         const settled = await Promise.allSettled([streams, resizes.close(), ...activeExecs]);
         output.close();
-        const failures = settled.filter((result): result is PromiseRejectedResult => result.status === 'rejected').map(result => result.reason);
+        const failures = settled
+          .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+          .map((result) => result.reason);
         if (transportFailure) failures.push(transportFailure);
         if (failures.length) {
           // Only runInSandbox's owned-resource teardown decides cleanup
           // uncertainty. Report transport errors after that teardown completes.
-          transportFailure ??= new Error('terminal transport settlement failed', { cause: new AggregateError(failures) });
+          transportFailure ??= new Error('terminal transport settlement failed', {
+            cause: new AggregateError(failures),
+          });
           throw transportFailure;
         }
       }
     },
   };
 
-  lifecycle = runInSandbox({ ...options.run, signal: abort.signal }, adapter).then(result => {
-    if (transportFailure) throw transportFailure;
-    return result;
-  }).finally(() => {
-    closing = true;
-    output.close();
-    options.run.signal?.removeEventListener('abort', externalAbort);
-  });
+  lifecycle = runInSandbox({ ...options.run, signal: abort.signal }, adapter)
+    .then((result) => {
+      if (transportFailure) throw transportFailure;
+      return result;
+    })
+    .finally(() => {
+      closing = true;
+      output.close();
+      options.run.signal?.removeEventListener('abort', externalAbort);
+    });
   void lifecycle.then(() => readyReject(new Error('terminal exited before confirmed startup')), readyReject);
-  try { await ready; } catch (error) {
+  try {
+    await ready;
+  } catch (error) {
     abort.abort(error);
-    try { await lifecycle; } catch (cleanup) { throw new AggregateError([error, cleanup], 'terminal startup or cleanup failed'); }
+    try {
+      await lifecycle;
+    } catch (cleanup) {
+      throw new AggregateError([error, cleanup], 'terminal startup or cleanup failed');
+    }
     throw error;
   }
 
@@ -416,12 +511,18 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
       if (closing) throw new TerminalStoppedError();
       resizes.resize(columns, rows);
     },
-    subscribe: listener => output.subscribe(listener),
+    subscribe: (listener) => output.subscribe(listener),
     exited: lifecycle,
     execute(argv, signal, timeoutMs = EXEC_TIMEOUT_MS, onOutput) {
       if (closing || captureDone) return Promise.reject(new Error('terminal is closing or exited'));
-      if (!argv.length || argv.some(arg => typeof arg !== 'string' || arg.includes('\0')) || Buffer.byteLength(JSON.stringify(argv)) > 256 * 1024) return Promise.reject(new Error('invalid terminal exec argv'));
-      if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) return Promise.reject(new Error('invalid terminal exec timeout'));
+      if (
+        !argv.length ||
+        argv.some((arg) => typeof arg !== 'string' || arg.includes('\0')) ||
+        Buffer.byteLength(JSON.stringify(argv)) > 256 * 1024
+      )
+        return Promise.reject(new Error('invalid terminal exec argv'));
+      if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647)
+        return Promise.reject(new Error('invalid terminal exec timeout'));
       if (activeExecs.size >= 1) return Promise.reject(new Error('terminal exec already active'));
       if (signal?.aborted) return Promise.reject(new Error('terminal exec cancelled before startup'));
       let cancelled = false;
@@ -444,12 +545,19 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
           return await new Promise<SandboxResult>((resolve, reject) => {
             child = spawn('docker', ['exec', id!, ...argv], { env: environment, stdio: ['pipe', 'pipe', 'pipe'] });
             child.stdin.end();
-            const stdout: Buffer[] = [], stderr: Buffer[] = [];
-            let outBytes = 0, errBytes = 0, truncated = false;
+            const stdout: Buffer[] = [],
+              stderr: Buffer[] = [];
+            let outBytes = 0,
+              errBytes = 0,
+              truncated = false;
             let spawnError: unknown;
             const deliver = (chunk: Buffer) => {
-              try { onOutput?.(chunk); }
-              catch (error) { spawnError = error; cancel(); }
+              try {
+                onOutput?.(chunk);
+              } catch (error) {
+                spawnError = error;
+                cancel();
+              }
             };
             child.stdout.on('data', (chunk: Buffer) => {
               deliver(chunk);
@@ -465,16 +573,32 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
               errBytes += take;
               truncated ||= take !== chunk.length;
             });
-            const watchdog = setTimeout(() => { timedOut = true; cancel(); }, timeoutMs);
-            child.once('error', error => { spawnError = error; });
-            child.once('close', code => {
+            const watchdog = setTimeout(() => {
+              timedOut = true;
+              cancel();
+            }, timeoutMs);
+            child.once('error', (error) => {
+              spawnError = error;
+            });
+            child.once('close', (code) => {
               clearTimeout(watchdog);
-              if (spawnError && !cancelled) { reject(spawnError); return; }
-              resolve({ exitCode: timedOut ? 124 : cancelled ? 130 : code ?? 127, stdout: Buffer.concat(stdout, outBytes).toString('utf8'), stderr: Buffer.concat(stderr, errBytes).toString('utf8'), truncated, timedOut, cancelled });
+              if (spawnError && !cancelled) {
+                reject(spawnError);
+                return;
+              }
+              resolve({
+                exitCode: timedOut ? 124 : cancelled ? 130 : (code ?? 127),
+                stdout: Buffer.concat(stdout, outBytes).toString('utf8'),
+                stderr: Buffer.concat(stderr, errBytes).toString('utf8'),
+                truncated,
+                timedOut,
+                cancelled,
+              });
             });
           });
         } catch (error) {
-          if (cancelled) return { exitCode: timedOut ? 124 : 130, stdout: '', stderr: '', truncated: false, timedOut, cancelled };
+          if (cancelled)
+            return { exitCode: timedOut ? 124 : 130, stdout: '', stderr: '', truncated: false, timedOut, cancelled };
           throw error;
         } finally {
           signal?.removeEventListener('abort', cancel);
@@ -485,10 +609,14 @@ export async function createTaskTerminal(options: TaskTerminalOptions): Promise<
       void operation.finally(() => activeExecs.delete(operation)).catch(() => {});
       // The internal transport joins capture before teardown. The public caller
       // waits for that teardown too: killing an exec client is never completion.
-      return operation.then(async result => {
+      return operation.then(async (result) => {
         if (result.cancelled || result.timedOut) {
           await lifecycle;
-          throw new Error(result.timedOut ? 'terminal exec timed out; entire terminal closed' : 'terminal exec cancelled; entire terminal closed');
+          throw new Error(
+            result.timedOut
+              ? 'terminal exec timed out; entire terminal closed'
+              : 'terminal exec cancelled; entire terminal closed',
+          );
         }
         return result;
       });

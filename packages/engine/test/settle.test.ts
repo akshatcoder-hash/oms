@@ -14,15 +14,12 @@ const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
 
 /** A verifier that reports a scripted pending state (default: always pending) and a queue of run results. */
-function scriptedVerifier(
-  steps: VerifierRunResult[],
-  pendingQueue?: boolean[],
-): VerifierPort & { calls(): number } {
+function scriptedVerifier(steps: VerifierRunResult[], pendingQueue?: boolean[]): VerifierPort & { calls(): number } {
   let runIndex = 0;
   let pendingIndex = 0;
   let calls = 0;
   return {
-    hasProposal: () => (pendingQueue === undefined ? true : pendingQueue[pendingIndex++] ?? false),
+    hasProposal: () => (pendingQueue === undefined ? true : (pendingQueue[pendingIndex++] ?? false)),
     run: async () => {
       calls += 1;
       const step = steps[runIndex];
@@ -71,10 +68,7 @@ test('fail then pass: two requests and the failure summary reached the model', a
   const gate = createSettleExtension({ verifier, budget: fixedBudget(), maxAttempts: 5 });
   const h = await createHarness({
     extensions: [gate],
-    responses: [
-      fauxAssistantMessage(fauxText('first try')),
-      fauxAssistantMessage(fauxText('fixed it')),
-    ],
+    responses: [fauxAssistantMessage(fauxText('first try')), fauxAssistantMessage(fauxText('fixed it'))],
   });
   try {
     await h.session.prompt('finish the item');
@@ -119,9 +113,7 @@ test('same failure digest twice stops and asks the user; the loop stays bounded'
 });
 
 test('an exhausted budget stops instead of continuing', async () => {
-  const verifier = scriptedVerifier([
-    { status: 'fail', failureDigest: DIGEST_A, summary: 'still failing' },
-  ]);
+  const verifier = scriptedVerifier([{ status: 'fail', failureDigest: DIGEST_A, summary: 'still failing' }]);
   const zero = { tokens: 0, spendMicroUsd: 0, wallClockMs: 0 };
   const budget: BudgetSource = { snapshot: () => snapshotFor(zero, zero) };
   const gate = createSettleExtension({ verifier, budget, maxAttempts: 10 });
@@ -143,9 +135,7 @@ test('an exhausted budget stops instead of continuing', async () => {
 });
 
 test('the attempt cap stops the loop', async () => {
-  const verifier = scriptedVerifier([
-    { status: 'fail', failureDigest: DIGEST_A, summary: 'still failing' },
-  ]);
+  const verifier = scriptedVerifier([{ status: 'fail', failureDigest: DIGEST_A, summary: 'still failing' }]);
   const gate = createSettleExtension({ verifier, budget: fixedBudget(), maxAttempts: 1 });
   const h = await createHarness({
     extensions: [gate],
@@ -322,21 +312,45 @@ test('injected redactor covers verifier feedback and every model-visible error p
   const encoded = Buffer.from(secret).toString('hex');
   const redact = createDeepRedactor<string>([secret]);
   const scenarios: Array<{ verifier: VerifierPort; budget?: BudgetSource }> = [
-    { verifier: scriptedVerifier([
-      { status: 'fail', summary: `failure ${encoded}`, failureDigest: DIGEST_A },
-      { status: 'pass', summary: `passed ${encoded}` },
-    ]) },
+    {
+      verifier: scriptedVerifier([
+        { status: 'fail', summary: `failure ${encoded}`, failureDigest: DIGEST_A },
+        { status: 'pass', summary: `passed ${encoded}` },
+      ]),
+    },
     { verifier: scriptedVerifier([{ status: 'unavailable', summary: encoded }]) },
-    { verifier: { hasProposal: () => true, run: async () => { throw new Error(encoded); } } },
-    { verifier: { hasProposal: () => { throw new Error(encoded); }, run: async () => ({ status: 'pass', summary: '' }) } },
+    {
+      verifier: {
+        hasProposal: () => true,
+        run: async () => {
+          throw new Error(encoded);
+        },
+      },
+    },
+    {
+      verifier: {
+        hasProposal: () => {
+          throw new Error(encoded);
+        },
+        run: async () => ({ status: 'pass', summary: '' }),
+      },
+    },
     {
       verifier: scriptedVerifier([{ status: 'fail', summary: encoded }]),
-      budget: { ...fixedBudget(), snapshot: () => { throw new Error(encoded); } },
+      budget: {
+        ...fixedBudget(),
+        snapshot: () => {
+          throw new Error(encoded);
+        },
+      },
     },
   ];
   for (const scenario of scenarios) {
     const gate = createSettleExtension({
-      verifier: scenario.verifier, budget: scenario.budget ?? fixedBudget(), maxAttempts: 3, redact,
+      verifier: scenario.verifier,
+      budget: scenario.budget ?? fixedBudget(),
+      maxAttempts: 3,
+      redact,
     });
     const h = await createHarness({
       extensions: [gate],
@@ -356,11 +370,15 @@ test('injected redactor covers verifier feedback and every model-visible error p
 test('redactor failure never falls back to raw verifier text', async () => {
   const gate = createSettleExtension({
     verifier: scriptedVerifier([{ status: 'fail', summary: 'sensitive verifier output' }]),
-    budget: fixedBudget(), maxAttempts: 3,
-    redact: () => { throw new Error('sensitive redactor error'); },
+    budget: fixedBudget(),
+    maxAttempts: 3,
+    redact: () => {
+      throw new Error('sensitive redactor error');
+    },
   });
   const h = await createHarness({
-    extensions: [gate], responses: [fauxAssistantMessage(fauxText('done'))],
+    extensions: [gate],
+    responses: [fauxAssistantMessage(fauxText('done'))],
   });
   try {
     await h.session.prompt('finish');

@@ -1,7 +1,16 @@
 import {
-  CURSOR_MARKER, ScrollView, decodeKittyPrintable, isKeyRelease, matchesKey,
-  renderFakeCursor, sliceByColumn, visibleWidth,
-  type Component, type Focusable, type TuiMouseEvent, type TuiMouseEventResult,
+  CURSOR_MARKER,
+  ScrollView,
+  decodeKittyPrintable,
+  isKeyRelease,
+  matchesKey,
+  renderFakeCursor,
+  sliceByColumn,
+  visibleWidth,
+  type Component,
+  type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@earendil-works/pi-tui';
 import { FileDocument, MAX_DOCUMENT_BYTES } from './document.ts';
 
@@ -12,12 +21,24 @@ export interface FileEditorPane {
   readonly position: { line: number; column: number };
 }
 
-interface CellRun { start: number; end: number; column: number; width: number; text: string }
-interface SourceLine { start: number; end: number; breakEnd: number; width: number; runs: CellRun[] }
+interface CellRun {
+  start: number;
+  end: number;
+  column: number;
+  width: number;
+  text: string;
+}
+interface SourceLine {
+  start: number;
+  end: number;
+  breakEnd: number;
+  width: number;
+  runs: CellRun[];
+}
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 function displayText(text: string): string {
-  return text.replace(/[\x00-\x1f\x7f-\x9f]/g, character => {
+  return text.replace(/[\x00-\x1f\x7f-\x9f]/g, (character) => {
     const code = character.charCodeAt(0);
     return code < 32 ? String.fromCharCode(0x2400 + code) : code === 127 ? '␡' : `‹${code.toString(16)}›`;
   });
@@ -33,10 +54,16 @@ function project(text: string): SourceLine[] {
     const runs: CellRun[] = [];
     let column = 0;
     for (const part of segmenter.segment(text.slice(start, end))) {
-      let shown = part.segment === '\t' ? ' '.repeat(4 - column % 4) : displayText(part.segment);
+      let shown = part.segment === '\t' ? ' '.repeat(4 - (column % 4)) : displayText(part.segment);
       if (visibleWidth(shown) === 0) shown = '◌' + shown;
       const width = visibleWidth(shown);
-      runs.push({ start: start + part.index, end: start + part.index + part.segment.length, column, width, text: shown });
+      runs.push({
+        start: start + part.index,
+        end: start + part.index + part.segment.length,
+        column,
+        width,
+        text: shown,
+      });
       column += width;
     }
     const breakEnd = delimiter ? end + delimiter[0].length : end;
@@ -67,7 +94,13 @@ class FileEditor implements Component, Focusable {
   private readonly lineNumbers: boolean;
   private readonly requestFocus: (() => boolean | void) | undefined;
 
-  constructor(document: FileDocument, requestRender: () => void, lineNumbers = false, requestFocus?: () => boolean | void, readOnly = false) {
+  constructor(
+    document: FileDocument,
+    requestRender: () => void,
+    lineNumbers = false,
+    requestFocus?: () => boolean | void,
+    readOnly = false,
+  ) {
     this.readOnly = readOnly;
     this.requestFocus = requestFocus;
     this.lineNumbers = lineNumbers;
@@ -100,7 +133,7 @@ class FileEditor implements Component, Focusable {
   }
 
   private columnAt(line: SourceLine, offset: number): number {
-    return line.runs.find(run => run.start >= offset)?.column ?? line.width;
+    return line.runs.find((run) => run.start >= offset)?.column ?? line.width;
   }
 
   private offsetAt(line: SourceLine, column: number): number {
@@ -132,7 +165,7 @@ class FileEditor implements Component, Focusable {
     if (width !== this.width || this.lastCursor !== this.document.cursor) this.revealPending = true;
     this.width = width;
     this.lastCursor = this.document.cursor;
-    const cursorWidth = Math.min(width, line.runs.find(run => run.start === this.document.cursor)?.width ?? 1);
+    const cursorWidth = Math.min(width, line.runs.find((run) => run.start === this.document.cursor)?.width ?? 1);
     if (column < this.left) this.left = column;
     if (column + cursorWidth > this.left + width) this.left = Math.max(0, column + cursorWidth - width);
     const selectionStart = Math.min(this.document.anchor, this.document.cursor);
@@ -162,8 +195,9 @@ class FileEditor implements Component, Focusable {
       return result;
     });
     if (this.error && width > 0) {
-      rendered[row] = (this.focused ? CURSOR_MARKER + renderFakeCursor(' ') : '')
-        + sliceByColumn(`Edit refused: ${this.error}`, 0, width - (this.focused ? 1 : 0), true);
+      rendered[row] =
+        (this.focused ? CURSOR_MARKER + renderFakeCursor(' ') : '') +
+        sliceByColumn(`Edit refused: ${this.error}`, 0, width - (this.focused ? 1 : 0), true);
     }
     if (this.gutter > 0) {
       return rendered.map((text, index) => {
@@ -176,15 +210,41 @@ class FileEditor implements Component, Focusable {
 
   handleInput(data: string): void {
     if (isKeyRelease(data)) return;
-    if (this.readOnly && !(['left', 'right', 'up', 'down', 'home', 'end', 'pageUp', 'pageDown',
-      'shift+left', 'shift+right', 'shift+up', 'shift+down', 'shift+home', 'shift+end',
-      'shift+pageUp', 'shift+pageDown', 'ctrl+home', 'ctrl+end', 'ctrl+shift+home',
-      'ctrl+shift+end', 'ctrl+a'] as const).some(key => matchesKey(data, key))) return;
+    if (
+      this.readOnly &&
+      !(
+        [
+          'left',
+          'right',
+          'up',
+          'down',
+          'home',
+          'end',
+          'pageUp',
+          'pageDown',
+          'shift+left',
+          'shift+right',
+          'shift+up',
+          'shift+down',
+          'shift+home',
+          'shift+end',
+          'shift+pageUp',
+          'shift+pageDown',
+          'ctrl+home',
+          'ctrl+end',
+          'ctrl+shift+home',
+          'ctrl+shift+end',
+          'ctrl+a',
+        ] as const
+      ).some((key) => matchesKey(data, key))
+    )
+      return;
     try {
       if (data.startsWith('\x1b[200~') && data.endsWith('\x1b[201~')) {
         this.pendingSurrogate = '';
         const text = data.slice(6, -6);
-        if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES) throw new RangeError('Paste exceeds the 64 KiB UTF-8 limit');
+        if (Buffer.byteLength(text, 'utf8') > MAX_DOCUMENT_BYTES)
+          throw new RangeError('Paste exceeds the 64 KiB UTF-8 limit');
         this.document.insert(text);
         this.goalColumn = undefined;
       } else {
@@ -217,7 +277,8 @@ class FileEditor implements Component, Focusable {
           this.goalColumn = undefined;
         } else {
           this.goalColumn ??= this.columnAt(lines[row]!, doc.cursor);
-          const distance = direction === 'pageUp' || direction === 'pageDown' ? Math.max(1, this.view.viewportHeight) : 1;
+          const distance =
+            direction === 'pageUp' || direction === 'pageDown' ? Math.max(1, this.view.viewportHeight) : 1;
           const delta = direction === 'up' || direction === 'pageUp' ? -distance : distance;
           target = this.offsetAt(lines[Math.max(0, Math.min(lines.length - 1, row + delta))]!, this.goalColumn);
         }
@@ -262,7 +323,10 @@ class FileEditor implements Component, Focusable {
       return { handled: true };
     }
     if (event.type !== 'press' && event.type !== 'click' && !(event.type === 'drag' && this.dragging)) return undefined;
-    if (this.requestFocus?.() === false) { this.dragging = false; return { handled: true }; }
+    if (this.requestFocus?.() === false) {
+      this.dragging = false;
+      return { handled: true };
+    }
     const lines = this.sourceLines();
     // ScrollView already translates y into content coordinates.
     const line = lines[Math.max(0, Math.min(lines.length - 1, event.y))]!;
@@ -293,10 +357,21 @@ class EditorScrollView extends ScrollView {
   }
 }
 
-export function createFileEditorPane(text: string | FileDocument, requestRender: () => void, options: { readOnly?: boolean; lineNumbers?: boolean; requestFocus?: () => boolean | void } = {}): FileEditorPane {
+export function createFileEditorPane(
+  text: string | FileDocument,
+  requestRender: () => void,
+  options: { readOnly?: boolean; lineNumbers?: boolean; requestFocus?: () => boolean | void } = {},
+): FileEditorPane {
   const document = typeof text === 'string' ? new FileDocument(text) : text;
   const focus = new FileEditor(document, requestRender, options.lineNumbers, options.requestFocus, options.readOnly);
   const view = new EditorScrollView(focus);
   focus.view = view;
-  return { document, view, focus, get position() { return focus.position; } };
+  return {
+    document,
+    view,
+    focus,
+    get position() {
+      return focus.position;
+    },
+  };
 }

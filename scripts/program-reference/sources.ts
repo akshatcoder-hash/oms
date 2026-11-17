@@ -11,6 +11,8 @@ export interface ProgramSpec {
   name: string;
   id: string;
   purpose: string;
+  /** Deployment guidance verified from an installed SDK; excluded from the prompt index. */
+  deploymentNote?: string;
   kind: SourceKind;
   /** Pinned: a commit-addressed raw GitHub URL or an exact-version npm CDN URL. */
   url: string;
@@ -140,10 +142,26 @@ export const APPLICATIONS: ProgramSpec[] = [
     kind: 'idl', url: npm('@pump-fun/pump-sdk', '4.3.1', 'src/idl/pump_fees.json'), version: '@pump-fun/pump-sdk@4.3.1', licence: MIT,
     idSources: [carbon('pump-fees')], clients: npmClient('@pump-fun/pump-sdk', '4.3.1') },
   { name: 'Orca Whirlpools', id: 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', purpose: 'Concentrated-liquidity AMM: pools, positions, swaps, rewards',
+    // @orca-so/whirlpools@8.0.1/dist/index.js.map sourcesContent: src/increaseLiquidity.ts,
+    // decreaseLiquidity.ts, harvest.ts and swap.ts build the position-owner/swap flows;
+    // createPool.ts uses initializePoolV2 with a funder and an existing config/fee tier;
+    // pool.ts fetchWhirlpoolsByTokenPair returns initialized flags and reads the config.
+    // @orca-so/whirlpools-client@7.0.0/dist/index.js.map sourcesContent:
+    // src/generated/accounts/whirlpoolsConfig.ts exports fetchWhirlpoolsConfig;
+    // src/generated/instructions/{initializeFeeTier,setFeeRate,collectProtocolFeesV2}.ts
+    // require feeAuthority or collectProtocolFeesAuthority signers.
+    deploymentNote: 'On existing pools, wallets can open their own positions (openConcentratedPosition), add (increasePosLiquidity), remove (decreaseLiquidity), collect fees (harvestPosition), close (closePosition) and swap (swap). createConcentratedLiquidityPool uses an existing config/fee tier with supported tokens. Find pools via fetchWhirlpoolsByTokenPair (initialized=true); fetchWhirlpoolsConfig reads the config. initializeFeeTier/setFeeRate require feeAuthority; collectProtocolFeesV2 requires collectProtocolFeesAuthority. Refusal there does not block wallet flows.',
     kind: 'idl', url: npm('@orca-so/whirlpools-sdk', '0.22.0', 'dist/artifacts/whirlpool.json'), version: '@orca-so/whirlpools-sdk@0.22.0',
     licence: 'Orca License (custom)', factsOnly: true, idSources: [carbon('orca-whirlpool')], rank: { list: 'dex', name: 'Orca DEX' },
     clients: [{ package: '@orca-so/whirlpools-client', version: '7.0.0', evidence: raw('orca-so/whirlpools', 'cc683ec92acb5e7606caa3d8e514d9383e9c7c11', 'README.md') }] },
   { name: 'Raydium AMM v4', id: '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', purpose: 'Legacy constant-product AMM paired with an OpenBook market',
+    // @raydium-io/raydium-sdk-v2@0.2.84-alpha/src/raydium/liquidity/liquidity.ts:
+    // swap/addLiquidity/removeLiquidity use owner token accounts; createPoolV4 uses marketInfo;
+    // getPoolInfoFromRpc returns pool keys. liquidity/instruction.ts builds these with a user
+    // signer and exposes no admin/config-update builders (the package also ships no AMM v4 IDL),
+    // so no unverified admin instruction names or authority constraints are asserted here.
+    // src/api/api.ts implements fetchPoolByMints; src/raydium/raydium.ts exposes liquidity/api.
+    deploymentNote: 'On active pools, wallets can swap and add/remove their own liquidity with raydium.liquidity.swap, addLiquidity and removeLiquidity. createPoolV4 creates a pool for an existing OpenBook market. Find pools via raydium.api.fetchPoolByMints; raydium.liquidity.getPoolInfoFromRpc loads pool keys. The SDK exposes no admin instruction builders, so admin permissions must be checked separately; these wallet flows use the user signer.',
     kind: 'rust-enum', url: raw('raydium-io/raydium-amm', '91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6', 'program/src/instruction.rs'),
     version: 'raydium-io/raydium-amm@91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6', licence: APACHE,
     idSources: [raw('raydium-io/raydium-amm', '91739d8d9f5cf347e0ce14ebe4d2bb7069fb31b6', 'program/src/lib.rs'), carbon('raydium-amm-v4')],
@@ -154,8 +172,27 @@ export const APPLICATIONS: ProgramSpec[] = [
     ['Raydium Launchpad', 'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj', 'LaunchLab bonding-curve token launches that graduate to Raydium pools', 'raydium_launchpad/raydium_launchpad.json', 'raydium-launchpad', 'LaunchLab'],
   ].map(([name, id, purpose, path, decoder, rank]): ProgramSpec => ({ name: name!, id: id!, purpose: purpose!, kind: 'idl',
     url: raw('raydium-io/raydium-idl', 'e7e0c96fe77bcf6a020b84a44c47a722aac8e359', path!), version: 'raydium-io/raydium-idl@e7e0c96fe77bcf6a020b84a44c47a722aac8e359',
+    // @raydium-io/raydium-sdk-v2@0.2.84-alpha/src/raydium/clmm/clmm.ts:
+    // the named position/swap methods use owner accounts, harvestAllRewards builds a zero-liquidity
+    // decrease to collect fees/rewards, createPool passes ammConfig.id, getPoolInfoFromRpc loads it.
+    // clmm/instrument.ts setRewardParamsInstruction requires an authority signer;
+    // setReward calls it through setRewardInstructions. src/api/api.ts implements discovery.
+    ...(name === 'Raydium CLMM' ? { deploymentNote: 'On active pools, raydium.clmm lets wallets manage their own positions with openPositionFromLiquidity, increasePositionFromLiquidity, decreaseLiquidity and closePosition, swap with swap, and collect fees/rewards with harvestAllRewards. createPool uses an existing config. Find pools via raydium.api.fetchPoolByMints and configs via raydium.api.getClmmConfigs; raydium.clmm.getPoolInfoFromRpc loads a pool. setReward uses the reward authority signer; refusal there does not block wallet flows.' } : {}),
+    // @raydium-io/raydium-sdk-v2@0.2.84-alpha/src/raydium/cpmm/cpmm.ts:
+    // swap/addLiquidity/withdrawLiquidity use owner accounts; createPool uses feeConfig.id;
+    // getPoolInfoFromRpc loads pool/config state; createPoolWithPermission explicitly requires
+    // wallet permissions. cpmm/instruction.ts initializeWithPermission includes permissionPda,
+    // unlike makeCreateCpmmPoolInInstruction. src/api/api.ts exports the discovery methods.
+    ...(name === 'Raydium CPMM' ? { deploymentNote: 'On active pools, wallets can use raydium.cpmm.swap, addLiquidity and withdrawLiquidity with their own tokens/LP tokens. raydium.cpmm.createPool uses an existing fee config. Find pools via raydium.api.fetchPoolByMints and configs via raydium.api.getCpmmConfigs; raydium.cpmm.getPoolInfoFromRpc loads a pool. createPoolWithPermission requires a permission account; refusal there does not block ordinary createPool or existing-pool flows.' } : {}),
     licence: 'none declared', factsOnly: true, idSources: [carbon(decoder!)], rank: { list: 'dex', name: rank! }, clients: npmClient('@raydium-io/raydium-sdk-v2', '0.2.84-alpha') })),
   { name: 'Meteora DLMM', id: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo', purpose: 'Discrete-bin liquidity AMM with dynamic fees',
+    // @meteora-ag/dlmm@1.9.14/dist/index.js.map sourcesContent: src/dlmm/index.ts
+    // implements all named DLMM methods; position/swap builders use the user's accounts,
+    // createLbPair2 reads presetParameter2, getLbPairs/getAllPresetParameters scan accounts,
+    // and setActivationPoint/setPairStatus pass lbPair.creator as signer.
+    // src/dlmm/idl/idl.json: initialize_lb_pair2 has only the funder signer;
+    // initialize_position, claim_fee2, close_position2 and swap record wallet signers.
+    deploymentNote: 'On active pools, DLMM instance methods let wallets open/fund their own positions (initializePositionAndAddLiquidityByStrategy), add (addLiquidityByStrategy), remove (removeLiquidity), collect fees (claimSwapFee), close empty positions (closePosition) and swap (swap). DLMM.createLbPair2 uses an existing preset. Find pools/presets with DLMM.getLbPairs/DLMM.getAllPresetParameters; DLMM.create loads a pool. setActivationPoint/setPairStatus use the pool creator; refusal there does not block wallet flows.',
     kind: 'idl', url: raw('MeteoraAg/dlmm-sdk', '1532e540db41ac405dbf4c5bb2ddfceaa1f98ff1', 'idls/dlmm.json'), version: 'MeteoraAg/dlmm-sdk@1532e540db41ac405dbf4c5bb2ddfceaa1f98ff1',
     licence: 'none declared (repo); ISC (npm)', factsOnly: true, idSources: [carbon('meteora-dlmm')], rank: { list: 'dex', name: 'Meteora DLMM' },
     clients: repoClient('@meteora-ag/dlmm', '1.9.14', 'MeteoraAg/dlmm-sdk', '1532e540db41ac405dbf4c5bb2ddfceaa1f98ff1', 'ts-client/package.json') },

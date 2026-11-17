@@ -1,13 +1,25 @@
 /** Tests the Solana Bench report uses: an exact sign test for paired runs and a permutation test on means for independent groups. */
 
-export interface SignTest { aOnly: number; bOnly: number; both: number; neither: number; pValue: number }
+export interface SignTest {
+  aOnly: number;
+  bOnly: number;
+  both: number;
+  neither: number;
+  pValue: number;
+}
 
 /** Exact two-sided sign test on paired results; only discordant pairs carry information. */
 export function signTest(a: readonly boolean[], b: readonly boolean[]): SignTest {
   if (a.length !== b.length) throw new Error('Paired results must have equal length');
-  let aOnly = 0; let bOnly = 0; let both = 0; let neither = 0;
+  let aOnly = 0;
+  let bOnly = 0;
+  let both = 0;
+  let neither = 0;
   a.forEach((value, index) => {
-    if (value && b[index]) both++; else if (value) aOnly++; else if (b[index]) bOnly++; else neither++;
+    if (value && b[index]) both++;
+    else if (value) aOnly++;
+    else if (b[index]) bOnly++;
+    else neither++;
   });
   const discordant = aOnly + bOnly;
   if (discordant === 0) return { aOnly, bOnly, both, neither, pValue: 1 };
@@ -15,7 +27,10 @@ export function signTest(a: readonly boolean[], b: readonly boolean[]): SignTest
   const k = Math.min(aOnly, bOnly);
   let pmf = Math.pow(0.5, discordant);
   let tail = pmf;
-  for (let i = 1; i <= k; i++) { pmf = (pmf * (discordant - i + 1)) / i; tail += pmf; }
+  for (let i = 1; i <= k; i++) {
+    pmf = (pmf * (discordant - i + 1)) / i;
+    tail += pmf;
+  }
   return { aOnly, bOnly, both, neither, pValue: Math.min(1, 2 * tail) };
 }
 
@@ -40,8 +55,11 @@ function seeded(seed: number): () => number {
  * from a fixed seed, so the same scores always give the same p (sampled p-values move in the third decimal with the seed).
  * This is the test behind the published OMS Solana Bench p-values.
  */
-export function meanPermutation(a: readonly number[], b: readonly number[], options: { samples?: number; seed?: number; exactLimit?: number } = {}):
-  { observed: number; pValue: number; splits: number; exact: boolean } {
+export function meanPermutation(
+  a: readonly number[],
+  b: readonly number[],
+  options: { samples?: number; seed?: number; exactLimit?: number } = {},
+): { observed: number; pValue: number; splits: number; exact: boolean } {
   if (!a.length || !b.length) throw new Error('Both groups need at least one run');
   const { samples = 200_000, seed = 20_261_114, exactLimit = 2_000_000 } = options;
   const pooled = [...a, ...b];
@@ -51,12 +69,16 @@ export function meanPermutation(a: readonly number[], b: readonly number[], opti
   const extremeFor = (leftSum: number): boolean =>
     Math.abs(leftSum / a.length - (sum - leftSum) / b.length) >= Math.abs(observed) - 1e-9;
   let splits = 1;
-  for (let i = 1; i <= a.length; i++) splits = splits * (total - a.length + i) / i;
+  for (let i = 1; i <= a.length; i++) splits = (splits * (total - a.length + i)) / i;
   if (splits <= exactLimit) {
     let extreme = 0;
     let count = 0;
     const visit = (start: number, chosen: number, leftSum: number): void => {
-      if (chosen === a.length) { count++; if (extremeFor(leftSum)) extreme++; return; }
+      if (chosen === a.length) {
+        count++;
+        if (extremeFor(leftSum)) extreme++;
+        return;
+      }
       for (let i = start; i <= total - (a.length - chosen); i++) visit(i + 1, chosen + 1, leftSum + pooled[i]!);
     };
     visit(0, 0, 0);

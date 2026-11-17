@@ -1,6 +1,6 @@
 /**
- * `propose_done`: the generator's only "done" channel (SPEC 3, generator/evaluator
- * rule; eng-review C1).
+ * `propose_done`: the generator's only "done" channel (the generator/evaluator
+ * rule).
  *
  * The model can never close an item. The most it can do is propose that the
  * currently active item is done; the evaluator closes it only when the verifier

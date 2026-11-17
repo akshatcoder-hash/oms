@@ -6,10 +6,18 @@ import { parseReviewReport, type ReviewReport } from '../types.ts';
 import { renderJson, renderMarkdown } from './render.ts';
 
 export async function privateDirectory(path: string, create = false): Promise<void> {
-  if (create) await mkdir(path, { mode: 0o700 }).catch(error => { if (error.code !== 'EEXIST') throw error; });
+  if (create)
+    await mkdir(path, { mode: 0o700 }).catch((error) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
   const stat = await lstat(path);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() ||
-      (stat.mode & 0o077) !== 0 || await realpath(path) !== path) {
+  if (
+    !stat.isDirectory() ||
+    stat.isSymbolicLink() ||
+    stat.uid !== process.getuid?.() ||
+    (stat.mode & 0o077) !== 0 ||
+    (await realpath(path)) !== path
+  ) {
     throw new Error('Review storage requires private host directories without symlinks');
   }
 }
@@ -28,10 +36,16 @@ export async function reviewScope(stateRoot: string, repo: string, create: boole
   if (isNested(canonical, stateRoot)) throw new Error('Review state must be outside the workspace');
   await privateDirectory(stateRoot);
   const reviews = join(stateRoot, 'reviews');
-  if (isNested(canonical, reviews) || isNested(reviews, canonical)) throw new Error('Review storage tree must not overlap the workspace');
+  if (isNested(canonical, reviews) || isNested(reviews, canonical))
+    throw new Error('Review storage tree must not overlap the workspace');
   const scoped = join(reviews, createHash('sha256').update(canonical).digest('hex'));
-  try { await privateDirectory(reviews, create); await privateDirectory(scoped, create); }
-  catch (error) { if (!create && (error as NodeJS.ErrnoException)?.code === 'ENOENT') return undefined; throw error; }
+  try {
+    await privateDirectory(reviews, create);
+    await privateDirectory(scoped, create);
+  } catch (error) {
+    if (!create && (error as NodeJS.ErrnoException)?.code === 'ENOENT') return undefined;
+    throw error;
+  }
   return scoped;
 }
 
@@ -40,12 +54,20 @@ function prepareReport(options: { report: ReviewReport; files: ReadonlyMap<strin
   const input = parseReviewReport(options.report);
   const id = input.reviewId;
   const time = Date.parse(input.createdAt);
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id) || id === 'all' || redactReviewText(id) !== id ||
-      !Number.isFinite(time) || new Date(time).toISOString() !== input.createdAt) throw new Error('Invalid review storage metadata');
-  if (typeof options.logs !== 'string' || Buffer.byteLength(options.logs) > 1024 * 1024) throw new Error('Review logs exceed storage limit');
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(id) ||
+    id === 'all' ||
+    redactReviewText(id) !== id ||
+    !Number.isFinite(time) ||
+    new Date(time).toISOString() !== input.createdAt
+  )
+    throw new Error('Invalid review storage metadata');
+  if (typeof options.logs !== 'string' || Buffer.byteLength(options.logs) > 1024 * 1024)
+    throw new Error('Review logs exceed storage limit');
   const files = new Map(options.files);
-  const redacted = JSON.parse(JSON.stringify(input, (_key, value: unknown) =>
-    typeof value === 'string' ? redactReviewText(value) : value));
+  const redacted = JSON.parse(
+    JSON.stringify(input, (_key, value: unknown) => (typeof value === 'string' ? redactReviewText(value) : value)),
+  );
   const json = renderJson(redacted, files);
   if (Buffer.byteLength(json) > 4 * 1024 * 1024) throw new Error('Review report exceeds storage limit');
   const markdown = renderMarkdown(redacted, files);
@@ -98,7 +120,7 @@ export async function exportReview(options: {
   // Rejects Phase B and proof-bearing input before any destination is created.
   const { json, markdown } = prepareReport({ report, files: options.files, logs: '' });
   if (!isAbsolute(out) || resolve(out) !== out || /[\x00-\x1f\x7f]/.test(out)) throw new Error('Invalid export path');
-  if (await realpath(dirname(out)) !== dirname(out)) throw new Error('Symlinked export parent');
+  if ((await realpath(dirname(out))) !== dirname(out)) throw new Error('Symlinked export parent');
   await mkdir(out, { mode: 0o700 });
   try {
     await writeFile(join(out, 'report.md'), markdown, { flag: 'wx', mode: 0o600 });

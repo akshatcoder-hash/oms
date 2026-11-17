@@ -1,18 +1,24 @@
 # OMS (oh my sol)
 
-Oh My Sol (OMS) is an MIT-licensed AI coding tool for Solana from Barestate. It runs in your terminal with the model you already use, such as Claude or GPT, keeps current Solana references and a local Surfpool chain next to the model, and closes a task only when an independent check passes.
+Oh My Sol (OMS) is an MIT-licensed AI coding tool for Solana from Barestate. It runs in your terminal with the model you already use, such as Claude or GPT.
 
-The model edits a task worktree and proposes completion; an independent offline verifier decides whether the pinned checks pass.
-Use the terminal chat or Workbench editor, with Solana references, toolchain repair, and saved task history.
+Run `oms` in any folder to chat with a Solana coding agent that edits that folder in place. For work with pinned requirements, the model edits a task worktree and proposes completion, and an independent offline verifier decides whether the pinned checks pass.
+Use the terminal chat or Workbench editor, with Solana references, toolchain repair, and saved history.
 
 ## Benchmarks
 
-| Benchmark | OMS | Best rival |
+Each row compares harnesses running the same model, in the same batch.
+
+| Benchmark | OMS | Rival |
 | --- | --- | --- |
 | Fresh Solana tasks, offline, GPT-6.1 Sol | 92 of 96 passed (95.8%) | Codex CLI, 73 of 96 (76.0%) |
-| Solana Bench basic, same-batch runs | Mean 377.1 over 8 runs | Codex CLI, mean 273.2 over 6 runs (p = 0.0107) |
+| Solana Bench basic, GPT-6.1 Sol | Mean 377.1 over 8 runs | Codex CLI, mean 273.2 over 6 runs (p = 0.0107) |
+| Solana Bench, Claude Sonnet 5.5 (basic / swap) | Mean 207.5 / 176.1 over 10 runs each | Claude Code, mean 100.3 / 92.6 over 10 runs each (p = 0.00003 / 0.0004) |
+| Solana Bench, Claude Opus 5.5, two batches pooled (basic / swap) | Mean 302.8 / 257.7 over 12 runs each | Claude Code, mean 252.3 / 230.0 over 12 runs each (p = 0.005 / 0.029) |
 
-Both compare harnesses running the same model. On everyday tasks the harnesses tie, OMS is slower, and with web search on the gap against Codex CLI was not significant; read the [limits](https://barestate.xyz/docs/benchmarks/overview) before quoting a number. The harness behind the Solana Bench numbers is in this repository; see [docs/solana-bench.md](docs/solana-bench.md) to rerun a cell.
+On everyday tasks the harnesses tie, OMS is slower, and with web search on the gap against Codex CLI was not significant. On Opus, each batch on its own was significant only for basic in the first batch; the pooled rows combine both. Read the [limits](https://barestate.xyz/docs/benchmarks/overview) before quoting a number.
+
+The source-checkout benchmark, `solbench-harness`, compares agent harnesses on a fresh Surfpool fork; its scores are not comparable to the Solana Foundation's published Solana Bench tables. See [docs/solana-bench.md](docs/solana-bench.md) for the scoring rules and to rerun a cell.
 
 Compared with Claude Code, Codex CLI, Cursor and the Solana Developer MCP: [barestate.xyz/compare](https://barestate.xyz/compare).
 
@@ -21,31 +27,39 @@ Compared with Claude Code, Codex CLI, Cursor and the Solana Developer MCP: [bare
 Use Node **22.19.0 or newer** and Git. Then:
 
 ```sh
-npx @barestate/oms doctor --install   # one time: downloads Surfpool 1.7.0 and verifies its SHA-256
+cd path/to/your/project
 npx @barestate/oms
 ```
 
+The first launch installs Surfpool 1.7.0 and verifies its SHA-256; `oms doctor --install` does the same on its own.
+
 `oms --version` prints the version. To run a source checkout instead, use `npm ci --ignore-scripts`, run `node packages/cli/src/bin.ts doctor --install`, then `npm start`. See [quickstart](docs/quickstart.md) for the source setup commands.
 
-In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. Type a request only when you want to send it to the provider. Opening OMS sends no model request. `/help` lists commands; `/quit` closes the session. The starter keeps your files and conversation across launches.
+In OMS, enter `/connect`, choose your access method, then `/model` to select a model or a native Claude Code chat. `/help` lists commands; `/exit` (or `/quit`, or Ctrl+D on an empty input) closes the session. `/yolo`, or `oms --yolo`, runs commands without asking and without the sandbox.
+
+`oms` works in the folder you run it in, like any editor: the agent reads and edits your files there, including uncommitted ones, so keep the folder under Git and use `/diff` to review. OMS creates nothing inside the folder; its state for each folder lives under `~/.oms/folders/`. Run `oms` again in the same folder to resume the last conversation. In your home folder, `/`, or a folder that holds keys or OMS's own state, OMS opens a scratch folder instead and says so.
 
 See [quickstart](docs/quickstart.md) for each access path and [release checklist](docs/release.md) for the installable archive and clean-machine smoke test.
+
+## Helper agents
+
+The chat's agent can hand work to helpers that run beside it: `explore`, `review` and `build`, or your own agents from `~/.oms/agents/` and `.oms-agents/`. `/team <goal>` splits a goal across helpers, and `/agents` lists them. Helpers use the chat's model and limits, and need a direct model, so they are off while Claude Code is selected. See [how to use helper agents](docs/helpers.md) and the [helper reference](docs/helpers-reference.md).
 
 ## Model access
 
 OMS uses the model access you already have. Provider credentials stay in private configuration and are never placed in chat or task files. Claude Code keeps its own login; OMS checks it through the installed CLI.
 
-| Access you have | Connect in OMS |
-| --- | --- |
-| Codex / ChatGPT subscription | `/connect` → OpenAI Codex subscription; `/model` → Codex model |
-| Claude Code subscription | Sign in with `claude auth login`, then `/connect` → local Claude Code login; `/model` → **Claude Code** → Sonnet, Opus or Haiku |
-| MiMo Token Plan | `/connect` → your Xiaomi Token Plan region; `/model` → MiMo |
-| OpenCode Go | `/connect` → OpenCode Go; `/model` → available model |
-| OpenAI or Anthropic API key | `/connect` → the provider; arbitrary custom endpoints are not loaded by this cut |
+| Access you have              | Connect in OMS                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Codex / ChatGPT subscription | `/connect` → OpenAI Codex subscription; `/model` → Codex model                                                                  |
+| Claude Code subscription     | Sign in with `claude auth login`, then `/connect` → local Claude Code login; `/model` → **Claude Code** → Sonnet, Opus or Haiku |
+| MiMo Token Plan              | `/connect` → your Xiaomi Token Plan region; `/model` → MiMo                                                                     |
+| OpenCode Go                  | `/connect` → OpenCode Go; `/model` → available model                                                                            |
+| OpenAI or Anthropic API key  | `/connect` → the provider; arbitrary custom endpoints are not loaded by this cut                                                |
 
-OMS does not claim to make one model better than another; the benchmarks above compare harnesses running the same model.
+OMS does not claim to make one model better than another; benchmark comparisons use cells running the same model.
 
-Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. The starter and standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining task files and verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription).
+Claude Code owns its native chat history, bound to the OMS conversation. `/session` shows its observed session ID and connection state. Running `oms` again in the folder and the standard OMS resume command restore that same identity; the next message resumes native history. With Claude Code selected, `/clear` starts a fresh native chat and clears the OMS conversation view, retaining your files and, in a task, its verification. Returning from another provider resumes Claude's separate history without importing that provider's messages. OMS still executes Claude's tools through its approvals and sandbox, and the independent verifier decides completion. See [native chat setup and resume](docs/quickstart.md#claude-code-subscription). To change Claude Code's effort (`high` by default), see [How to use Claude Code in OMS](docs/claude-code.md).
 
 ## What “done” means
 
@@ -55,9 +69,9 @@ A task pins its requirements and trusted verifier files before work begins. The 
 
 ## Host mode and sandboxing
 
-Docker is not needed to install or run OMS. Host mode is the default: tools run on your machine, in the task worktree.
+Docker is not needed to install or run OMS. Host mode is the default: tools run on your machine, in the folder you opened (or the task worktree).
 
-- **macOS:** every command runs under a per-run Seatbelt (`sandbox-exec`) profile. Writes are limited to the worktree, a private HOME, temp and Cargo's download caches (`~/.cargo/registry`, `~/.cargo/git`). Pinned verifier files and `.git` stay read-only. `~/.ssh`, `~/.config/solana`, `~/.aws`, `~/Library`, `~/.config/gh`, `~/.docker`, `~/.netrc`, `~/.npmrc`, keypair files and other directories under your home are unreadable, and the keychain service is blocked. The only network destination is the local Surfnet port. Seatbelt is not a VM; it confines file and network access only.
+- **macOS:** every command runs under a per-run Seatbelt (`sandbox-exec`) profile. Writes are limited to the worktree, a private HOME, temp and Cargo's download caches (`~/.cargo/registry`, `~/.cargo/git`). Pinned verifier files and `.git` stay read-only in a task; in a folder chat only `.git/hooks` and `.git/config` do, so the agent can `git add` and `git commit` but cannot plant a hook. In a folder chat, `.env` files are readable to the agent and its commands like other project files; Seatbelt still blocks `*-keypair.json` and `id.json`, and file tools still block `.env.agent`. Pinned tasks also allow `.env` files present in their worktree, which starts from the pinned commit without copying untracked files from your folder. Cargo's `credentials` and `credentials.toml` under `~/.cargo`, a custom `CARGO_HOME` and every reopened toolchain root are unreadable, as are case variants of `.npmrc` and `etc/npmrc` inside those toolchain roots; npm's builtin `npmrc` remains readable. `~/.ssh`, `~/.config/solana`, `~/.aws`, `~/Library`, `~/.config/gh`, `~/.docker`, `~/.netrc`, `~/.npmrc`, keypair files and other directories under your home are unreadable, and the keychain service is blocked. The only network destination is the local Surfnet port. Seatbelt is not a VM; it confines file and network access only.
 - **Linux:** v0.1 has no sandbox. OMS prints a warning at startup. Network access is unrestricted and an approved command can read anything your user can. Use it only with code and commands you trust.
 
 On both, agent shell, terminal and verifier processes start from an empty environment plus an allowlist (PATH, locale, temp dir, shell, terminal, Cargo/Rustup homes, RPC URLs) with a private per-run HOME. API keys such as `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` and `AWS_*` never reach them. File tools refuse writes to pinned verifier files and `.git`. Every model shell command needs approval in the TUI, with extra warnings for credential or wallet paths, recursive removal, paths outside the worktree, downloads piped to a shell and sudo. Headless runs default to `--host-approval deny`; a trusted operator can pass `--host-approval allow`.
@@ -70,7 +84,7 @@ Solana reference lookups return bounded results that are treated as untrusted da
 
 Anchor and Kit toolchain repair helps resolve version and build mismatches. It does not remove the need to install project dependencies or to review proposed changes.
 
-Security review is report-only: **can make mistakes; get a professional audit**. Findings do not authorize automatic fixes or constitute an audit. 
+Security review is report-only: **can make mistakes; get a professional audit**. Findings do not authorize automatic fixes or constitute an audit.
 
 Startup art shows one of four pictures when OMS opens. `/art off` turns it off. Appearance settings do not send model requests.
 
@@ -85,9 +99,10 @@ Interactive sessions can look things up on the web. All of it runs in the OMS ho
 The system prompt tells the model to use the built-in Solana reference first, then the Solana MCP, then web search. For program and build errors it prefers Solana Stack Exchange and GitHub issues and releases. Queries go to the services named above.
 
 To turn web access off, use one of these:
+
 - for the current session: `/web off`, and `/web on` to turn it back on;
 - for one launch: `--no-web`;
-- for every launch: `{"web": "off"}` in `config.json` in the OMS state root. This is `~/.oms/config.json` for `oms run`, or `~/.oms/starter/state/config.json` for the bare `oms` starter.
+- for every launch: `{"web": "off"}` in `config.json` in the OMS state root. This is `~/.oms/config.json`.
 
 Headless runs have no web tools unless you pass `--web`. Run records count `web_search`, `web_fetch` and Solana MCP calls, and name the backend that answered each search and fetch (an oms-search answer as the backends it reports, such as `oms:searxng+tinyfish`).
 
@@ -101,7 +116,7 @@ node packages/cli/src/bin.ts task create --workspace /path/to/repo --requirement
 node packages/cli/src/bin.ts run --workspace /path/to/repo --task first
 ```
 
-Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeoutMs`. Pin verifier dependencies and controlling package scripts as trusted paths. See [engine notes](packages/engine/NOTES.md) for the format and storage model. Task code lives in a managed worktree; trusted state lives separately under `~/.oms`. The starter lives in `~/.oms/starter`.
+Requirements contain a `contract`, `verifierPaths`, `codePaths`, and `testTimeoutMs`. Pin verifier dependencies and controlling package scripts as trusted paths. See [engine notes](packages/engine/NOTES.md) for the format and storage model. Task code lives in a managed worktree; trusted state lives separately under `~/.oms`.
 
 ## Limits
 

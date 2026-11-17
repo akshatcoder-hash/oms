@@ -1,6 +1,14 @@
 import {
-  HStack, VStack, isKeyRelease, matchesKey, truncateToWidth, visibleWidth,
-  type Component, type Focusable, type TuiMouseEvent, type TuiMouseEventResult,
+  HStack,
+  VStack,
+  isKeyRelease,
+  matchesKey,
+  truncateToWidth,
+  visibleWidth,
+  type Component,
+  type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@earendil-works/pi-tui';
 import { colorText, type OmsTheme } from './theme.ts';
 import { displayText } from './transcript.ts';
@@ -45,7 +53,9 @@ export class ActionBar implements Component, Focusable {
     this.options = options;
   }
 
-  get focused(): boolean { return this.hasFocus; }
+  get focused(): boolean {
+    return this.hasFocus;
+  }
   set focused(value: boolean) {
     if (this.hasFocus === value) return;
     this.hasFocus = value;
@@ -64,17 +74,17 @@ export class ActionBar implements Component, Focusable {
     this.width = width;
     this.hits = [];
     const items = this.items();
-    const active = items.find(item => item.active)?.id;
+    const active = items.find((item) => item.active)?.id;
     if (active !== this.active) {
       this.active = active;
       if (active !== undefined) this.selected = active;
     }
-    if (!items.some(item => item.id === this.selected && !item.disabled)) {
-      this.selected = items.find(item => !item.disabled)?.id;
+    if (!items.some((item) => item.id === this.selected && !item.disabled)) {
+      this.selected = items.find((item) => !item.disabled)?.id;
     }
     const texts = items.map(actionText);
-    const sizes = texts.map(text => visibleWidth(text) + 4);
-    const selectedIndex = items.findIndex(item => item.id === this.selected);
+    const sizes = texts.map((text) => visibleWidth(text) + 4);
+    const selectedIndex = items.findIndex((item) => item.id === this.selected);
     let start = 0;
     let used = 0;
     for (let index = 0; index <= selectedIndex; index++) {
@@ -89,7 +99,10 @@ export class ActionBar implements Component, Focusable {
     const theme = this.options.theme();
     for (let index = start; index < items.length && column < width; index++) {
       const item = items[index]!;
-      if (column > 0) { line += ' '; column++; }
+      if (column > 0) {
+        line += ' ';
+        column++;
+      }
       if (column >= width) break;
       const text = texts[index]!;
       const full = sizes[index]! <= width - column;
@@ -106,13 +119,16 @@ export class ActionBar implements Component, Focusable {
 
   handleInput(data: string): void {
     if (!this.focused || isKeyRelease(data)) return;
-    if (matchesKey(data, 'escape')) { this.options.onEscape?.(); return; }
+    if (matchesKey(data, 'escape')) {
+      this.options.onEscape?.();
+      return;
+    }
     const next = matchesKey(data, 'right') || matchesKey(data, 'down') || matchesKey(data, 'tab');
     const previous = matchesKey(data, 'left') || matchesKey(data, 'up') || matchesKey(data, 'shift+tab');
     if (next || previous) {
-      const enabled = this.items().filter(item => !item.disabled);
+      const enabled = this.items().filter((item) => !item.disabled);
       if (!enabled.length) return;
-      const index = enabled.findIndex(item => item.id === this.selected);
+      const index = enabled.findIndex((item) => item.id === this.selected);
       this.selected = enabled[(index + (next ? 1 : -1) + enabled.length) % enabled.length]!.id;
       this.gesture = undefined;
       this.options.render();
@@ -122,8 +138,11 @@ export class ActionBar implements Component, Focusable {
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (event.width !== this.width) { this.invalidate(); return undefined; }
-    const hit = event.y === 0 ? this.hits.find(item => event.x >= item.start && event.x < item.end) : undefined;
+    if (event.width !== this.width) {
+      this.invalidate();
+      return undefined;
+    }
+    const hit = event.y === 0 ? this.hits.find((item) => event.x >= item.start && event.x < item.end) : undefined;
     if (event.type === 'press') {
       this.gesture = undefined;
       if (event.button !== 'left' || !hit) return undefined;
@@ -149,8 +168,8 @@ export class ActionBar implements Component, Focusable {
   }
 
   private activate(id: string | undefined): void {
-    const hit = this.hits.find(item => item.id === id);
-    const item = this.items().find(item => item.id === id);
+    const hit = this.hits.find((item) => item.id === id);
+    const item = this.items().find((item) => item.id === id);
     if (!hit || !item || item.disabled || actionText(item) !== hit.text) return;
     this.selected = id;
     item.onPress();
@@ -175,7 +194,10 @@ export class PaneFrame extends VStack {
     const color = (text: string) => colorText(options.theme(), options.focused() ? 'accent' : 'border', text);
     const focus = (event: TuiMouseEvent): TuiMouseEventResult | undefined => {
       if (event.button !== 'left') return undefined;
-      if (event.type === 'click') { options.onFocus?.(); return { handled: true }; }
+      if (event.type === 'click') {
+        options.onFocus?.();
+        return { handled: true };
+      }
       return event.type === 'press' ? { handled: true } : undefined;
     };
     const horizontal = (top: boolean): Component => ({
@@ -183,8 +205,14 @@ export class PaneFrame extends VStack {
       handleMouse: focus,
       render(width) {
         if (width < 2) return [''];
-        const title = top ? truncateToWidth(` ${displayText(options.title(), 1000).replace(/[\r\n\t]/g, ' ')} `, width - 2, '') : '';
-        return [color((top ? '╭' : '╰') + title + '─'.repeat(Math.max(0, width - 2 - visibleWidth(title))) + (top ? '╮' : '╯'))];
+        const title = top
+          ? truncateToWidth(` ${displayText(options.title(), 1000).replace(/[\r\n\t]/g, ' ')} `, width - 2, '')
+          : '';
+        return [
+          color(
+            (top ? '╭' : '╰') + title + '─'.repeat(Math.max(0, width - 2 - visibleWidth(title))) + (top ? '╮' : '╯'),
+          ),
+        ];
       },
     });
     let railText = '';

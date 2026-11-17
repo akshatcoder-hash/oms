@@ -1,16 +1,34 @@
 import {
-  CURSOR_MARKER, Input, SelectList, decodeKittyPrintable, hyperlink, matchesKey, renderFakeCursor,
-  truncateToWidth, wrapTextWithAnsi, type Component, type Focusable,
+  CURSOR_MARKER,
+  Input,
+  SelectList,
+  decodeKittyPrintable,
+  hyperlink,
+  matchesKey,
+  renderFakeCursor,
+  truncateToWidth,
+  wrapTextWithAnsi,
+  type Component,
+  type Focusable,
 } from '@earendil-works/pi-tui';
 import { copyToClipboard } from '@earendil-works/pi-coding-agent';
 import type { AuthEvent, AuthInteraction, AuthPrompt } from '@earendil-works/pi-ai';
-import type { HarnessSession, ProviderModelChoice } from '@oms/engine';
+import type { OmsSession, ProviderModelChoice } from '@oms/engine';
 import { colorText, getTheme, THEME_IDS, type OmsTheme } from './theme.ts';
 import { displayText } from './transcript.ts';
 
 type SetupMode = 'model' | 'connect' | 'theme';
-type SetupHarness = Pick<HarnessSession, 'listModels' | 'listProviders' | 'selectModel' | 'loginProvider' | 'importEnvironment'>;
-interface Choice { value: string; label: string; description: string }
+type SetupHarness = Pick<
+  OmsSession,
+  'listModels' | 'listProviders' | 'selectModel' | 'loginProvider' | 'importEnvironment'
+>;
+interface Choice {
+  value: string;
+  label: string;
+  description: string;
+  /** Searchable but not shown: the provider id. */
+  keywords?: string;
+}
 interface SetupOptions {
   mode: SetupMode;
   query?: string;
@@ -62,39 +80,54 @@ export class SetupPane {
     this.stage = options.mode === 'theme' ? 'theme' : 'providers';
     this.search.setValue(line(options.query ?? '').slice(0, 256));
     if (this.stage === 'theme') {
-      this.choices = THEME_IDS.map(id => ({ value: id, label: getTheme(id)!.name,
-        description: `${id}${id === options.theme().id ? ' · selected' : ''}` }));
+      this.choices = THEME_IDS.map((id) => ({
+        value: id,
+        label: getTheme(id)!.name,
+        description: `${id}${id === options.theme().id ? ' · selected' : ''}`,
+      }));
     } else {
       this.buildTopLevel();
     }
-    this.body = { invalidate() {}, render: width => this.renderBody(width) };
+    this.body = { invalidate() {}, render: (width) => this.renderBody(width) };
     this.input = {
-      focused: false, invalidate() {},
-      render: width => {
+      focused: false,
+      invalidate() {},
+      render: (width) => {
         if (this.stage === 'auth' && this.prompt?.type !== 'select') {
           const value = this.prompt?.type === 'text' ? displayText(this.key, 16_384) : this.key ? '•••••••• ' : '';
-          return [truncateToWidth(`${this.prompt?.type === 'text' ? 'Text' : this.prompt?.type === 'secret' ? 'Secret' : 'Code'}: ` + value +
-            (this.input.focused && this.prompt ? CURSOR_MARKER + renderFakeCursor(' ') : ''), width, '')];
+          return [
+            truncateToWidth(
+              `${this.prompt?.type === 'text' ? 'Text' : this.prompt?.type === 'secret' ? 'Secret' : 'Code'}: ` +
+                value +
+                (this.input.focused && this.prompt ? CURSOR_MARKER + renderFakeCursor(' ') : ''),
+              width,
+              '',
+            ),
+          ];
         }
         this.search.focused = this.input.focused;
         return this.search.render(width);
       },
-      handleInput: data => this.handleInput(data),
+      handleInput: (data) => this.handleInput(data),
     };
     if (options.mode === 'connect' && /^import(?:\s|$)/.test(options.query ?? '')) {
       const path = (options.query ?? '').slice(6).trim();
-      queueMicrotask(() => { if (!this.disposed) void this.importEnvironment(path); });
+      queueMicrotask(() => {
+        if (!this.disposed) void this.importEnvironment(path);
+      });
     }
   }
 
   get label(): string {
-    return this.stage === 'auth' ? `CONNECT · ${line(this.provider ?? '')}`
-      : `SEARCH · ${this.stage === 'providers' ? 'providers / sign-in methods' : this.stage}`;
+    if (this.stage === 'auth' || this.stage === 'models') return line(this.provider ?? '');
+    return this.options.mode === 'model' ? 'Model' : 'Sign in';
   }
   get hint(): string {
     if (this.stage === 'auth') {
       if (this.prompt?.type === 'select') return '↑↓ Enter · Ctrl+X copy link · PgUp/PgDn · Esc';
-      return this.prompt ? 'Enter · Ctrl+X copy link · PgUp/PgDn · Esc' : 'Waiting · Ctrl+X copy link · PgUp/PgDn · Esc cancel';
+      return this.prompt
+        ? 'Enter · Ctrl+X copy link · PgUp/PgDn · Esc'
+        : 'Waiting · Ctrl+X copy link · PgUp/PgDn · Esc cancel';
     }
     return '↑↓ Enter · Esc back · Ctrl+K commands';
   }
@@ -106,31 +139,78 @@ export class SetupPane {
     this.list = undefined;
     const providers = this.harness.listProviders();
     if (this.options.mode === 'model') {
-      for (const provider of providers.filter(provider => provider.configured)) {
-        if (!this.harness.listModels().some(model => model.provider === provider.id)) continue;
-        this.choices.push({ value: JSON.stringify([provider.id, 'configured']),
-          label: provider.id === 'openai-codex' ? 'Codex models (ChatGPT)'
-            : provider.id === 'claude-code' ? 'Claude Code' : `${line(provider.name)} models`,
-          description: provider.id === 'claude-code' ? 'Installed CLI · subscription · Sonnet, Opus or Haiku' : 'Connected · choose a model explicitly' });
+      for (const provider of providers.filter((provider) => provider.configured)) {
+        if (!this.harness.listModels().some((model) => model.provider === provider.id)) continue;
+        this.choices.push({
+          value: JSON.stringify([provider.id, 'configured']),
+          label:
+            provider.id === 'openai-codex'
+              ? 'Codex models'
+              : provider.id === 'claude-code'
+                ? 'Claude Code'
+                : provider.id === 'xai'
+                  ? 'Grok models'
+                  : `${line(provider.name)} models`,
+          description: provider.id === 'claude-code' ? 'Sonnet, Opus or Haiku' : '',
+          keywords: provider.id,
+        });
       }
     }
+    const rows: { rank: number; choice: Choice }[] = [];
     for (const provider of providers) {
-      if (this.options.mode === 'model' && provider.configured &&
-          this.harness.listModels().some(model => model.provider === provider.id)) continue;
-      if (provider.apiKey) this.choices.push({ value: JSON.stringify([provider.id, 'api_key']),
-        label: line(provider.apiKeyLabel ?? `${provider.name} API key`),
-        description: line(`${provider.id} · ${provider.configured ? 'configured' : 'add API key'} · ${provider.id === 'opencode-go' ? 'subscription limits; optional extra usage billing' : 'usage-based provider billing'}`) });
-      if (provider.oauth || provider.oauthUnavailable) this.choices.push({ value: JSON.stringify([provider.id, 'oauth']),
-        label: this.options.mode === 'model' && provider.id === 'claude-code' ? 'Claude Code'
-          : line(provider.oauthLabel ?? `${provider.name} subscription`),
-        description: provider.id === 'claude-code' ? `Local Claude Code · ${provider.configured ? 'login checked' : 'check installed CLI and login'} · plan limits apply`
-          : provider.oauthUnavailable ? 'Unavailable in direct model access · choose for explanation'
-          : `${provider.id} · ${provider.configured ? 'configured' : 'sign in'} · plan limits apply; not unlimited` });
+      if (
+        this.options.mode === 'model' &&
+        provider.configured &&
+        this.harness.listModels().some((model) => model.provider === provider.id)
+      )
+        continue;
+      const connected = provider.configured ? 'Connected' : '';
+      if (provider.apiKey)
+        rows.push({
+          rank: 4,
+          choice: {
+            value: JSON.stringify([provider.id, 'api_key']),
+            label:
+              provider.id === 'xai' ? 'Grok (xAI API key)' : line(provider.apiKeyLabel ?? `${provider.name} API key`),
+            description: connected,
+            keywords: provider.id,
+          },
+        });
+      // Anthropic's own plans cannot be used here; the row existed only to say so.
+      if (provider.oauth) {
+        const codex = provider.id === 'openai-codex';
+        const claude = provider.id === 'claude-code';
+        const grok = provider.id === 'xai';
+        rows.push({
+          rank: codex ? 0 : claude ? 1 : grok ? 2 : 3,
+          choice: {
+            value: JSON.stringify([provider.id, 'oauth']),
+            label: codex
+              ? 'Codex (ChatGPT subscription)'
+              : claude
+                ? 'Claude Code (Claude subscription)'
+                : grok
+                  ? 'Grok (SuperGrok or X Premium)'
+                  : line(provider.oauthName ?? provider.oauthLabel ?? `${provider.name} subscription`),
+            description: connected,
+            keywords: provider.id,
+          },
+        });
+      }
       if (!provider.apiKey && !provider.oauth && !provider.oauthUnavailable && provider.configured) {
-        this.choices.push({ value: JSON.stringify([provider.id, 'configured']), label: line(provider.name),
-          description: `${provider.id} · configured externally` });
+        rows.push({
+          rank: 4,
+          choice: {
+            value: JSON.stringify([provider.id, 'configured']),
+            label: line(provider.name),
+            description: 'Connected',
+            keywords: provider.id,
+          },
+        });
       }
     }
+    rows.sort((a, b) => a.rank - b.rank || (a.rank >= 3 ? a.choice.label.localeCompare(b.choice.label) : 0));
+    this.choices.push(...rows.map((row) => row.choice));
   }
 
   private setChoices(choices: Choice[]): void {
@@ -144,36 +224,61 @@ export class SetupPane {
     this.stage = 'models';
     this.provider = provider;
     this.models.clear();
-    this.setChoices(this.harness.listModels().filter(model => model.provider === provider).map(model => {
-      const value = JSON.stringify([model.provider, model.id]);
-      this.models.set(value, model);
-      return { value, label: line(`${model.provider}/${model.id}`),
-        description: line(`${model.selectable === false ? 'Unavailable' : 'Connected'} · ${model.detail ?? model.name}`) };
-    }));
+    this.setChoices(
+      this.harness
+        .listModels()
+        .filter((model) => model.provider === provider)
+        .map((model) => {
+          const value = JSON.stringify([model.provider, model.id]);
+          this.models.set(value, model);
+          return {
+            value,
+            label: line(`${model.provider}/${model.id}`),
+            description: line(model.selectable === false ? `Unavailable · ${model.detail ?? model.name}` : model.name),
+          };
+        }),
+    );
     this.message = '';
     this.note = '';
   }
 
-  private bodyHeight(): number { return Math.max(1, this.options.bodyRows?.() ?? this.options.rows() - 5); }
+  private bodyHeight(): number {
+    return Math.max(1, this.options.bodyRows?.() ?? this.options.rows() - 5);
+  }
 
   private ensureList(): SelectList {
     const query = this.search.getValue().toLowerCase().trim();
     const rows = Math.max(1, Math.min(8, this.bodyHeight() - 4));
     if (!this.list || query !== this.filter || rows !== this.listRows) {
-      const items = this.choices.filter(choice => `${choice.label} ${choice.description}`.toLowerCase().includes(query))
-        .sort((left, right) => Number(right.label.toLowerCase().includes(query)) - Number(left.label.toLowerCase().includes(query)));
+      const items = this.choices
+        .filter((choice) =>
+          `${choice.label} ${choice.description} ${choice.keywords ?? ''}`.toLowerCase().includes(query),
+        )
+        .sort(
+          (left, right) =>
+            Number(right.label.toLowerCase().includes(query)) - Number(left.label.toLowerCase().includes(query)),
+        );
       this.listItems = items;
       const palette = () => this.options.theme();
       this.list = new SelectList(items, rows, {
-        selectedPrefix: text => colorText(palette(), 'accent', text),
-        selectedText: text => colorText(palette(), 'accent', text),
-        description: text => colorText(palette(), 'muted', text),
-        scrollInfo: text => colorText(palette(), 'muted', text),
+        selectedPrefix: (text) => colorText(palette(), 'accent', text),
+        selectedText: (text) => colorText(palette(), 'accent', text),
+        description: (text) => colorText(palette(), 'muted', text),
+        scrollInfo: (text) => colorText(palette(), 'muted', text),
         noMatch: () => colorText(palette(), 'warning', 'No matches · Ctrl+U clear · Esc back'),
       });
-      this.list.setSelectedIndex(Math.max(0, items.findIndex(item => item.value === this.selected)));
-      this.list.onSelectionChange = item => { this.selected = item.value; };
-      this.list.onSelect = item => { void this.choose(item.value); };
+      this.list.setSelectedIndex(
+        Math.max(
+          0,
+          items.findIndex((item) => item.value === this.selected),
+        ),
+      );
+      this.list.onSelectionChange = (item) => {
+        this.selected = item.value;
+      };
+      this.list.onSelect = (item) => {
+        void this.choose(item.value);
+      };
       this.filter = query;
       this.listRows = rows;
     }
@@ -182,39 +287,53 @@ export class SetupPane {
 
   private renderBody(width: number): string[] {
     const palette = this.options.theme();
-    const title = this.stage === 'theme' ? 'Themes · terminal background is unchanged'
-      : this.stage === 'providers' ? this.options.mode === 'model' ? 'Choose a connected provider' : 'Choose provider and sign-in method'
-      : this.stage === 'models' ? 'Models · choose explicitly; current selection is unchanged' : `Connect ${line(this.provider ?? '')}`;
+    const title =
+      this.stage === 'theme'
+        ? 'Theme'
+        : this.stage === 'providers'
+          ? this.options.mode === 'model'
+            ? 'Choose a provider'
+            : 'Choose how to sign in'
+          : this.stage === 'models'
+            ? 'Choose a model'
+            : `Connect ${line(this.provider ?? '')}`;
     const lines = [colorText(palette, 'accent', truncateToWidth(title, width, ''))];
     if (this.note) lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', line(this.note)), Math.max(1, width)));
     if (this.stage === 'auth' && this.authUrl) {
-      lines.push(colorText(palette, 'accent', hyperlink(truncateToWidth('Open sign-in link · Ctrl+X copy', width, ''), this.authUrl)));
+      lines.push(
+        colorText(
+          palette,
+          'accent',
+          hyperlink(truncateToWidth('Open sign-in link · Ctrl+X copy', width, ''), this.authUrl),
+        ),
+      );
     }
     if (this.message) lines.push(...wrapTextWithAnsi(colorText(palette, 'warning', this.message), Math.max(1, width)));
-    if (this.provider === 'openai-codex') {
-      lines.push(...wrapTextWithAnsi('Codex: full catalog output capacity reserved; local output cap is not enforceable. Spend is catalog-equivalent, not your subscription invoice.', Math.max(1, width)));
-      lines.push(...wrapTextWithAnsi('ChatGPT sign-in does not configure the OpenAI API or other providers. Choose a Codex model below.', Math.max(1, width)));
-    }
-    if (this.provider === 'opencode-go') {
-      lines.push(...wrapTextWithAnsi('Go: plan limits apply; provider extra-usage settings may allow additional billing. OMS uses catalog-equivalent spend, not your subscription invoice.', Math.max(1, width)));
-    }
     if (this.provider === 'claude-code') {
-      lines.push(...wrapTextWithAnsi('Claude Code uses its own local subscription login. OMS does not copy its credentials. Plan limits apply.', Math.max(1, width)));
-      lines.push(...wrapTextWithAnsi('Claude owns a native chat for this OMS conversation. OMS tools keep their approvals, sandbox and independent verification.', Math.max(1, width)));
-      lines.push(...wrapTextWithAnsi('Returning to Claude resumes its own history. Messages sent to other providers are not imported. /session shows the native session.', Math.max(1, width)));
-      lines.push(...wrapTextWithAnsi('OMS reserves full catalog context and output capacity; Claude Code cannot enforce the local output cap. Total token and time limits still apply.', Math.max(1, width)));
-      if (this.stage === 'auth') lines.push(...wrapTextWithAnsi('Install the official Claude Code CLI, run claude auth login in another terminal, then check claude auth status. Return to /connect after signing in.', Math.max(1, width)));
+      if (this.stage === 'auth')
+        lines.push(
+          ...wrapTextWithAnsi(
+            'Install the official Claude Code CLI, run claude auth login in another terminal, then check claude auth status. Return to /connect after signing in.',
+            Math.max(1, width),
+          ),
+        );
     }
     if (this.stage === 'auth') {
-      lines.push(...[this.provider === 'claude-code' ? 'Authentication stays in Claude Code; this step checks local access without a model request.'
-        : 'Stored only in private OMS configuration; never in chat or task files.',
-        ...(this.provider === 'claude-code' ? [] : [this.method === 'api_key' ? 'Saving a key does not validate it or send a model request.' : 'Open the URL yourself. Sign-in contacts the provider; no model request is sent.']),
-        ...(this.authUrl ? [hyperlink(this.authUrl, this.authUrl), 'Ctrl+X copies the complete link; do not reconstruct it from wrapped text.'] : []),
-        ...this.authLines, ...(this.prompt && this.prompt.type !== 'select' ? [line(this.prompt.message)] : [])]
-        .flatMap(text => wrapTextWithAnsi(colorText(palette, 'muted', text), Math.max(1, width))));
+      lines.push(
+        ...[
+          ...(this.authUrl
+            ? ['Open this link to sign in.', hyperlink(this.authUrl, this.authUrl), 'Ctrl+X copies the link.']
+            : []),
+          ...this.authLines,
+          ...(this.prompt && this.prompt.type !== 'select' ? [line(this.prompt.message)] : []),
+        ].flatMap((text) => wrapTextWithAnsi(colorText(palette, 'muted', text), Math.max(1, width))),
+      );
       if (this.prompt?.type === 'select') {
-        const fixed = [lines[0]!, colorText(palette, 'accent', truncateToWidth(line(this.prompt.message), width, '')),
-          ...this.ensureList().render(width)];
+        const fixed = [
+          lines[0]!,
+          colorText(palette, 'accent', truncateToWidth(line(this.prompt.message), width, '')),
+          ...this.ensureList().render(width),
+        ];
         const details = lines.slice(1);
         this.authDetailRows = Math.max(0, this.bodyHeight() - fixed.length);
         this.authScroll = Math.min(this.authScroll, Math.max(0, details.length - this.authDetailRows));
@@ -224,13 +343,27 @@ export class SetupPane {
       const list = this.ensureList();
       const highlighted = list.getSelectedItem();
       const highlightedModel = highlighted ? this.models.get(highlighted.value) : undefined;
-      if (highlightedModel?.detail) lines.push(...wrapTextWithAnsi(colorText(palette, highlightedModel.selectable === false ? 'warning' : 'muted',
-        line(highlightedModel.detail)), Math.max(1, width)));
+      if (highlightedModel?.detail)
+        lines.push(
+          ...wrapTextWithAnsi(
+            colorText(
+              palette,
+              highlightedModel.selectable === false ? 'warning' : 'muted',
+              line(highlightedModel.detail),
+            ),
+            Math.max(1, width),
+          ),
+        );
       if (this.stage === 'models') {
         const selected = list.getSelectedItem();
         const model = selected ? this.models.get(selected.value) : undefined;
-        if (model) lines.push(...wrapTextWithAnsi(colorText(palette, 'accent',
-          `Selected: ${displayText(`${model.provider}/${model.id}`, 16_384)}`), Math.max(1, width)));
+        if (model)
+          lines.push(
+            ...wrapTextWithAnsi(
+              colorText(palette, 'accent', `Selected: ${displayText(`${model.provider}/${model.id}`, 16_384)}`),
+              Math.max(1, width),
+            ),
+          );
       }
       lines.push(...list.render(width));
     }
@@ -250,9 +383,14 @@ export class SetupPane {
     this.authScroll = 0;
     this.key = '';
     this.replaceKey = false;
-    if (prompt.type === 'select') this.setChoices(prompt.options.map(option => ({
-      value: option.id, label: line(option.label), description: line(option.description ?? ''),
-    })));
+    if (prompt.type === 'select')
+      this.setChoices(
+        prompt.options.map((option) => ({
+          value: option.id,
+          label: line(option.label),
+          description: line(option.description ?? ''),
+        })),
+      );
     // ES2023 baseline does not include Promise.withResolvers.
     return new Promise<string>((resolve, reject) => {
       const clear = () => {
@@ -262,8 +400,14 @@ export class SetupPane {
         this.key = '';
         if (!this.disposed) this.options.render();
       };
-      const abort = () => { clear(); reject(new Error('Setup cancelled')); };
-      this.answer = value => { clear(); resolve(value); };
+      const abort = () => {
+        clear();
+        reject(new Error('Setup cancelled'));
+      };
+      this.answer = (value) => {
+        clear();
+        resolve(value);
+      };
       signal.addEventListener('abort', abort, { once: true });
       if (signal.aborted) abort();
       else this.options.render();
@@ -299,12 +443,15 @@ export class SetupPane {
       this.setAuthUrl(event.verificationUri);
       this.authLines = [`Device code: ${line(event.userCode)}`];
     } else if (event.type === 'info') {
-      this.authLines = [line(event.message), ...(event.links ?? []).map(link => {
-        if (/[\s\p{Cc}\p{Cf}]/u.test(link.url) || !['http:', 'https:'].includes(new URL(link.url).protocol)) {
-          throw new Error('Invalid provider information URL');
-        }
-        return hyperlink(link.label ? line(link.label) : link.url, link.url);
-      })];
+      this.authLines = [
+        line(event.message),
+        ...(event.links ?? []).map((link) => {
+          if (/[\s\p{Cc}\p{Cf}]/u.test(link.url) || !['http:', 'https:'].includes(new URL(link.url).protocol)) {
+            throw new Error('Invalid provider information URL');
+          }
+          return hyperlink(link.label ? line(link.label) : link.url, link.url);
+        }),
+      ];
     }
     // Progress must not erase the URL/code that the operator still needs.
     this.options.render();
@@ -312,25 +459,37 @@ export class SetupPane {
 
   private async choose(value: string): Promise<void> {
     if (this.disposed) return;
-    if (this.stage === 'auth') { if (this.prompt?.type === 'select') this.answer?.(value); return; }
+    if (this.stage === 'auth') {
+      if (this.prompt?.type === 'select') this.answer?.(value);
+      return;
+    }
     if (this.pending) return;
-    if (this.stage === 'theme') { if (this.options.selectTheme(value)) this.options.close(); return; }
+    if (this.stage === 'theme') {
+      if (this.options.selectTheme(value)) this.options.close();
+      return;
+    }
     if (this.stage === 'providers' && !this.models.has(value)) {
       const [provider, method] = JSON.parse(value) as [string, 'api_key' | 'oauth' | 'configured'];
-      const entry = this.harness.listProviders().find(item => item.id === provider);
+      const entry = this.harness.listProviders().find((item) => item.id === provider);
       if (!entry) return;
       if (method === 'oauth' && entry.oauthUnavailable) {
-        this.message = line(entry.oauthUnavailable); this.options.render(); return;
+        this.message = line(entry.oauthUnavailable);
+        this.options.render();
+        return;
       }
       if ((this.options.mode === 'model' && entry.configured) || method === 'configured') {
-        this.showModels(provider); this.options.render(); return;
+        this.showModels(provider);
+        this.options.render();
+        return;
       }
       await this.login(provider, method);
       return;
     }
     // Re-read readiness when Enter is pressed; credentials and remaining limits may have changed.
     const previous = this.models.get(value);
-    const model = previous && this.harness.listModels().find(model => model.provider === previous.provider && model.id === previous.id);
+    const model =
+      previous &&
+      this.harness.listModels().find((model) => model.provider === previous.provider && model.id === previous.id);
     if (!model) return;
     if (model.selectable === false) {
       this.message = `${line(model.detail ?? 'Model needs provider setup.')} · Selection unchanged.`;
@@ -342,17 +501,25 @@ export class SetupPane {
     try {
       await this.harness.selectModel(model.provider, model.id);
       if (!this.disposed) {
-        this.options.notice(model.provider === 'claude-code'
-          ? `Native Claude chat selected: ${line(model.provider)}/${line(model.id)} · /session`
-          : `Model: ${line(model.provider)}/${line(model.id)}`);
+        this.options.notice(
+          model.provider === 'claude-code'
+            ? `Native Claude chat selected: ${line(model.provider)}/${line(model.id)} · /session`
+            : `Model: ${line(model.provider)}/${line(model.id)}`,
+        );
         this.options.close();
       }
     } catch {
-      const current = this.harness.listModels().find(item => item.provider === model.provider && item.id === model.id);
-      this.message = current?.selectable === false && current.detail ? line(current.detail)
-        : 'Model selection failed. Check provider credentials and wait for current work to finish.';
+      const current = this.harness
+        .listModels()
+        .find((item) => item.provider === model.provider && item.id === model.id);
+      this.message =
+        current?.selectable === false && current.detail
+          ? line(current.detail)
+          : 'Model selection failed. Check provider credentials and wait for current work to finish.';
+    } finally {
+      this.pending = false;
+      if (!this.disposed) this.options.render();
     }
-    finally { this.pending = false; if (!this.disposed) this.options.render(); }
   }
 
   private async importEnvironment(path: string): Promise<void> {
@@ -366,15 +533,24 @@ export class SetupPane {
       if (!path.trim()) throw new Error('A file path is required');
       const result = await this.harness.importEnvironment(path, {
         signal: this.controller.signal,
-        prompt: prompt => this.authPrompt(prompt), notify: event => this.notify(event),
+        prompt: (prompt) => this.authPrompt(prompt),
+        notify: (event) => this.notify(event),
       });
       if (!this.disposed) {
-        this.options.notice(result.outcomes.map(item =>
-          `${line(item.name)}: ${item.status === 'may_have_saved' ? 'may have been saved; check configuration before retrying' : item.status}`).join(' · ') || 'No recognized provider names.');
+        this.options.notice(
+          result.outcomes
+            .map(
+              (item) =>
+                `${line(item.name)}: ${item.status === 'may_have_saved' ? 'may have been saved; check configuration before retrying' : item.status}`,
+            )
+            .join(' · ') || 'No recognized provider names.',
+        );
         this.options.close();
       }
     } catch {
-      if (!this.disposed) this.message = 'Import refused before completion. Check file ownership, 0600 permissions and literal assignments; no secret details are displayed.';
+      if (!this.disposed)
+        this.message =
+          'Import refused before completion. Check file ownership, 0600 permissions and literal assignments; no secret details are displayed.';
     } finally {
       this.pending = false;
       this.key = '';
@@ -392,23 +568,29 @@ export class SetupPane {
     this.authLines = [];
     this.authUrl = undefined;
     this.options.render();
-    const interaction: AuthInteraction = { signal: this.controller.signal,
-      prompt: prompt => this.authPrompt(prompt), notify: event => this.notify(event) };
+    const interaction: AuthInteraction = {
+      signal: this.controller.signal,
+      prompt: (prompt) => this.authPrompt(prompt),
+      notify: (event) => this.notify(event),
+    };
     try {
       await this.harness.loginProvider(provider, method, interaction);
       if (!this.disposed && !this.controller.signal.aborted) {
         this.authLines = [];
         this.authUrl = undefined;
         this.showModels(provider);
-        this.options.notice(provider === 'claude-code' ? 'Local Claude Code login checked; select a model. Plan limits apply.'
-          : method === 'api_key' ? `Provider configuration saved for ${line(provider)}; not validated. Select a model.`
-          : `Sign-in completed for ${line(provider)}. Plan limits still apply; select a model.`);
+        this.options.notice(
+          provider === 'claude-code'
+            ? 'Claude Code is ready. Select a model.'
+            : `Connected to ${line(provider)}. Select a model.`,
+        );
       }
     } catch {
       if (!this.disposed && !this.controller.signal.aborted) {
-        this.message = provider === 'claude-code'
-          ? 'Claude Code is not ready. Install the official CLI, run claude auth login and check claude auth status in another terminal, then reopen /connect.'
-          : 'Setup incomplete; credentials may already be saved. Check private configuration before retrying.';
+        this.message =
+          provider === 'claude-code'
+            ? 'Claude Code is not ready. Install the official CLI, run claude auth login and check claude auth status in another terminal, then reopen /connect.'
+            : 'Setup incomplete; credentials may already be saved. Check private configuration before retrying.';
       }
     } finally {
       this.pending = false;
@@ -419,25 +601,48 @@ export class SetupPane {
 
   handleInput(data: string): void {
     if (this.disposed) return;
-    if (matchesKey(data, 'escape')) { this.controller.abort(); this.key = ''; this.options.close(); return; }
-    if (this.stage === 'auth' && matchesKey(data, 'ctrl+x')) { void this.copyAuthUrl(); return; }
+    if (matchesKey(data, 'escape')) {
+      this.controller.abort();
+      this.key = '';
+      this.options.close();
+      return;
+    }
+    if (this.stage === 'auth' && matchesKey(data, 'ctrl+x')) {
+      void this.copyAuthUrl();
+      return;
+    }
     if (this.stage === 'auth' && (matchesKey(data, 'pageUp') || matchesKey(data, 'pageDown'))) {
-      this.authScroll = Math.max(0, this.authScroll + (matchesKey(data, 'pageUp') ? -1 : 1) * Math.max(1, this.authDetailRows));
+      this.authScroll = Math.max(
+        0,
+        this.authScroll + (matchesKey(data, 'pageUp') ? -1 : 1) * Math.max(1, this.authDetailRows),
+      );
       this.options.render();
       return;
     }
     if (this.pending && !this.prompt) return;
     if (this.stage === 'auth' && this.prompt?.type !== 'select') {
       if (!this.prompt) return;
-      if (matchesKey(data, 'enter')) { if (this.key || this.prompt.type === 'text') this.answer?.(this.key); return; }
-      if (matchesKey(data, 'ctrl+u')) { this.key = ''; this.replaceKey = false; }
-      else if (matchesKey(data, 'ctrl+a')) this.replaceKey = true;
+      if (matchesKey(data, 'enter')) {
+        if (this.key || this.prompt.type === 'text') this.answer?.(this.key);
+        return;
+      }
+      if (matchesKey(data, 'ctrl+u')) {
+        this.key = '';
+        this.replaceKey = false;
+      } else if (matchesKey(data, 'ctrl+a')) this.replaceKey = true;
       else if (matchesKey(data, 'backspace') || matchesKey(data, 'delete')) {
-        this.key = this.replaceKey ? '' : this.key.slice(0, -1); this.replaceKey = false;
+        this.key = this.replaceKey ? '' : this.key.slice(0, -1);
+        this.replaceKey = false;
       } else {
-        const value = data.startsWith('\x1b[200~') && data.endsWith('\x1b[201~')
-          ? data.slice(6, -6) : decodeKittyPrintable(data) ?? data;
-        if (value && !/[\p{Cc}\p{Cf}]/u.test(value) && (this.replaceKey ? 0 : this.key.length) + value.length <= 16_384) {
+        const value =
+          data.startsWith('\x1b[200~') && data.endsWith('\x1b[201~')
+            ? data.slice(6, -6)
+            : (decodeKittyPrintable(data) ?? data);
+        if (
+          value &&
+          !/[\p{Cc}\p{Cf}]/u.test(value) &&
+          (this.replaceKey ? 0 : this.key.length) + value.length <= 16_384
+        ) {
           this.key = (this.replaceKey ? '' : this.key) + value;
           this.replaceKey = false;
           this.message = '';
@@ -445,11 +650,15 @@ export class SetupPane {
       }
     } else if (matchesKey(data, 'pageUp') || matchesKey(data, 'pageDown')) {
       const list = this.ensureList();
-      const index = this.listItems.findIndex(item => item.value === list.getSelectedItem()?.value);
-      list.setSelectedIndex(Math.max(0, Math.min(this.listItems.length - 1,
-        index + (matchesKey(data, 'pageUp') ? -this.listRows : this.listRows))));
+      const index = this.listItems.findIndex((item) => item.value === list.getSelectedItem()?.value);
+      list.setSelectedIndex(
+        Math.max(
+          0,
+          Math.min(this.listItems.length - 1, index + (matchesKey(data, 'pageUp') ? -this.listRows : this.listRows)),
+        ),
+      );
       this.selected = list.getSelectedItem()?.value ?? '';
-    } else if ((['up', 'down', 'enter'] as const).some(key => matchesKey(data, key))) {
+    } else if ((['up', 'down', 'enter'] as const).some((key) => matchesKey(data, key))) {
       this.ensureList().handleInput(data);
     } else if (!matchesKey(data, 'tab') && !matchesKey(data, 'shift+tab')) {
       this.search.handleInput(data);
@@ -459,6 +668,10 @@ export class SetupPane {
   }
 
   dispose(): void {
-    this.disposed = true; this.controller.abort(); this.key = ''; this.authLines = []; this.authUrl = undefined;
+    this.disposed = true;
+    this.controller.abort();
+    this.key = '';
+    this.authLines = [];
+    this.authUrl = undefined;
   }
 }

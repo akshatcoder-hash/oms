@@ -7,24 +7,41 @@ function fixture(provider = 'claude-code') {
   const messages = [{ role: 'user', content: 'Previous OMS history' }];
   const calls: string[] = [];
   let status: { sessionId?: string; state: 'new' | 'ready' | 'disconnected'; detail?: string } = { state: 'new' };
-  const harness = { session: { model: { provider, id: 'sonnet' }, messages, sessionManager: {} }, nativeChat: {
-    status: () => status,
-    async reconnect() { calls.push('reconnect'); status = { sessionId: status.sessionId, state: 'ready' }; },
-    async reset() { calls.push('reset'); status = { sessionId: 'fresh-native-id', state: 'new' }; },
-  } } as unknown as HarnessSession;
-  return { harness, calls, messages, status(value: typeof status) { status = value; } };
+  const harness = {
+    session: { model: { provider, id: 'sonnet' }, messages, sessionManager: {} },
+    nativeChat: {
+      status: () => status,
+      async reconnect() {
+        calls.push('reconnect');
+        status = { sessionId: status.sessionId, state: 'ready' };
+      },
+      async reset() {
+        calls.push('reset');
+        status = { sessionId: 'fresh-native-id', state: 'new' };
+      },
+    },
+  } as unknown as HarnessSession;
+  return {
+    harness,
+    calls,
+    messages,
+    status(value: typeof status) {
+      status = value;
+    },
+  };
 }
 
 test('restart display restores durable native boundaries in order without modifying model history', () => {
   const f = fixture();
   const oldMessage = { role: 'user', content: 'Old native question' };
   const newMessage = { role: 'user', content: 'New native question' };
-  f.harness.session.sessionManager.getBranch = () => [
-    { type: 'message', message: oldMessage },
-    { type: 'custom', customType: 'unrelated-private-state', data: { secret: 'do-not-render' } },
-    { type: 'custom', customType: 'oms.claude.native-boundary', data: { sessionId: 'fresh-native-id' } },
-    { type: 'message', message: newMessage },
-  ] as ReturnType<typeof f.harness.session.sessionManager.getBranch>;
+  f.harness.session.sessionManager.getBranch = () =>
+    [
+      { type: 'message', message: oldMessage },
+      { type: 'custom', customType: 'unrelated-private-state', data: { secret: 'do-not-render' } },
+      { type: 'custom', customType: 'oms.claude.native-boundary', data: { sessionId: 'fresh-native-id' } },
+      { type: 'message', message: newMessage },
+    ] as ReturnType<typeof f.harness.session.sessionManager.getBranch>;
   const before = structuredClone(f.messages);
   const display = nativeChatDisplayHistory(f.harness);
   assert.equal(display[0], oldMessage);
@@ -58,6 +75,7 @@ test('inactive Claude history is visible through session status without mutating
 });
 
 test('older runtime status is explicit when native controls are unavailable', () => {
-  const f = fixture(); delete f.harness.nativeChat;
+  const f = fixture();
+  delete f.harness.nativeChat;
   assert.match(claudeChatStatus(f.harness), /unavailable in this runtime/);
 });

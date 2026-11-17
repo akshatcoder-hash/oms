@@ -3,7 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 
 test('trusted build profile clamps timeout and supplies resources and offline Cargo home', () => {
-  const result = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', `
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--experimental-test-module-mocks',
+      '--input-type=module',
+      '-e',
+      `
     import assert from 'node:assert/strict';
     import { mock } from 'node:test';
     import * as sandbox from '@oms/sandbox';
@@ -14,8 +20,9 @@ test('trusted build profile clamps timeout and supplies resources and offline Ca
       createSandboxSession: o => { session = o; return { exec: async (argv, o) => { runs.push({ ...o, argv }); return result; }, close: async () => {} }; },
       runInSandbox: async o => { runs.push(o); return result; } } });
     const { createSandboxTools } = await import('./packages/engine/src/runtime/sandbox-tools.ts');
+    const { dockerBackend } = await import('./packages/engine/src/runtime/execution-backend.ts');
     let remaining = 2_000_000;
-    const tools = createSandboxTools({taskName:'build-profile', image:'unused',forwarderImage:'unused',
+    const tools = createSandboxTools({taskName:'build-profile', backend:dockerBackend({image:'unused',forwarderImage:'unused'}),
       mounts:{projectMount:{hostPath:'/unused',containerPath:'/work',mode:'rw'},extraMounts:[],readOnlyMounts:[],volumes:[],shadowMounts:[]},
       leaseDir:'/unused',sourceControlDir:'/unused',surfnetPort:8899,signal:new AbortController().signal,
       buildProfile:true,remainingWallClockMs:()=>remaining});
@@ -39,6 +46,9 @@ test('trusted build profile clamps timeout and supplies resources and offline Ca
       assert.equal(fetch.env.CARGO_NET_OFFLINE,undefined);
       assert.equal(fetch.timeoutMs,120_000);
     } finally { await tools.dispose(); }
-  `], { cwd: new URL('../../../', import.meta.url), encoding: 'utf8', timeout: 30_000 });
+  `,
+    ],
+    { cwd: new URL('../../../', import.meta.url), encoding: 'utf8', timeout: 30_000 },
+  );
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });

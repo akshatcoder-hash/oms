@@ -47,7 +47,11 @@ test('write to a digest-pinned file is blocked, read of it is allowed', () => {
   mkdirSync(join(cwd, '.oms'), { recursive: true });
   const config: GuardsConfig = { cwd, protectedPaths: ['.oms/task.json', 'tests/verifier.test.ts'] };
 
-  const write = decideToolCall({ toolName: 'write', input: { path: '.oms/task.json', content: '{"items":[]}' } }, config, []);
+  const write = decideToolCall(
+    { toolName: 'write', input: { path: '.oms/task.json', content: '{"items":[]}' } },
+    config,
+    [],
+  );
   assert.equal(write.block, true);
   if (write.block) {
     assert.equal(write.rule, 'protected_write');
@@ -204,11 +208,13 @@ test('an oversize write or edit is blocked, an under-limit one is allowed', () =
   // Default limit is 64 KiB.
   const defaults: GuardsConfig = { cwd: config.cwd };
   assert.equal(
-    decideToolCall({ toolName: 'write', input: { path: 'src/a.ts', content: 'x'.repeat(64 * 1024) } }, defaults, []).block,
+    decideToolCall({ toolName: 'write', input: { path: 'src/a.ts', content: 'x'.repeat(64 * 1024) } }, defaults, [])
+      .block,
     false,
   );
   assert.equal(
-    decideToolCall({ toolName: 'write', input: { path: 'src/b.ts', content: 'x'.repeat(64 * 1024 + 1) } }, defaults, []).block,
+    decideToolCall({ toolName: 'write', input: { path: 'src/b.ts', content: 'x'.repeat(64 * 1024 + 1) } }, defaults, [])
+      .block,
     true,
   );
 });
@@ -240,7 +246,10 @@ test('decideToolCall throws on a broken config, and the extension blocks instead
 
   const h = await createHarness({
     extensions: [createGuardsExtension(broken)],
-    responses: [fauxAssistantMessage(fauxToolCall('bash', { command: 'echo hello' })), fauxAssistantMessage(fauxText('ok'))],
+    responses: [
+      fauxAssistantMessage(fauxToolCall('bash', { command: 'echo hello' })),
+      fauxAssistantMessage(fauxText('ok')),
+    ],
     tools: ['bash'],
   });
   try {
@@ -291,7 +300,10 @@ test('session: a read through a symlink into a denied root is blocked and leaks 
 
   const h = await createHarness({
     extensions: [createGuardsExtension({ deniedRoots: [vault] })],
-    responses: [fauxAssistantMessage(fauxToolCall('read', { path: 'innocent/key.json' })), fauxAssistantMessage(fauxText('ok'))],
+    responses: [
+      fauxAssistantMessage(fauxToolCall('read', { path: 'innocent/key.json' })),
+      fauxAssistantMessage(fauxText('ok')),
+    ],
     tools: ['read'],
   });
   try {
@@ -381,31 +393,65 @@ test('session: an oversize edit is blocked and the file is not created', async (
 });
 
 test('host mode keeps full-path denials for shell commands but not the short folder-name match', () => {
-  const config = { cwd: '/proj/.oms/worktrees/t', deniedRoots: ['/home/fixture/.ssh', '/home/fixture/.oms'], protectedPaths: ['/proj/.oms/worktrees/t/verify.js', '/proj/.oms/worktrees/t/.git'], approveHostCommands: true };
+  const config = {
+    cwd: '/proj/.oms/worktrees/t',
+    deniedRoots: ['/home/fixture/.ssh', '/home/fixture/.oms'],
+    protectedPaths: ['/proj/.oms/worktrees/t/verify.js', '/proj/.oms/worktrees/t/.git'],
+    approveHostCommands: true,
+  };
   const bash = (command: string) => decideToolCall({ toolName: 'bash', input: { command } }, config, []).block;
   assert.equal(bash('cat /home/fixture/.ssh/id'), true);
   assert.equal(bash('cat /home/fixture/.oms/state.json'), true);
   assert.equal(bash('ls /proj/.oms/worktrees/t/src'), false);
   const hostConfig = { ...config, deniedRoots: defaultDeniedRoots() };
-  for (const command of ['cat ~/.ssh/id', 'cat $HOME/.ssh/id', 'cat "$HOME"/.gnupg/x', 'cat ${HOME}/.ssh/id', 'cat ~/.config/solana/id.json']) {
+  for (const command of [
+    'cat ~/.ssh/id',
+    'cat $HOME/.ssh/id',
+    'cat "$HOME"/.gnupg/x',
+    'cat ${HOME}/.ssh/id',
+    'cat ~/.config/solana/id.json',
+  ]) {
     assert.equal(decideToolCall({ toolName: 'bash', input: { command } }, hostConfig, []).block, true, command);
   }
   assert.equal(decideToolCall({ toolName: 'read', input: { path: '/home/fixture/.ssh/id' } }, config, []).block, true);
   assert.equal(bash('echo changed > /proj/.oms/worktrees/t/verify.js'), true);
-  assert.equal(decideToolCall({ toolName: 'write', input: { path: '/proj/.oms/worktrees/t/.git/config', content: 'changed' } }, config, []).block, true);
+  assert.equal(
+    decideToolCall(
+      { toolName: 'write', input: { path: '/proj/.oms/worktrees/t/.git/config', content: 'changed' } },
+      config,
+      [],
+    ).block,
+    true,
+  );
 });
 
 test('a denied folder name matches whole path components only, so public checkouts named solana-* stay readable', () => {
   const config = { cwd: '/work', deniedRoots: defaultDeniedRoots() };
   const bash = (command: string) => decideToolCall({ toolName: 'bash', input: { command } }, config, []).block;
-  for (const command of ['cat ~/.config/solana/id.json', 'ls ~/.config/solana', 'cat /root/.config/solana/id.json', 'cd /x/.config/solana && cat id.json',
-    'cat ~/.config/solana*', 'tar c "$HOME/.config/solana"', 'cat ../../.config/solana/id.json']) assert.equal(bash(command), true, command);
-  for (const command of ['cat /tmp/oms-sources/h-1/solana-labs__solana-program-library@264ca72/governance/program/src/instruction.rs',
-    'grep -rn Instruction /tmp/oms-sources/solana-program__memo@1/program', 'ls node_modules/@solana/kit']) assert.equal(bash(command), false, command);
+  for (const command of [
+    'cat ~/.config/solana/id.json',
+    'ls ~/.config/solana',
+    'cat /root/.config/solana/id.json',
+    'cd /x/.config/solana && cat id.json',
+    'cat ~/.config/solana*',
+    'tar c "$HOME/.config/solana"',
+    'cat ../../.config/solana/id.json',
+  ])
+    assert.equal(bash(command), true, command);
+  for (const command of [
+    'cat /tmp/oms-sources/h-1/solana-labs__solana-program-library@264ca72/governance/program/src/instruction.rs',
+    'grep -rn Instruction /tmp/oms-sources/solana-program__memo@1/program',
+    'ls node_modules/@solana/kit',
+  ])
+    assert.equal(bash(command), false, command);
 });
 
-test('a denied root under the task\'s own dotted folder adds no parent needle, so host-mode task paths stay usable', () => {
-  const config = { cwd: '/proj/.oms/worktrees/t', deniedRoots: ['/home/fixture/.oms/signer', '/home/fixture/.config/solana'], approveHostCommands: true };
+test("a denied root under the task's own dotted folder adds no parent needle, so host-mode task paths stay usable", () => {
+  const config = {
+    cwd: '/proj/.oms/worktrees/t',
+    deniedRoots: ['/home/fixture/.oms/signer', '/home/fixture/.config/solana'],
+    approveHostCommands: true,
+  };
   const bash = (command: string) => decideToolCall({ toolName: 'bash', input: { command } }, config, []).block;
   assert.equal(bash('ls /proj/.oms/worktrees/t/src'), false);
   assert.equal(bash('cat /home/fixture/.oms/signer/sock'), true);

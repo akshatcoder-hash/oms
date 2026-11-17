@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.1.2
+
+Helper agents: the chat's agent can hand work to helpers that run beside it.
+
+### Helpers and teams
+
+- The agent can start helpers. `explore` finds code and facts, `review` reads a diff or program, `build` makes one scoped change and runs its check. Several run at once, at most 4, and each report comes back to the chat for it to check.
+- `/team <goal>` asks the agent to split a goal across helpers and combine the results. `/agents` lists the agents and what each helper in this conversation did, with status, model and tokens. A helper shows as one line in the conversation; Ctrl+O opens its own transcript.
+- Your own agents are files in `~/.oms/agents/` or, for one project, `.oms-agents/` in the folder. `/agents new <name> [--project] [--edit] <what it does>` writes one. A project agent beats a personal custom agent of the same name, but cannot replace a built-in. Descriptions are limited to 120 printable characters, and only personal agent files may select a model. The agent cannot rewrite `.oms-agents`; `/agents new` still works.
+- Helpers use the chat's model unless a personal agent file names another, and spend from the same session limits. A subscription sign-in such as SuperGrok stays plan usage. Esc and `/cancel` stop helpers too. Helpers need a direct model: with Claude Code selected the agent tool is off and `/team` says so.
+
+### Safety
+
+- Read-only helpers cannot write the folder when commands run under the macOS sandbox. Where there is no sandbox, or YOLO is on, the first report says so.
+- A `build` helper takes its files before it starts and cannot change others with the file tools. File tools enforce these claims on every system. Commands may write outside the claim; changes are reported in the result, except observed file-tool writes by another helper. On macOS the sandbox also protects other live claims. Where there is no sandbox, or YOLO is on, the first editing report says command claims are not enforced.
+- One helper's long command no longer holds up another helper. The chat's own commands still run one at a time, and the terminal is not shared with helpers.
+- Approval questions are asked one at a time, so two helpers asking together do not deny each other. YOLO skips them as it does for the chat.
+- Pinned tasks and `oms run` are unchanged.
+- Sandboxed commands can no longer read Cargo or npm credentials inside toolchain folders, such as `~/.cargo/credentials.toml` or an `npmrc` under a Node install.
+
+### Claude Code
+
+- Pinned Solana tasks on Claude Code get a short work procedure for capped actions: plan several candidates first, simulate before sending, and stop a script when it stops paying off. They also get notes on how Solana programs are deployed, such as SPL Governance's many separate deployments. Other providers' prompts are unchanged.
+- Claude Code runs at high effort by default. Set `OMS_CLAUDE_EFFORT` to change it.
+- `program_reference` shows what an instruction is for, and for Orca, Meteora and Raydium, which pool and position operations a wallet can do on existing pools.
+- A Solana failure diagnosis adds the failing program's deployment note once per conversation.
+- The Claude Code model is resolved inside the OMS session, where its provider registers.
+- An empty reply from Claude Code is retried up to twice instead of ending the run. A tool never runs twice: after a tool result, the retry sends a short note to continue. Sign-in, usage-limit, cancel and budget stops still end the run.
+
+## 0.1.1
+
+OMS now works like the pi and Claude Code CLIs: run `oms` in any folder and it edits that folder.
+
+### Start anywhere
+
+- `oms` opens a chat in the current folder and edits files in place, with or without git, uncommitted work included. OMS stores nothing in the folder; conversations live under `~/.oms/folders/` and running `oms` there again picks up where you left off.
+- In your home folder, `/` or a folder that holds keys, OMS opens a scratch folder instead and says so.
+- Surfpool installs itself on first launch. `oms start` works, `oms --help` fits on one screen and `oms help advanced` has the rest.
+- The old demo starter project is gone. Pinned tasks (`oms task create`, `oms run`) are unchanged.
+
+### Fewer prompts, YOLO mode
+
+- On macOS, commands run inside the sandbox without asking. A command the sandbox blocks says so in one line.
+- `oms --yolo` or `/yolo` runs commands without asking and without the sandbox, with full network. The footer shows YOLO while it is on.
+- On Linux, where there is no sandbox, OMS asks once per command with an option to allow it for the session. `--yolo` and `/yolo` skip those prompts there too.
+- The agent can read `.env` files, but their values are masked on screen, in tool output, after Ctrl+O and in restored history. Wallet keypairs and `~/.config/solana` stay blocked. `.git/hooks` and `.git/config` stay read-only.
+
+### A quieter screen
+
+- The conversation, the input and one footer line (folder, model, context). Thinking is shown; reads are one line; edits show only the changed lines; commands show their last lines. Ctrl+O expands, Ctrl+T hides thinking.
+- `/connect` lists Codex (ChatGPT), Claude Code and Grok (SuperGrok or X Premium, or an xAI API key) first. `/help` lists every command on one screen. `/exit` and Ctrl+D leave.
+
+### Fixes
+
+- Every Grok (xAI) request failed: OMS sent a `background` field that xAI rejects. It is now sent to OpenAI only.
+- A Grok subscription (SuperGrok or X Premium) counts as plan usage, like Codex and Claude Code. It was charged as API dollars against the $5 limit, which blocked larger models.
+- One failed request no longer locks the chat. A request the provider rejects is not charged and its reason is shown; a request that breaks off midway is counted at its maximum cost and the chat goes on.
+- `/files` works on macOS, `git init` works in a new folder, and opening OMS without sending anything leaves no files behind.
+
 ## 0.1.0
 
 First public release, `npx @barestate/oms`.

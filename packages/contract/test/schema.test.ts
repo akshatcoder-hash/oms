@@ -50,9 +50,7 @@ test('a valid contract parses into a normalized value', () => {
   assert.equal(result.value.version, 0);
   assert.equal(result.value.template, 'spl-token');
   assert.equal(result.value.items.length, 2);
-  assert.deepEqual(result.value.items[0]?.done, [
-    { kind: 'tests', command: ['npm', 'test'], expect: 'pass' },
-  ]);
+  assert.deepEqual(result.value.items[0]?.done, [{ kind: 'tests', command: ['npm', 'test'], expect: 'pass' }]);
 });
 
 test('a valid contract with every condition kind round-trips', () => {
@@ -101,22 +99,16 @@ test('unknown fields are rejected so v1 fields cannot be smuggled in', () => {
 });
 
 test('a bad condition reports the precise path', () => {
-  const badKind = issuesOf(
-    contractWithItem({ done: [{ kind: 'vibes', expect: 'pass' }] }),
-  );
+  const badKind = issuesOf(contractWithItem({ done: [{ kind: 'vibes', expect: 'pass' }] }));
   findIssue(badKind, 'items[0].done[0].kind', 'E_BAD_KIND');
 
-  const badExpect = issuesOf(
-    contractWithItem({ done: [{ kind: 'tests', command: ['npm', 'test'], expect: 'fail' }] }),
-  );
+  const badExpect = issuesOf(contractWithItem({ done: [{ kind: 'tests', command: ['npm', 'test'], expect: 'fail' }] }));
   findIssue(badExpect, 'items[0].done[0].expect', 'E_BAD_EXPECT');
 
   const emptyCommand = issuesOf(contractWithItem({ done: [{ kind: 'tests', command: [], expect: 'pass' }] }));
   findIssue(emptyCommand, 'items[0].done[0].command', 'E_BAD_COMMAND');
 
-  const nonStringArg = issuesOf(
-    contractWithItem({ done: [{ kind: 'tests', command: ['npm', 7], expect: 'pass' }] }),
-  );
+  const nonStringArg = issuesOf(contractWithItem({ done: [{ kind: 'tests', command: ['npm', 7], expect: 'pass' }] }));
   findIssue(nonStringArg, 'items[0].done[0].command[1]', 'E_BAD_COMMAND');
 
   const badAddress = issuesOf(
@@ -186,9 +178,7 @@ test('a closed item needs a passing evidence record', () => {
   const missing = issuesOf(contractWithItem({ status: 'closed' }));
   findIssue(missing, 'items[0].evidence', 'E_CLOSED_WITHOUT_EVIDENCE');
 
-  const failed = issuesOf(
-    contractWithItem({ status: 'closed', evidence: { ...PASSING_EVIDENCE, passed: false } }),
-  );
+  const failed = issuesOf(contractWithItem({ status: 'closed', evidence: { ...PASSING_EVIDENCE, passed: false } }));
   findIssue(failed, 'items[0].evidence', 'E_CLOSED_WITH_FAILED_EVIDENCE');
 
   const mismatched = issuesOf(
@@ -196,9 +186,7 @@ test('a closed item needs a passing evidence record', () => {
   );
   findIssue(mismatched, 'items[0].evidence.itemId', 'E_EVIDENCE_ITEM_MISMATCH');
 
-  const accepted = parseTaskContract(
-    contractWithItem({ status: 'closed', evidence: PASSING_EVIDENCE }),
-  );
+  const accepted = parseTaskContract(contractWithItem({ status: 'closed', evidence: PASSING_EVIDENCE }));
   assert.equal(accepted.ok, true, JSON.stringify(accepted.ok ? null : accepted.issues));
 });
 
@@ -292,6 +280,9 @@ test('pinned test timeout is a positive safe integer and snapshot paths stay rel
 });
 
 test('execution identity is a non-empty pinned string', () => {
-  assert.equal(parseEvaluatorConfig({ ...evaluatorConfig(), executionIdentity: 'image:sha256:abc;surfpool:sha256:def' }).ok, true);
+  assert.equal(
+    parseEvaluatorConfig({ ...evaluatorConfig(), executionIdentity: 'image:sha256:abc;surfpool:sha256:def' }).ok,
+    true,
+  );
   assert.equal(parseEvaluatorConfig({ ...evaluatorConfig(), executionIdentity: '' }).ok, false);
 });

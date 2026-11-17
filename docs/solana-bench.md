@@ -8,13 +8,16 @@ One agent gets one goal (`bench/solbench-harness/workspace/GOAL.md`, identical f
 
 There are two variants. `basic` funds the wallet with SOL. `swap` also funds it with USDC and USDT for DeFi paths.
 
-The three cells compared:
+The cells compared:
 
 | Cell | Harness | Model and login |
 | --- | --- | --- |
 | `oms3-web:gpt-sol` | OMS headless, web tools on the hosted search service, reference-service injection if a token is set | GPT-6.1 Sol through the Codex (ChatGPT) subscription |
 | `codex-web:gpt-sol` | Codex CLI 0.167.0, live web search, Solana MCP | GPT-6.1 Sol, Codex subscription |
 | `claude-code-web:opus-sub` | Claude Code 2.1.319, its own WebSearch and WebFetch, Solana MCP | Claude Opus 5.5 on the Claude Code subscription |
+| `oms3-web:opus-sub` | OMS headless as in the first row, with `--provider claude-code --model opus`: OMS owns the tools and budgets, the installed `claude` CLI is only the model | Claude Opus 5.5 on the Claude Code subscription |
+
+The OMS Claude Code cell runs OMS on the host, so `claude` must be on `PATH` (an absolute, non-`node_modules` directory) there, not in the container. The runner stages the Claude login into a private `home/` in the run directory (refresh token removed) and points the CLI at it with `OMS_CLAUDE_CODE_HOME`; the cell refuses to start if any `ANTHROPIC_*`, `CLAUDE_CODE_OAUTH*`, `CLAUDE_CODE_USE_*` or `AWS_BEARER_TOKEN_BEDROCK` variable is set. OMS applies no input-token cap to Claude Code, and Claude Code usage is a subscription charge, so the API-dollar cap never applies. Its run directories are named `<prefix>-solbh-oms3-web-opus-sub-<variant>`.
 
 Only subscription logins are used. The staged login files have their refresh tokens removed and any API key deleted, so a run can never rotate your login or spend a provider key.
 
@@ -23,7 +26,7 @@ Only subscription logins are used. The staged login files have their refresh tok
 - Linux or macOS with Node 22.19 or newer, and `npm ci --ignore-scripts` done in this repository.
 - Docker, with a running daemon (every cell runs in a container on an internal network).
 - The Surfpool 0.10.4 binary, whose SHA-256 the runner checks (`3c4a22f4376d007141cc6ac709f60c766a678af24c5224c26ddb78df3566ffd9`). Point `SOLBENCH_HARNESS_SURFPOOL` at it; the default is `.tmp/solbench-harness/surfpool-0.10.4`.
-- A login for each cell you run: `codex login` (ChatGPT sign-in) for the Codex and OMS cells, `claude` login for the Claude Code cell. Credentials are read from `~/.codex/auth.json` and `~/.claude/.credentials.json`.
+- A login for each cell you run: `codex login` (ChatGPT sign-in) for the Codex and OMS cells, `claude` login for both Claude Code cells. Credentials are read from `~/.codex/auth.json` and `~/.claude/.credentials.json`.
 - For the OMS cell: `OMS_SEARCH_URL` (https, or loopback) and `OMS_SEARCH_TOKEN` for an oms-search service. No other search key may be set, because the cell's label names oms-search only. Optional: `OMS_KNOWLEDGE_TOKEN` gives the cell the reference service with injection; `OMS_KNOWLEDGE_URL` defaults to `https://knowledge.barestate.xyz/mcp`.
 - A workspace SDK set, installed once and mounted read-only into every cell:
 

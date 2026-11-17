@@ -10,7 +10,8 @@ async function main(): Promise<void> {
     const command = process.argv[2];
     if (command === 'init') {
       const [, , , signerDir, alias, profilePath] = process.argv;
-      if (!signerDir || !alias || !profilePath) throw new SignerError('E_BAD_REQUEST', 'usage: cli.ts init <signerDir> <alias> <private-profile.json>');
+      if (!signerDir || !alias || !profilePath)
+        throw new SignerError('E_BAD_REQUEST', 'usage: cli.ts init <signerDir> <alias> <private-profile.json>');
       const profile = validateProfile(JSON.parse(readPrivateFile(resolve(profilePath))));
       const generated = generateSignerKeypair({ signerDir: resolve(signerDir), alias, profile });
       process.stdout.write(JSON.stringify({ status: 'ok', ...generated }) + '\n');
@@ -18,10 +19,22 @@ async function main(): Promise<void> {
     }
     if (!command) throw new SignerError('E_BAD_REQUEST', 'usage: cli.ts <private-config.json>');
     const config = JSON.parse(readPrivateFile(resolve(command))) as ServeOptions;
-    if (Object.keys(config).some(k => !['signerDir', 'alias', 'socketDir', 'config'].includes(k))) throw new SignerError('E_BAD_REQUEST', 'unsupported or legacy CLI startup configuration');
+    if (Object.keys(config).some((k) => !['signerDir', 'alias', 'socketDir', 'config'].includes(k)))
+      throw new SignerError('E_BAD_REQUEST', 'unsupported or legacy CLI startup configuration');
     const running = await startSignerServer(config);
-    process.stdout.write(JSON.stringify({ status: 'ready', signerAddress: running.signerAddress, engineSocket: running.engineSocketPath, tuiSocket: running.tuiSocketPath, tokenFiles: running.tokenFiles }) + '\n');
-    const shutdown = async () => { await running.close(); process.exit(0); };
+    process.stdout.write(
+      JSON.stringify({
+        status: 'ready',
+        signerAddress: running.signerAddress,
+        engineSocket: running.engineSocketPath,
+        tuiSocket: running.tuiSocketPath,
+        tokenFiles: running.tokenFiles,
+      }) + '\n',
+    );
+    const shutdown = async () => {
+      await running.close();
+      process.exit(0);
+    };
     process.once('SIGINT', () => void shutdown());
     process.once('SIGTERM', () => void shutdown());
   } catch (error) {

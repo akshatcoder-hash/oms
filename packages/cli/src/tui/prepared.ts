@@ -26,7 +26,8 @@ export const REPORT_BYTES = 60 * 1024;
 
 /** The first `limit` bytes of `text` without splitting a character; a cut preview ends with `marker`. */
 export function previewBytes(text: string, limit: number, marker = '\n[Preview truncated.]'): string {
-  let bytes = 0; let preview = '';
+  let bytes = 0;
+  let preview = '';
   for (const character of text) {
     bytes += Buffer.byteLength(character);
     if (bytes > limit) return preview + marker;

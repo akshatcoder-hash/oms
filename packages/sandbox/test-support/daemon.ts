@@ -4,13 +4,23 @@ import type { CaptureOptions, DockerClient } from '../src/docker.ts';
 
 export const IMAGE = `sha256:${'a'.repeat(64)}`;
 export type Labels = Record<string, string>;
-export type Container = { Id: string; Name: string; Config: { Labels: Labels }; args: string[]; network: string; bridge: boolean; running: boolean };
+export type Container = {
+  Id: string;
+  Name: string;
+  Config: { Labels: Labels };
+  args: string[];
+  network: string;
+  bridge: boolean;
+  running: boolean;
+};
 
 export function values(args: string[], flag: string): string[] {
-  return args.flatMap((v, i) => v === flag ? [args[i + 1]!] : []);
+  return args.flatMap((v, i) => (v === flag ? [args[i + 1]!] : []));
 }
 export function labels(args: string[]): Labels {
-  return Object.fromEntries(values(args, '--label').map(v => [v.slice(0, v.indexOf('=')), v.slice(v.indexOf('=') + 1)]));
+  return Object.fromEntries(
+    values(args, '--label').map((v) => [v.slice(0, v.indexOf('=')), v.slice(v.indexOf('=') + 1)]),
+  );
 }
 function missing(kind: string): never {
   throw new SandboxError('E_DOCKER', 'lookup failed', { stderr: `Error: No such ${kind}` });
@@ -54,7 +64,12 @@ export class Daemon implements DockerClient {
     if (args[0] === 'network') {
       if (args[1] === 'create') {
         assert.ok(!this.networks.has(name), 'must not reuse a network');
-        this.networks.set(name, { Id: `net-${++this.sequence}`, Name: name, Labels: labels(args), Internal: args.includes('--internal') });
+        this.networks.set(name, {
+          Id: `net-${++this.sequence}`,
+          Name: name,
+          Labels: labels(args),
+          Internal: args.includes('--internal'),
+        });
         return this.networks.get(name)!.Id;
       }
       if (args[1] === 'inspect') {
@@ -63,7 +78,7 @@ export class Daemon implements DockerClient {
         return JSON.stringify(network);
       }
       if (args[1] === 'connect') {
-        const c = [...this.containers.values()].find(c => c.Id === name || c.Name === name)!;
+        const c = [...this.containers.values()].find((c) => c.Id === name || c.Name === name)!;
         c.bridge = true;
         return '';
       }
@@ -77,35 +92,44 @@ export class Daemon implements DockerClient {
     if (args[0] === 'create') {
       const n = values(args, '--name')[0]!;
       assert.ok(!this.containers.has(n), 'must not replace a container');
-      const container: Container = { Id: `ctr-${++this.sequence}`, Name: n, Config: { Labels: labels(args) }, args, network: values(args, '--network')[0]!, bridge: false, running: false };
+      const container: Container = {
+        Id: `ctr-${++this.sequence}`,
+        Name: n,
+        Config: { Labels: labels(args) },
+        args,
+        network: values(args, '--network')[0]!,
+        bridge: false,
+        running: false,
+      };
       this.containers.set(n, container);
       return container.Id;
     }
     if (args[0] === 'start') {
-      const started = [...this.containers.values()].find(c => c.Id === name);
+      const started = [...this.containers.values()].find((c) => c.Id === name);
       if (started) started.running = true;
       return name;
     }
     if (args[0] === 'exec') {
-      const swept = [...this.containers.values()].find(c => c.Id === args[1]);
-      if (!swept?.running) throw new SandboxError('E_DOCKER', 'exec failed', { stderr: `Error: container ${args[1]} is not running` });
+      const swept = [...this.containers.values()].find((c) => c.Id === args[1]);
+      if (!swept?.running)
+        throw new SandboxError('E_DOCKER', 'exec failed', { stderr: `Error: container ${args[1]} is not running` });
       if (!args.includes('oms-sweep')) return '7';
       this.sweeps.push(swept);
       return '';
     }
     if (args[0] === 'logs') return 'forwarder ready';
     if (args[0] === 'inspect') {
-      const container = [...this.containers.values()].find(c => c.Name === name || c.Id === name);
+      const container = [...this.containers.values()].find((c) => c.Name === name || c.Id === name);
       if (!container) missing('container');
       if (args.includes('{{.State.Running}}')) {
-        const states = args.slice(args.indexOf('{{.State.Running}}') + 1).map(id => {
-          const known = [...this.containers.values()].find(c => c.Name === id || c.Id === id);
+        const states = args.slice(args.indexOf('{{.State.Running}}') + 1).map((id) => {
+          const known = [...this.containers.values()].find((c) => c.Name === id || c.Id === id);
           if (!known) missing('container');
           return String(known.running);
         });
         return states.join('\n');
       }
-      if (args.includes('-f')) return args.some(a => a.includes('.State.ExitCode')) ? '0' : '172.25.0.2';
+      if (args.includes('-f')) return args.some((a) => a.includes('.State.ExitCode')) ? '0' : '172.25.0.2';
       return JSON.stringify(container);
     }
     if (args[0] === 'rm') {
@@ -119,7 +143,7 @@ export class Daemon implements DockerClient {
 
   async capture(args: string[], options: CaptureOptions): Promise<number> {
     if (args[0] === 'exec') {
-      const target = [...this.containers.values()].find(c => c.Id === args[1]);
+      const target = [...this.containers.values()].find((c) => c.Id === args[1]);
       assert.ok(target?.running, 'exec requires a running container');
       const argv = args.slice(args.indexOf('oms-exec') + 2);
       this.execs.push({ container: target, argv });
@@ -127,7 +151,7 @@ export class Daemon implements DockerClient {
       options.stdout(Buffer.from('captured output'));
       return 0;
     }
-    const container = [...this.containers.values()].find(c => c.Id === args.at(-1));
+    const container = [...this.containers.values()].find((c) => c.Id === args.at(-1));
     assert.ok(container);
     this.executions.push(container);
     if (this.onExecute) return this.onExecute(container, options);
@@ -137,7 +161,7 @@ export class Daemon implements DockerClient {
 }
 
 export function abortable(options: CaptureOptions): Promise<number> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     if (options.signal.aborted) resolve(130);
     else options.signal.addEventListener('abort', () => resolve(130), { once: true });
   });
@@ -145,7 +169,8 @@ export function abortable(options: CaptureOptions): Promise<number> {
 
 export function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>(res => { resolve = res; });
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
   return { promise, resolve };
 }
-

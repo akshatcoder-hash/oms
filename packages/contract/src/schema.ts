@@ -7,13 +7,7 @@
 
 import { parseEvidence, type Evidence } from './evidence.ts';
 import { failResult, okResult, validationIssue, type Result, type ValidationIssue } from './result.ts';
-import type {
-  Condition,
-  ContractItem,
-  EvaluatorConfig,
-  ItemStatus,
-  TaskContract,
-} from './types.ts';
+import type { Condition, ContractItem, EvaluatorConfig, ItemStatus, TaskContract } from './types.ts';
 
 const CONTRACT_KEYS = new Set(['version', 'template', 'items']);
 const ITEM_KEYS = new Set(['id', 'title', 'done', 'status', 'reopenCount', 'evidence']);
@@ -61,21 +55,13 @@ function checkUnknownKeys(
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) {
       issues.push(
-        validationIssue(
-          basePath === '' ? key : `${basePath}.${key}`,
-          'E_UNKNOWN_FIELD',
-          `unknown field "${key}"`,
-        ),
+        validationIssue(basePath === '' ? key : `${basePath}.${key}`, 'E_UNKNOWN_FIELD', `unknown field "${key}"`),
       );
     }
   }
 }
 
-function parseCondition(
-  input: unknown,
-  path: string,
-  issues: ValidationIssue[],
-): Condition | null {
+function parseCondition(input: unknown, path: string, issues: ValidationIssue[]): Condition | null {
   if (!isPlainObject(input)) {
     issues.push(validationIssue(path, 'E_NOT_OBJECT', 'condition must be an object'));
     return null;
@@ -86,9 +72,7 @@ function parseCondition(
     const before = issues.length;
     const command = input['command'];
     if (!Array.isArray(command) || command.length === 0) {
-      issues.push(
-        validationIssue(`${path}.command`, 'E_BAD_COMMAND', 'command must be a non-empty array'),
-      );
+      issues.push(validationIssue(`${path}.command`, 'E_BAD_COMMAND', 'command must be a non-empty array'));
     } else {
       command.forEach((entry, index) => {
         if (!isNonEmptyString(entry)) {
@@ -103,9 +87,7 @@ function parseCondition(
       });
     }
     if (input['expect'] !== 'pass') {
-      issues.push(
-        validationIssue(`${path}.expect`, 'E_BAD_EXPECT', 'expect must be "pass"'),
-      );
+      issues.push(validationIssue(`${path}.expect`, 'E_BAD_EXPECT', 'expect must be "pass"'));
     }
     if (issues.length !== before) return null;
     return { kind: 'tests', command: (command as string[]).slice(), expect: 'pass' };
@@ -116,43 +98,23 @@ function parseCondition(
     const before = issues.length;
     const address = input['address'];
     if (!isNonEmptyString(address) || !BASE58.test(address)) {
-      issues.push(
-        validationIssue(
-          `${path}.address`,
-          'E_BAD_ADDRESS',
-          'address must be a base58 Solana address',
-        ),
-      );
+      issues.push(validationIssue(`${path}.address`, 'E_BAD_ADDRESS', 'address must be a base58 Solana address'));
     }
     const field = input['field'];
     if (typeof field !== 'string' || !(ACCOUNT_FIELDS as readonly string[]).includes(field)) {
-      issues.push(
-        validationIssue(
-          `${path}.field`,
-          'E_BAD_FIELD',
-          `field must be one of ${ACCOUNT_FIELDS.join(', ')}`,
-        ),
-      );
+      issues.push(validationIssue(`${path}.field`, 'E_BAD_FIELD', `field must be one of ${ACCOUNT_FIELDS.join(', ')}`));
     }
     const equals = input['equals'];
     if (!isNonEmptyString(equals)) {
       issues.push(validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'equals must be a string'));
     } else if (field === 'owner' && !BASE58.test(equals)) {
-      issues.push(
-        validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'owner must be a base58 address'),
-      );
+      issues.push(validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'owner must be a base58 address'));
     } else if (field === 'lamports' && !UINT.test(equals)) {
-      issues.push(
-        validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'lamports must be a whole number'),
-      );
+      issues.push(validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'lamports must be a whole number'));
     } else if (field === 'dataLen' && !UINT.test(equals)) {
-      issues.push(
-        validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'dataLen must be a whole number'),
-      );
+      issues.push(validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'dataLen must be a whole number'));
     } else if (field === 'tokenAmount' && !UINT.test(equals)) {
-      issues.push(
-        validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'tokenAmount must be raw unsigned integer atoms'),
-      );
+      issues.push(validationIssue(`${path}.equals`, 'E_BAD_EQUALS', 'tokenAmount must be raw unsigned integer atoms'));
     }
     if (issues.length !== before) return null;
     return {
@@ -168,29 +130,17 @@ function parseCondition(
     const before = issues.length;
     const description = input['description'];
     if (!isNonEmptyString(description)) {
-      issues.push(
-        validationIssue(`${path}.description`, 'E_BAD_DESCRIPTION', 'description must be a string'),
-      );
+      issues.push(validationIssue(`${path}.description`, 'E_BAD_DESCRIPTION', 'description must be a string'));
     }
     if (issues.length !== before) return null;
     return { kind: 'tx', description: description as string };
   }
 
-  issues.push(
-    validationIssue(
-      `${path}.kind`,
-      'E_BAD_KIND',
-      'kind must be "tests", "account" or "tx"',
-    ),
-  );
+  issues.push(validationIssue(`${path}.kind`, 'E_BAD_KIND', 'kind must be "tests", "account" or "tx"'));
   return null;
 }
 
-function parseItem(
-  input: unknown,
-  index: number,
-  issues: ValidationIssue[],
-): ContractItem | null {
+function parseItem(input: unknown, index: number, issues: ValidationIssue[]): ContractItem | null {
   const path = itemPath(index);
   if (!isPlainObject(input)) {
     issues.push(validationIssue(path, 'E_NOT_OBJECT', 'item must be an object'));
@@ -213,20 +163,10 @@ function parseItem(
   if (!Array.isArray(rawDone)) {
     issues.push(validationIssue(itemPath(index, 'done'), 'E_BAD_TYPE', 'done must be an array of conditions'));
   } else if (rawDone.length === 0) {
-    issues.push(
-      validationIssue(
-        itemPath(index, 'done'),
-        'E_EMPTY_DONE',
-        'an item needs at least one done condition',
-      ),
-    );
+    issues.push(validationIssue(itemPath(index, 'done'), 'E_EMPTY_DONE', 'an item needs at least one done condition'));
   } else {
     rawDone.forEach((entry, conditionIndex) => {
-      const condition = parseCondition(
-        entry,
-        `${itemPath(index, 'done')}[${conditionIndex}]`,
-        issues,
-      );
+      const condition = parseCondition(entry, `${itemPath(index, 'done')}[${conditionIndex}]`, issues);
       if (condition !== null) done.push(condition);
     });
   }
@@ -234,11 +174,7 @@ function parseItem(
   const status = input['status'];
   if (typeof status !== 'string' || !ITEM_STATUSES.includes(status as ItemStatus)) {
     issues.push(
-      validationIssue(
-        itemPath(index, 'status'),
-        'E_BAD_STATUS',
-        `status must be one of ${ITEM_STATUSES.join(', ')}`,
-      ),
+      validationIssue(itemPath(index, 'status'), 'E_BAD_STATUS', `status must be one of ${ITEM_STATUSES.join(', ')}`),
     );
   }
 
@@ -323,15 +259,11 @@ export function parseTaskContract(input: unknown): Result<TaskContract> {
   checkUnknownKeys(input, CONTRACT_KEYS, '', issues);
 
   if (input['version'] !== 0) {
-    issues.push(
-      validationIssue('version', 'E_BAD_VERSION', 'version must be the number 0'),
-    );
+    issues.push(validationIssue('version', 'E_BAD_VERSION', 'version must be the number 0'));
   }
   const template = input['template'];
   if (template !== undefined && !isNonEmptyString(template)) {
-    issues.push(
-      validationIssue('template', 'E_BAD_STRING', 'template must be a non-empty string when present'),
-    );
+    issues.push(validationIssue('template', 'E_BAD_STRING', 'template must be a non-empty string when present'));
   }
 
   const items: ContractItem[] = [];
@@ -389,9 +321,7 @@ export function parseTaskContractJson(text: string): Result<TaskContract> {
   try {
     parsed = JSON.parse(text);
   } catch {
-    return failResult([
-      validationIssue('', 'E_INVALID_JSON', 'task.json is not valid JSON'),
-    ]);
+    return failResult([validationIssue('', 'E_INVALID_JSON', 'task.json is not valid JSON')]);
   }
   return parseTaskContract(parsed);
 }
@@ -413,22 +343,16 @@ export function parseEvaluatorConfig(input: unknown): Result<EvaluatorConfig> {
   checkUnknownKeys(input, EVALUATOR_KEYS, '', issues);
 
   if (input['schema'] !== 'oms.evaluator/0') {
-    issues.push(
-      validationIssue('schema', 'E_BAD_SCHEMA_TAG', 'schema must be "oms.evaluator/0"'),
-    );
+    issues.push(validationIssue('schema', 'E_BAD_SCHEMA_TAG', 'schema must be "oms.evaluator/0"'));
   }
   if (typeof input['snapshotDigest'] !== 'string' || !HEX64.test(input['snapshotDigest'])) {
-    issues.push(
-      validationIssue('snapshotDigest', 'E_BAD_DIGEST', 'snapshotDigest must be a sha256 hex digest'),
-    );
+    issues.push(validationIssue('snapshotDigest', 'E_BAD_DIGEST', 'snapshotDigest must be a sha256 hex digest'));
   }
 
   const codePaths: string[] = [];
   const rawCodePaths = input['codePaths'];
   if (!Array.isArray(rawCodePaths)) {
-    issues.push(
-      validationIssue('codePaths', 'E_BAD_CODE_PATHS', 'codePaths must be an array of relative paths'),
-    );
+    issues.push(validationIssue('codePaths', 'E_BAD_CODE_PATHS', 'codePaths must be an array of relative paths'));
   } else if (rawCodePaths.length === 0) {
     issues.push(
       validationIssue(
@@ -451,9 +375,7 @@ export function parseEvaluatorConfig(input: unknown): Result<EvaluatorConfig> {
         return;
       }
       if (seen.has(entry)) {
-        issues.push(
-          validationIssue(`codePaths[${index}]`, 'E_DUPLICATE_CODE_PATH', `duplicate path "${entry}"`),
-        );
+        issues.push(validationIssue(`codePaths[${index}]`, 'E_DUPLICATE_CODE_PATH', `duplicate path "${entry}"`));
         return;
       }
       seen.add(entry);
@@ -474,7 +396,10 @@ export function parseEvaluatorConfig(input: unknown): Result<EvaluatorConfig> {
     issues.push(validationIssue('snapshotPath', 'E_BAD_PATH', 'snapshotPath must be relative without ".."'));
   }
   const testTimeoutMs = input['testTimeoutMs'];
-  if (testTimeoutMs !== undefined && (typeof testTimeoutMs !== 'number' || !Number.isSafeInteger(testTimeoutMs) || testTimeoutMs < 1)) {
+  if (
+    testTimeoutMs !== undefined &&
+    (typeof testTimeoutMs !== 'number' || !Number.isSafeInteger(testTimeoutMs) || testTimeoutMs < 1)
+  ) {
     issues.push(validationIssue('testTimeoutMs', 'E_BAD_TIMEOUT', 'testTimeoutMs must be a positive safe integer'));
   }
 

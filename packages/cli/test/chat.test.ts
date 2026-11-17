@@ -1,0 +1,191 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test, type TestContext } from 'node:test';
+import { SessionManager } from '@earendil-works/pi-coding-agent';
+import { DEFAULT_BUDGET_CAPS } from '@oms/core';
+import { defaultHarnessEnvironment, openBudgetJournal, resolveChatFolder, type ChatSession } from '@oms/engine';
+import { chooseChatSession, runInteractiveChat } from '../src/chat.ts';
+import { parseLaunchOptions } from '../src/harness.ts';
+
+function setup(t: TestContext) {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'oms-chat-cli-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const stateRoot = join(base, 'state');
+  const project = join(base, 'my-project');
+  mkdirSync(stateRoot);
+  mkdirSync(project);
+  const folder = resolveChatFolder(project, { stateRoot });
+  const sessions = join(stateRoot, 'folders', folder.key, 'sessions');
+  mkdirSync(join(stateRoot, 'folders', folder.key), { recursive: true, mode: 0o700 });
+  mkdirSync(sessions, { mode: 0o700 });
+  return { base, stateRoot, project, folder, sessions };
+}
+
+/** A saved conversation with its budget journal, as a closed chat leaves them. */
+function saveConversation(f: ReturnType<typeof setup>, caps = DEFAULT_BUDGET_CAPS) {
+  const manager = SessionManager.create(f.folder.path, f.sessions);
+  manager.appendMessage({ role: 'user', content: 'Remember this.', timestamp: 1 });
+  manager.appendMessage({
+    role: 'assistant',
+    content: [{ type: 'text', text: 'Noted.' }],
+    api: 'openai-completions',
+    provider: 'p',
+    model: 'm',
+    usage: {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 2,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: 2,
+  });
+  const id = manager.getSessionId();
+  const journal = join(f.sessions, `${id}.budget.jsonl`);
+  openBudgetJournal({ path: journal, caps, clock: Date.now }).close();
+  return { id, journal };
+}
+
+const launch = parseLaunchOptions([]);
+
+test('a folder with no saved conversation opens a new one without asking', async (t) => {
+  const f = setup(t);
+  const selected = await chooseChatSession(f.folder, f.stateRoot, launch, async () => assert.fail('no question'));
+  assert.deepEqual(selected, {});
+});
+
+test('a saved conversation with a usable budget is resumed without asking', async (t) => {
+  const f = setup(t);
+  const saved = saveConversation(f);
+  const before = readFileSync(saved.journal, 'utf8');
+  const selected = await chooseChatSession(f.folder, f.stateRoot, launch, async () => assert.fail('no question'));
+  assert.deepEqual(selected, { sessionId: saved.id });
+  assert.equal(readFileSync(saved.journal, 'utf8'), before);
+});
+
+test('an unusable saved budget needs explicit consent for a new session and is never reset', async (t) => {
+  const f = setup(t);
+  const saved = saveConversation(f);
+  writeFileSync(saved.journal, '{"type":"budget_open"', { mode: 0o600 });
+  assert.equal(await chooseChatSession(f.folder, f.stateRoot, launch, async () => undefined), undefined);
+  const asked: string[] = [];
+  const renewed = await chooseChatSession(f.folder, f.stateRoot, launch, async (message) => {
+    asked.push(message);
+    return 'new';
+  });
+  assert.deepEqual(renewed, {});
+  assert.match(asked[0]!, /cannot admit work/);
+  assert.match(asked[0]!, /retained/);
+  assert.equal(readFileSync(saved.journal, 'utf8'), '{"type":"budget_open"');
+});
+
+function fakeChat(folder: ChatSession['folder'], log: string[]): ChatSession {
+  return {
+    kind: 'chat',
+    folder,
+    root: folder.path,
+    async close() {
+      log.push('close');
+    },
+  } as unknown as ChatSession;
+}
+
+async function capture(action: () => Promise<void>): Promise<string> {
+  const write = process.stdout.write.bind(process.stdout);
+  let out = '';
+  process.stdout.write = ((chunk: string | Uint8Array) => (
+    (out += String(chunk)),
+    true
+  )) as typeof process.stdout.write;
+  try {
+    await action();
+  } finally {
+    process.stdout.write = write;
+  }
+  return out;
+}
+
+test('the chat opens the given folder, names it in the header, and tells the user how to continue', async (t) => {
+  const f = setup(t);
+  const saved = saveConversation(f);
+  const log: string[] = [];
+  const opened: Array<Record<string, unknown>> = [];
+  const out = await capture(() =>
+    runInteractiveChat({
+      folder: f.project,
+      stateRoot: f.stateRoot,
+      environment: defaultHarnessEnvironment(),
+      launch,
+      start: async (options) => {
+        opened.push(options as unknown as Record<string, unknown>);
+        return fakeChat(options.folder, log);
+      },
+      run: async (chat) => {
+        log.push(`run ${chat.kind}`);
+      },
+    }),
+  );
+  assert.equal((opened[0]!.folder as { path: string }).path, f.project);
+  assert.equal(opened[0]!.stateRoot, f.stateRoot);
+  assert.equal(opened[0]!.sessionId, saved.id);
+  assert.deepEqual(log, ['run chat', 'close']);
+  assert.equal(out, 'Run oms in this folder to continue.\n');
+});
+
+test('--yolo reaches the session, and without it YOLO is off', async (t) => {
+  const f = setup(t);
+  const opened: Array<Record<string, unknown>> = [];
+  const notes: Array<string | undefined> = [];
+  for (const yolo of [true, undefined]) {
+    await capture(() =>
+      runInteractiveChat({
+        folder: f.project,
+        stateRoot: f.stateRoot,
+        environment: defaultHarnessEnvironment(),
+        launch,
+        yolo,
+        start: async (options) => {
+          opened.push(options as unknown as Record<string, unknown>);
+          return fakeChat(options.folder, []);
+        },
+        run: async (_chat, interfaceOptions) => {
+          notes.push(interfaceOptions?.startNote);
+        },
+      }),
+    );
+  }
+  assert.equal(opened[0]!.yolo, true);
+  assert.equal(opened[1]!.yolo, undefined);
+  assert.deepEqual(notes, ['YOLO: commands run without asking and without the sandbox.', undefined]);
+});
+
+test('a folder that holds personal files opens a scratch folder and says so in the interface', async (t) => {
+  const f = setup(t);
+  const log: string[] = [];
+  let scratch = '';
+  let note: string | undefined;
+  await capture(() =>
+    runInteractiveChat({
+      folder: f.stateRoot,
+      stateRoot: f.stateRoot,
+      environment: defaultHarnessEnvironment(),
+      launch,
+      start: async (options) => {
+        scratch = options.folder.path;
+        return fakeChat(options.folder, log);
+      },
+      run: async (_chat, options) => {
+        note = options?.startNote;
+      },
+    }),
+  );
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  assert.equal(
+    note,
+    `No project here, so this chat uses a scratch folder (${scratch}). cd into a project folder and run oms to work on it.`,
+  );
+});

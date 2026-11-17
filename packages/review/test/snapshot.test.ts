@@ -18,7 +18,14 @@ test('snapshot excludes secret files, key arrays and symlinks before any model c
     const snapshot = await captureSnapshot(root);
     assert.deepEqual([...snapshot.inventory().keys()], ['lib.rs']);
     assert.equal(snapshot.excludedFiles, 5);
-    for (const path of ['../lib.rs', '/etc/passwd', 'outside.rs', '.env.local', 'ordinary.json', 'target/deploy/x-keypair.json']) {
+    for (const path of [
+      '../lib.rs',
+      '/etc/passwd',
+      'outside.rs',
+      '.env.local',
+      'ordinary.json',
+      'target/deploy/x-keypair.json',
+    ]) {
       assert.throws(() => snapshot.read(path));
     }
     assert.equal(snapshot.read('lib.rs'), 'pub fn entry() {}\n');
@@ -26,14 +33,19 @@ test('snapshot excludes secret files, key arrays and symlinks before any model c
     assert.equal(snapshot.read('lib.rs'), 'pub fn entry() {}\n');
     assert.deepEqual(snapshot.grep('entry'), [{ file: 'lib.rs', line: 1, text: 'pub fn entry() {}' }]);
     assert.deepEqual(snapshot.grep('SECRET'), []);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('scrubbing removes PEM blocks and 64-byte base58 values but keeps public keys', () => {
   const fakeSecret = '1'.repeat(64);
   const publicKey = '1'.repeat(32);
   assert.equal(redactReviewText(`secret=${fakeSecret}; public=${publicKey}`), `secret=[REDACTED]; public=${publicKey}`);
-  assert.equal(redactReviewText('before\n-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----\nafter'), 'before\n[REDACTED]\n\n\nafter');
+  assert.equal(
+    redactReviewText('before\n-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----\nafter'),
+    'before\n[REDACTED]\n\n\nafter',
+  );
   assert.equal(redactReviewText('-----BEGIN PRIVATE KEY-----\nunfinished'), '[REDACTED]\n');
 });
 
@@ -46,7 +58,9 @@ test('snapshot resource limits fail closed instead of pretending review was comp
     assert.equal(snapshot.inventory().size, 0);
     await assert.rejects(captureSnapshot(root, { totalBytes: 5 }), /budget exhausted/);
     await assert.rejects(captureSnapshot(root, { fileBytes: -1 }), /Invalid snapshot limits/);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('multiline redaction preserves original source line locations', async () => {
@@ -58,7 +72,9 @@ test('multiline redaction preserves original source line locations', async () =>
     assert.equal(snapshot.inventory().get('lib.rs'), source.split('\n').length);
     assert.equal(snapshot.grep('withdraw')[0]!.line, 4);
     assert.ok(!snapshot.read('lib.rs').includes('FAKE'));
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('snapshot capture works on non-Linux hosts', async () => {
@@ -68,5 +84,8 @@ test('snapshot capture works on non-Linux hosts', async () => {
     await writeFile(join(root, 'lib.rs'), 'pub fn entry() {}\n');
     Object.defineProperty(process, 'platform', { value: 'darwin' });
     assert.deepEqual([...(await captureSnapshot(root)).inventory().keys()], ['lib.rs']);
-  } finally { Object.defineProperty(process, 'platform', platform); await rm(root, { recursive: true, force: true }); }
+  } finally {
+    Object.defineProperty(process, 'platform', platform);
+    await rm(root, { recursive: true, force: true });
+  }
 });

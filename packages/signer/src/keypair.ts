@@ -71,22 +71,42 @@ export function loadIssuedKeypair(options: { signerDir: string; alias: string })
   validateAlias(options.alias);
   const root = privateDirectory(options.signerDir);
   let issuance: Record<string, unknown>;
-  try { issuance = JSON.parse(readPrivateFile(join(root, `${options.alias}.issuance.json`))) as Record<string, unknown>; }
-  catch (error) { if (error instanceof SignerError) throw error; throw new SignerError('E_KEYPAIR', 'invalid signer issuance record'); }
-  if (!issuance || issuance.v !== 1 || issuance.kind !== 'generated-development-key' || issuance.alias !== options.alias || issuance.root !== root) throw new SignerError('E_KEYPAIR', 'signer issuance does not belong to this alias and trusted root');
+  try {
+    issuance = JSON.parse(readPrivateFile(join(root, `${options.alias}.issuance.json`))) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof SignerError) throw error;
+    throw new SignerError('E_KEYPAIR', 'invalid signer issuance record');
+  }
+  if (
+    !issuance ||
+    issuance.v !== 1 ||
+    issuance.kind !== 'generated-development-key' ||
+    issuance.alias !== options.alias ||
+    issuance.root !== root
+  )
+    throw new SignerError('E_KEYPAIR', 'signer issuance does not belong to this alias and trusted root');
   const profile = validateProfile(issuance.profile);
   const profileId = profileIdentity(profile);
   if (issuance.profileId !== profileId) throw new SignerError('E_KEYPAIR', 'signer issuance profile identity mismatch');
   let parsed: unknown;
-  try { parsed = JSON.parse(readPrivateFile(join(root, `${options.alias}.key.json`))); }
-  catch (error) { if (error instanceof SignerError) throw error; throw new SignerError('E_KEYPAIR', 'invalid issued key encoding'); }
-  if (!Array.isArray(parsed) || parsed.length !== 64 || !parsed.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) throw new SignerError('E_KEYPAIR', 'issued key must contain 64 bytes');
+  try {
+    parsed = JSON.parse(readPrivateFile(join(root, `${options.alias}.key.json`)));
+  } catch (error) {
+    if (error instanceof SignerError) throw error;
+    throw new SignerError('E_KEYPAIR', 'invalid issued key encoding');
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 64 || !parsed.every((n) => Number.isInteger(n) && n >= 0 && n <= 255))
+    throw new SignerError('E_KEYPAIR', 'issued key must contain 64 bytes');
   const bytes = Uint8Array.from(parsed);
   try {
     const loaded = secretMaterialFromSeed(bytes.subarray(0, 32));
-    if (loaded.address !== issuance.address || toBase58(bytes.subarray(32)) !== loaded.address) throw new SignerError('E_KEYPAIR', 'key does not match trusted issuance address');
+    if (loaded.address !== issuance.address || toBase58(bytes.subarray(32)) !== loaded.address)
+      throw new SignerError('E_KEYPAIR', 'key does not match trusted issuance address');
     const keypair = Object.freeze({ ...loaded, alias: options.alias, profile, profileId });
     issuedKeys.add(keypair);
     return keypair;
-  } finally { bytes.fill(0); parsed.fill(0); }
+  } finally {
+    bytes.fill(0);
+    parsed.fill(0);
+  }
 }

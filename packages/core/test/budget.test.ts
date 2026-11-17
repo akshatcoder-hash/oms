@@ -10,7 +10,11 @@ import {
 } from '../src/budget/meter.ts';
 
 test('default caps are integer configuration', () => {
-  for (const value of [DEFAULT_BUDGET_CAPS.tokens, DEFAULT_BUDGET_CAPS.spendMicroUsd, DEFAULT_BUDGET_CAPS.wallClockMs]) {
+  for (const value of [
+    DEFAULT_BUDGET_CAPS.tokens,
+    DEFAULT_BUDGET_CAPS.spendMicroUsd,
+    DEFAULT_BUDGET_CAPS.wallClockMs,
+  ]) {
     assert.equal(Number.isSafeInteger(value), true);
     assert.ok(value > 0);
   }

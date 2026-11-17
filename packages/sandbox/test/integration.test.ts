@@ -23,7 +23,7 @@ import { after, before, test } from 'node:test';
 import { dockerInfoWorks, removeScratchDir, dockerOut } from '../src/docker.ts';
 import { buildMounts } from '../src/mounts.ts';
 import { removeTaskResources, hasLeftovers } from '../src/cleanup.ts';
-import { runInSandbox, type RunInSandboxOptions } from '../src/exec.ts';
+import { runInSandbox, type DockerRunOptions } from '../src/exec.ts';
 import type { AddressInfo } from 'node:net';
 import { digestCodeInputs, EMPTY_SNAPSHOT_DIGEST, saveCodeInputs } from '@oms/contract';
 import { skipUnavailable } from '../test-support/infrastructure.ts';
@@ -124,8 +124,9 @@ function mounts(f: Fixture) {
   });
 }
 
-function run(f: Fixture, over: Partial<RunInSandboxOptions>): Promise<import('../src/exec.ts').SandboxResult> {
+function run(f: Fixture, over: Partial<DockerRunOptions>): Promise<import('../src/exec.ts').SandboxResult> {
   return runInSandbox({
+    backend: 'docker',
     taskName: TASK,
     phase: 'run',
     argv: ['sh', '-c', 'true'],
@@ -211,7 +212,10 @@ test('run phase: surfnet stand-in reachable, second local server and external IP
   assert.ok(m, `no result line in stdout: ${r.stdout}`);
   const out = JSON.parse(m?.[1] ?? '{}') as Record<string, string>;
   assert.ok(out['surfnet']?.includes('SURFNET-OK'), `surfnet stand-in must be reachable: ${out['surfnet']}`);
-  assert.ok(out['secondServer']?.startsWith('blocked:'), `second local server must be unreachable: ${out['secondServer']}`);
+  assert.ok(
+    out['secondServer']?.startsWith('blocked:'),
+    `second local server must be unreachable: ${out['secondServer']}`,
+  );
   assert.ok(out['hostDirect']?.startsWith('blocked:'), `direct host address must be unreachable: ${out['hostDirect']}`);
   assert.ok(out['external']?.startsWith('blocked:'), `external IP must be unreachable: ${out['external']}`);
 });
@@ -276,9 +280,20 @@ test('install phase: allowlisted fake registry works via proxy (GET+CONNECT), ot
   assert.ok(m, `no result line in stdout: ${r.stdout}`);
   const out = JSON.parse(m?.[1] ?? '{}') as Record<string, { status?: number; body?: string; error?: string }>;
   assert.ok(out['getOk']?.body === 'REGISTRY-OK', `allowlisted GET must relay: ${JSON.stringify(out['getOk'])}`);
-  assert.ok(out['connectOk']?.body?.includes('REGISTRY-OK'), `allowlisted CONNECT must relay: ${JSON.stringify(out['connectOk'])}`);
-  assert.equal(out['getDenied']?.status, 403, `non-allowlisted GET must be refused: ${JSON.stringify(out['getDenied'])}`);
-  assert.equal(out['connectDenied']?.status, 403, `non-allowlisted CONNECT must be refused: ${JSON.stringify(out['connectDenied'])}`);
+  assert.ok(
+    out['connectOk']?.body?.includes('REGISTRY-OK'),
+    `allowlisted CONNECT must relay: ${JSON.stringify(out['connectOk'])}`,
+  );
+  assert.equal(
+    out['getDenied']?.status,
+    403,
+    `non-allowlisted GET must be refused: ${JSON.stringify(out['getDenied'])}`,
+  );
+  assert.equal(
+    out['connectDenied']?.status,
+    403,
+    `non-allowlisted CONNECT must be refused: ${JSON.stringify(out['connectDenied'])}`,
+  );
 });
 
 test('readOnlyPaths cannot be written from inside; project writes still work', async (t) => {
@@ -338,19 +353,34 @@ test('aborting one overlapping run does not tear down its live peer', async (t) 
   const f = await makeFixture();
   let firstReady!: (response: http.ServerResponse) => void;
   let secondReady!: (response: http.ServerResponse) => void;
-  const first = new Promise<http.ServerResponse>(resolve => { firstReady = resolve; });
-  const second = new Promise<http.ServerResponse>(resolve => { secondReady = resolve; });
+  const first = new Promise<http.ServerResponse>((resolve) => {
+    firstReady = resolve;
+  });
+  const second = new Promise<http.ServerResponse>((resolve) => {
+    secondReady = resolve;
+  });
   const server = http.createServer((req, res) => {
     (req.url === '/first' ? firstReady : secondReady)(res);
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => { server.closeAllConnections(); server.close(); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
   const port = (server.address() as AddressInfo).port;
   const controller = new AbortController();
-  const command = (name: string) => ['node', '-e', `fetch('http://host.docker.internal:${port}/${name}').then(r => r.text()).then(console.log)`];
+  const command = (name: string) => [
+    'node',
+    '-e',
+    `fetch('http://host.docker.internal:${port}/${name}').then(r => r.text()).then(console.log)`,
+  ];
   const peerRoot = path.join(f.base, 'peer-project');
   mkdirSync(peerRoot);
-  const peerMounts = buildMounts({ projectRoot: peerRoot, taskName: TASK, forbidden: { signerDir: f.signerDir, stateDir: f.stateDir } });
+  const peerMounts = buildMounts({
+    projectRoot: peerRoot,
+    taskName: TASK,
+    forbidden: { signerDir: f.signerDir, stateDir: f.stateDir },
+  });
   const slow = run(f, { surfnet: { port }, argv: command('first') });
   const firstResponse = await first;
   const stopped = run(f, { mounts: peerMounts, surfnet: { port }, argv: command('second'), signal: controller.signal });
@@ -373,43 +403,63 @@ test('timeout kills and removes the container', async (t) => {
   assert.equal(ps.trim(), '', 'container must be removed after timeout');
 });
 
-test('real sandbox writer excludes host input capture through fully awaited teardown', async t => {
+test('real sandbox writer excludes host input capture through fully awaited teardown', async (t) => {
   if (await skipUnavailable(t, { docker: [IMAGE, FORWARDER_IMAGE] })) return;
   const f = await makeFixture();
   const server = http.createServer();
   const request = once(server, 'request');
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  t.after(() => { server.closeAllConnections(); server.close(); });
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
   const port = (server.address() as AddressInfo).port;
   const options = { sourceControlDir: path.join(f.base, 'source-control') };
-  const config = { schema: 'oms.evaluator/0' as const, codePaths: [], snapshotDigest: EMPTY_SNAPSHOT_DIGEST, executionIdentity: 'test:real-writer' };
-  const running = run(f, { surfnet: { port }, argv: ['node', '-e',
-    `require('node:fs').writeFileSync('/work/live-source.txt', 'writer-active'); fetch('http://host.docker.internal:${port}/').then(r => r.text())`,
-  ] });
-  const [, response] = await request as [http.IncomingMessage, http.ServerResponse];
+  const config = {
+    schema: 'oms.evaluator/0' as const,
+    codePaths: [],
+    snapshotDigest: EMPTY_SNAPSHOT_DIGEST,
+    executionIdentity: 'test:real-writer',
+  };
+  const running = run(f, {
+    surfnet: { port },
+    argv: [
+      'node',
+      '-e',
+      `require('node:fs').writeFileSync('/work/live-source.txt', 'writer-active'); fetch('http://host.docker.internal:${port}/').then(r => r.text())`,
+    ],
+  });
+  const [, response] = (await request) as [http.IncomingMessage, http.ServerResponse];
   try {
     assert.throws(() => saveCodeInputs(f.project, config, options), { code: 'E_SOURCE_BUSY' });
     assert.throws(() => digestCodeInputs(f.project, config, options), { code: 'E_SOURCE_BUSY' });
-  } finally { response.end('finish'); await running; }
+  } finally {
+    response.end('finish');
+    await running;
+  }
   const saved = saveCodeInputs(f.project, config, options);
   saved.dispose();
 });
 
-test('real permitted writer cannot substitute a later approved readonly overlay bind', async t => {
+test('real permitted writer cannot substitute a later approved readonly overlay bind', async (t) => {
   if (await skipUnavailable(t, { docker: [IMAGE, FORWARDER_IMAGE] })) return;
   const f = await makeFixture();
   const approved = mounts(f);
   const mutable = buildMounts({
-    projectRoot: f.project, taskName: TASK,
+    projectRoot: f.project,
+    taskName: TASK,
     forbidden: { signerDir: f.innerSigner, stateDir: f.stateDir, extra: [f.signerDir] },
   });
   try {
-    const result = await run(f, { mounts: mutable, argv: ['sh', '-c',
-      `mv /work/.oms /work/.oms-before && ln -s ${JSON.stringify(f.signerDir)} /work/.oms`,
-    ] });
+    const result = await run(f, {
+      mounts: mutable,
+      argv: ['sh', '-c', `mv /work/.oms /work/.oms-before && ln -s ${JSON.stringify(f.signerDir)} /work/.oms`],
+    });
     assert.equal(result.exitCode, 0, result.stderr);
-    await assert.rejects(run(f, { mounts: approved, argv: ['cat', '/work/.oms/verify/channel.token'] }), { code: 'E_MOUNT_FORBIDDEN' });
+    await assert.rejects(run(f, { mounts: approved, argv: ['cat', '/work/.oms/verify/channel.token'] }), {
+      code: 'E_MOUNT_FORBIDDEN',
+    });
   } finally {
     if (existsSync(path.join(f.project, '.oms-before'))) {
       rmSync(path.join(f.project, '.oms'), { recursive: true, force: true });
@@ -428,22 +478,33 @@ test('cleanup: no oms- leftovers in containers, networks or volumes', async (t) 
   // persist by design until task cleanup.
   const afterRun = await hasLeftovers(TASK);
   assert.deepEqual(
-    afterRun.detail.filter(
-      (d) => !d.startsWith(`oms-${TASK}-node_modules`) && !d.startsWith(`oms-${TASK}-target`),
-    ),
+    afterRun.detail.filter((d) => !d.startsWith(`oms-${TASK}-node_modules`) && !d.startsWith(`oms-${TASK}-target`)),
     [],
     `after run: ${JSON.stringify(afterRun.detail)}`,
   );
-  await dockerOut(['network', 'create', '--internal', '--label', 'oms.component=sandbox', '--label', `oms.task=${TASK}`, `oms-${TASK}-stray-net`]);
-  await dockerOut(['volume', 'create', '--label', 'oms.component=sandbox', '--label', `oms.task=${TASK}`, `oms-${TASK}-stray-vol`]);
+  await dockerOut([
+    'network',
+    'create',
+    '--internal',
+    '--label',
+    'oms.component=sandbox',
+    '--label',
+    `oms.task=${TASK}`,
+    `oms-${TASK}-stray-net`,
+  ]);
+  await dockerOut([
+    'volume',
+    'create',
+    '--label',
+    'oms.component=sandbox',
+    '--label',
+    `oms.task=${TASK}`,
+    `oms-${TASK}-stray-vol`,
+  ]);
   const cleaned = await removeTaskResources(TASK);
+  assert.ok(cleaned.networks.includes(`oms-${TASK}-stray-net`), `network removed: ${JSON.stringify(cleaned)}`);
   assert.ok(
-    cleaned.networks.includes(`oms-${TASK}-stray-net`),
-    `network removed: ${JSON.stringify(cleaned)}`,
-  );
-  assert.ok(
-    cleaned.volumes.includes(`oms-${TASK}-stray-vol`) &&
-      cleaned.volumes.includes(`oms-${TASK}-node_modules`),
+    cleaned.volumes.includes(`oms-${TASK}-stray-vol`) && cleaned.volumes.includes(`oms-${TASK}-node_modules`),
     `volume removed: ${JSON.stringify(cleaned)}`,
   );
   const left = await hasLeftovers(TASK);

@@ -21,16 +21,18 @@ test('the devnet profile constant is the real devnet genesis, not a shortened id
   assert.equal(DEVNET_GENESIS_HASH, REAL.devnet);
 });
 
-test('a real devnet RPC passes the identity check and a real mainnet RPC does not', async t => {
+test('a real devnet RPC passes the identity check and a real mainnet RPC does not', async (t) => {
   let genesis = REAL.devnet;
   const server = createServer((_request, response) => {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ jsonrpc: '2.0', id: 1, result: genesis }));
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   t.after(() => server.close());
   const endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const rpc = new ProfileRpc(validateProfile({ kind: 'devnet', endpoint, genesisHash: REAL.devnet, authorization: 'user-approved' }));
+  const rpc = new ProfileRpc(
+    validateProfile({ kind: 'devnet', endpoint, genesisHash: REAL.devnet, authorization: 'user-approved' }),
+  );
   await rpc.assertIdentity();
   genesis = REAL.mainnet;
   await assert.rejects(rpc.assertIdentity(), /genesis differs/);
@@ -39,7 +41,13 @@ test('a real devnet RPC passes the identity check and a real mainnet RPC does no
 test('local development profiles refuse every real public cluster genesis before spawning', () => {
   for (const [cluster, genesisHash] of Object.entries(REAL)) {
     assert.throws(
-      () => launchLocalProfile({ executable: process.execPath, args: ['-e', ''], endpoint: 'http://127.0.0.1:8899', genesisHash }),
+      () =>
+        launchLocalProfile({
+          executable: process.execPath,
+          args: ['-e', ''],
+          endpoint: 'http://127.0.0.1:8899',
+          genesisHash,
+        }),
       /isolated development genesis/,
       `${cluster} genesis must be refused`,
     );

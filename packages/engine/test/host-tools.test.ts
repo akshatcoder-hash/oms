@@ -3,20 +3,33 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { hostBackend } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 
 test('real host tools use task paths, protect verifier/.git and gate shell commands', async () => {
-  const fixtureRoot = mkdtempSync(join(tmpdir(), 'oms-host-tools-'));
+  const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'oms-host-tools-')));
   const root = join(fixtureRoot, '.oms/worktrees/task');
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, 'verify.js'), 'pinned');
   mkdirSync(join(root, 'checks'));
   writeFileSync(join(root, 'checks/verify.js'), 'pinned');
   symlinkSync('checks', join(root, 'alias'));
-  const options = { backend: 'host' as const, taskName: 'host-fixture',
-    mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: root, surfnetPort: 8899,
-    signal: new AbortController().signal, protectedPaths: [join(root, 'verify.js'), join(root, 'checks/verify.js')] };
+  const options = {
+    backend: hostBackend(),
+    taskName: 'host-fixture',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: root,
+    sourceControlDir: root,
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    protectedPaths: [join(root, 'verify.js'), join(root, 'checks/verify.js')],
+  };
   const control = mkdtempSync(join(tmpdir(), 'oms-host-control-'));
   options.sourceControlDir = control;
   const tools = createSandboxTools(options);
@@ -27,75 +40,148 @@ test('real host tools use task paths, protect verifier/.git and gate shell comma
     await assert.rejects(tools.files.write('alias/verify.js', Buffer.from('changed')), /pinned verifier/);
     await assert.rejects(tools.files.write('.git/config', Buffer.from('changed')), /outside the admitted/);
     await assert.rejects(tools.execute(['/bin/sh', '-c', 'pwd']), /denied/);
-  } finally { await tools.dispose(); }
+  } finally {
+    await tools.dispose();
+  }
   const allowed = createSandboxTools({ ...options, approvalPolicy: 'allow' });
   try {
     const result = await allowed.execute(['/bin/sh', '-c', 'printf "%s" "$SOLANA_RPC_URL"; pwd']);
     assert.equal(result.exitCode, 0);
     assert.equal(result.stdout, `http://127.0.0.1:8899${root}\n`);
-  } finally { await allowed.dispose(); rmSync(fixtureRoot, { recursive: true, force: true }); rmSync(control, { recursive: true, force: true }); }
+  } finally {
+    await allowed.dispose();
+    rmSync(fixtureRoot, { recursive: true, force: true });
+    rmSync(control, { recursive: true, force: true });
+  }
 });
 
 test('a host command finds the trusted Surfpool through SURFPOOL_BINARY only when one is configured', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'oms-host-surfpool-')));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-surfpool-control-'));
-  const options = { backend: 'host' as const, approvalPolicy: 'allow' as const, taskName: 'host-surfpool',
-    mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal };
+  const options = {
+    backend: hostBackend(),
+    approvalPolicy: 'allow' as const,
+    taskName: 'host-surfpool',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: root,
+    sourceControlDir: control,
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+  };
   const print = ['/bin/sh', '-c', 'printf "%s" "${SURFPOOL_BINARY-unset}"'];
   const configured = createSandboxTools({ ...options, surfpool: '/opt/oms/surfpool' });
   const bare = createSandboxTools(options);
   try {
     assert.equal((await configured.execute(print)).stdout, '/opt/oms/surfpool');
     assert.equal((await bare.execute(print)).stdout, 'unset');
-  } finally { await configured.dispose(); await bare.dispose(); rmSync(root, { recursive: true, force: true }); rmSync(control, { recursive: true, force: true }); }
+  } finally {
+    await configured.dispose();
+    await bare.dispose();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(control, { recursive: true, force: true });
+  }
 });
 
 test('host terminal runs a real interactive shell and closes before verification', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-host-terminal-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-terminal-control-'));
-  const tools = createSandboxTools({ backend: 'host', approvalPolicy: 'allow', taskName: 'terminal-fixture',
-    mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899,
-    signal: new AbortController().signal, timeoutMs: 5000 });
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    approvalPolicy: 'allow',
+    taskName: 'terminal-fixture',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: root,
+    sourceControlDir: control,
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    timeoutMs: 5000,
+  });
   try {
     const terminal = await tools.startTerminal(80, 24);
     let output = '';
-    const received = new Promise<void>(resolve => {
-      terminal.subscribe(data => { output += Buffer.from(data).toString(); if (output.includes('HOST-TERMINAL-OK')) resolve(); });
+    const received = new Promise<void>((resolve) => {
+      terminal.subscribe((data) => {
+        output += Buffer.from(data).toString();
+        if (output.includes('HOST-TERMINAL-OK')) resolve();
+      });
     });
     assert.throws(() => tools.assertVerificationAllowed(), /Stop terminal/);
     terminal.write(Buffer.from('printf "HOST-TERMINAL-%s\\n" OK\n'));
-    await Promise.race([received, new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('terminal output timeout')), 3000); timer.unref(); })]);
+    await Promise.race([
+      received,
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => reject(new Error('terminal output timeout')), 3000);
+        timer.unref();
+      }),
+    ]);
     terminal.resize(100, 40);
     const deadline = Date.now() + 3000;
     while (!/40\s+100/.test(output) && Date.now() < deadline) {
       terminal.write(Buffer.from('stty size\n'));
-      await new Promise(resolve => setTimeout(resolve, 25));
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
     assert.match(output, /40\s+100/);
     await terminal.close();
     await terminal.exited;
     await Promise.resolve();
     tools.assertVerificationAllowed();
-  } finally { await tools.dispose(); rmSync(root, { recursive: true, force: true }); rmSync(control, { recursive: true, force: true }); }
+  } finally {
+    await tools.dispose();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(control, { recursive: true, force: true });
+  }
 });
 
 test('host terminal cleanup uncertainty reaches close and tool disposal', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-terminal-tamper-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-terminal-control-'));
   const dependencies = mkdtempSync(join(tmpdir(), 'oms-terminal-deps-'));
-  const tools = createSandboxTools({ backend: 'host', approvalPolicy: 'allow', taskName: 'terminal-tamper',
-    mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [],
-      readOnlyMounts: [{ hostPath: dependencies, containerPath: '/work/node_modules', mode: 'ro' }], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899,
-    signal: new AbortController().signal, timeoutMs: 5000 });
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    approvalPolicy: 'allow',
+    taskName: 'terminal-tamper',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [{ hostPath: dependencies, containerPath: '/work/node_modules', mode: 'ro' }],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: root,
+    sourceControlDir: control,
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    timeoutMs: 5000,
+  });
   try {
     const terminal = await tools.startTerminal(80, 24);
     let text = '';
-    const removed = new Promise<void>(resolve => terminal.subscribe(bytes => { text += Buffer.from(bytes).toString(); if (text.includes('REMOVED-LINK')) resolve(); }));
+    const removed = new Promise<void>((resolve) =>
+      terminal.subscribe((bytes) => {
+        text += Buffer.from(bytes).toString();
+        if (text.includes('REMOVED-LINK')) resolve();
+      }),
+    );
     terminal.write(Buffer.from("rm node_modules; printf 'REMOVED-%s\\n' LINK\n"));
-    await Promise.race([removed, new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('terminal cleanup fixture timed out')), 3000); timer.unref(); })]);
+    await Promise.race([
+      removed,
+      new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => reject(new Error('terminal cleanup fixture timed out')), 3000);
+        timer.unref();
+      }),
+    ]);
     await assert.rejects(terminal.close(), AggregateError);
     await assert.rejects(tools.dispose(), AggregateError);
   } finally {
@@ -107,35 +193,181 @@ test('host terminal cleanup uncertainty reaches close and tool disposal', async 
 test('host verification asks approval once and honors deny', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-host-verify-approval-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-verify-control-'));
-  const options = { backend: 'host' as const, taskName: 'verify-approval',
-    mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal };
+  const options = {
+    backend: hostBackend(),
+    taskName: 'verify-approval',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' as const },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: root,
+    sourceControlDir: control,
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+  };
   const denied = createSandboxTools(options);
   let ran = false;
   try {
-    await assert.rejects(denied.withVerification(async () => { ran = true; }), /denied/);
+    await assert.rejects(
+      denied.withVerification(async () => {
+        ran = true;
+      }),
+      /denied/,
+    );
     assert.equal(ran, false);
-  } finally { await denied.dispose(); }
+  } finally {
+    await denied.dispose();
+  }
   let asked = 0;
   const approved = createSandboxTools(options);
-  approved.setHostApproval(async () => { asked++; return true; });
+  approved.setHostApproval(async () => {
+    asked++;
+    return true;
+  });
   try {
-    await approved.withVerification(async () => { ran = true; });
+    await approved.withVerification(async () => {
+      ran = true;
+    });
     assert.deepEqual({ ran, asked }, { ran: true, asked: 1 });
-  } finally { await approved.dispose(); rmSync(root, { recursive: true, force: true }); rmSync(control, { recursive: true, force: true }); }
+  } finally {
+    await approved.dispose();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(control, { recursive: true, force: true });
+  }
 });
 
 test('host approval prompt shows the shell string, not JSON argv', async () => {
   const root = mkdtempSync(join(tmpdir(), 'oms-host-prompt-'));
   const control = mkdtempSync(join(tmpdir(), 'oms-host-prompt-control-'));
-  const tools = createSandboxTools({ backend: 'host', taskName: 'prompt',
-    mounts: { projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' }, extraMounts: [], readOnlyMounts: [], volumes: [], shadowMounts: [] },
-    image: '', forwarderImage: '', leaseDir: root, sourceControlDir: control, surfnetPort: 8899, signal: new AbortController().signal });
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    taskName: 'prompt',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: '/work', mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: root,
+    sourceControlDir: control,
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+  });
   const shown: string[] = [];
-  tools.setHostApproval(async request => { shown.push(request.command); return true; });
+  tools.setHostApproval(async (request) => {
+    shown.push(request.command);
+    return true;
+  });
   try {
     await tools.execute(['/bin/sh', '-c', 'printf "a b"']);
     await tools.execute(['/bin/echo', 'x y']);
     assert.deepEqual(shown, ['printf "a b"', '/bin/echo x y']);
-  } finally { await tools.dispose(); rmSync(root, { recursive: true, force: true }); rmSync(control, { recursive: true, force: true }); }
+  } finally {
+    await tools.dispose();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(control, { recursive: true, force: true });
+  }
+});
+
+test('M3: all chat lanes share source ownership, including the main file view', async (t) => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'oms-chat-lanes-')));
+  const root = join(base, 'project');
+  mkdirSync(root);
+  writeFileSync(join(root, 'a.ts'), 'readable');
+  let spawned!: () => void;
+  const running = new Promise<void>((resolve) => {
+    spawned = resolve;
+  });
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    hostTrust: { yolo: true, allowed: new Set() },
+    sharedSource: true,
+    taskName: 'chat-lanes',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: root, mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: join(base, 'leases'),
+    sourceControlDir: join(base, 'control'),
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    onSpawn: () => spawned(),
+  });
+  t.after(async () => {
+    await tools.dispose();
+    rmSync(base, { recursive: true, force: true });
+  });
+  const lane = tools.helperTools({ label: 'helper', readOnly: false });
+  const registered: import('@earendil-works/pi-coding-agent').ToolDefinition[] = [];
+  lane.extension({ registerTool: (tool: never) => registered.push(tool) } as never);
+  const bash = registered.find((tool) => tool.name === 'bash')!;
+  const command = bash.execute('sleep', { command: 'sleep 1' }, undefined, undefined, {} as never);
+  await running;
+  const read = await tools.files.read('a.ts');
+  assert.equal(read.bytes.toString(), 'readable');
+  await command;
+  lane.close();
+});
+
+test('S7: a helper refused during terminal startup never opens a command log', async (t) => {
+  const { CommandLogs } = await import('../src/runtime/command-logs.ts');
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'oms-terminal-log-')));
+  const root = join(base, 'project');
+  mkdirSync(root);
+  let logs = 0;
+  const start = CommandLogs.prototype.start;
+  t.mock.method(CommandLogs.prototype, 'start', function (this: InstanceType<typeof CommandLogs>) {
+    logs++;
+    return start.call(this);
+  });
+  let blocked: Promise<void> | undefined;
+  let bash!: import('@earendil-works/pi-coding-agent').ToolDefinition;
+  const tools = createSandboxTools({
+    backend: hostBackend(),
+    hostTrust: { yolo: true, allowed: new Set() },
+    sharedSource: true,
+    taskName: 'terminal-log',
+    mounts: {
+      projectMount: { hostPath: root, containerPath: root, mode: 'rw' },
+      extraMounts: [],
+      readOnlyMounts: [],
+      volumes: [],
+      shadowMounts: [],
+    },
+    leaseDir: join(base, 'leases'),
+    sourceControlDir: join(base, 'control'),
+    surfnetPort: 8899,
+    signal: new AbortController().signal,
+    outputMode: 'head-tail',
+    onSpawn: () => {
+      blocked = assert.rejects(
+        bash.execute('blocked', { command: 'echo blocked' }, undefined, undefined, {} as never),
+        /interactive terminal is open/,
+      );
+    },
+  });
+  const lane = tools.helperTools({ label: 'helper', readOnly: false });
+  lane.extension({
+    registerTool: (tool: import('@earendil-works/pi-coding-agent').ToolDefinition) => {
+      if (tool.name === 'bash') bash = tool;
+    },
+  } as never);
+  try {
+    const terminal = await tools.startTerminal(80, 24).catch(() => undefined);
+    await blocked;
+    assert.ok(blocked, 'the helper tried its command while terminal startup owned the source');
+    assert.equal(logs, 0);
+    await terminal?.close();
+  } finally {
+    lane.close();
+    await tools.dispose();
+    rmSync(base, { recursive: true, force: true });
+  }
 });

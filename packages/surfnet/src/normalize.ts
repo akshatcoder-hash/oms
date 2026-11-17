@@ -87,10 +87,7 @@ export function normalizeError(failure: RawRpcFailure): NormalizedError {
   // Fixture: -32002, data.err "AccountNotFound", message "Transaction
   // simulation failed: Attempt to debit an account but found no record of a
   // prior credit." (unfunded fee payer, offline 1.7.0).
-  if (
-    kind === 'AccountNotFound' ||
-    /no record of a prior credit/i.test(haystack)
-  ) {
+  if (kind === 'AccountNotFound' || /no record of a prior credit/i.test(haystack)) {
     return {
       code: 'account-not-found',
       summary: 'an account the transaction needs (often the fee payer) does not exist',
@@ -116,10 +113,7 @@ export function normalizeError(failure: RawRpcFailure): NormalizedError {
 
   // Fixture: data.err {"InsufficientFundsForRent":{"account_index":1}},
   // message "...insufficient funds for rent...".
-  if (
-    kind === 'InsufficientFundsForRent' ||
-    /insufficient (funds|lamports)/i.test(haystack)
-  ) {
+  if (kind === 'InsufficientFundsForRent' || /insufficient (funds|lamports)/i.test(haystack)) {
     return {
       code: 'insufficient-funds',
       summary: 'an account would end below the rent-exempt minimum',

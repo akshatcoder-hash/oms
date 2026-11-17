@@ -20,14 +20,7 @@ import {
 } from './contract-io.ts';
 import type { PinSet } from './digest.ts';
 import { isPathError, resolveFileInsideRoot, type TaskRoots } from './paths.ts';
-import {
-  readPin,
-  pinnedContractPath,
-  refreshPin,
-  verifyPin,
-  type Mismatch,
-  type PinVerifyResult,
-} from './pin.ts';
+import { readPin, pinnedContractPath, refreshPin, verifyPin, type Mismatch, type PinVerifyResult } from './pin.ts';
 import { failResult, validationIssue, type Result, type ValidationIssue } from './result.ts';
 import type { TaskContract } from './types.ts';
 
@@ -69,8 +62,7 @@ function storeFailure<T>(
 }
 
 type PinnedPath =
-  | { ok: true; path: string }
-  | { ok: false; code: StoreCode; message: string; issues: ValidationIssue[] };
+  { ok: true; path: string } | { ok: false; code: StoreCode; message: string; issues: ValidationIssue[] };
 
 export interface ContractStoreOptions extends TaskRoots {
   /** Pin file path, outside workspaceRoot, stateRoot and codeRoot. */
@@ -128,11 +120,7 @@ export function createContractStore(options: ContractStoreOptions): ContractStor
         return readContractFile(resolveFileInsideRoot(stateRoot, resolved.path));
       } catch (error) {
         return failResult([
-          validationIssue(
-            '',
-            'E_CONTRACT_PATH',
-            isPathError(error) ? error.message : 'contract path is unusable',
-          ),
+          validationIssue('', 'E_CONTRACT_PATH', isPathError(error) ? error.message : 'contract path is unusable'),
         ]);
       }
     },
@@ -140,20 +128,15 @@ export function createContractStore(options: ContractStoreOptions): ContractStor
     mutate<T>(mutator: (contract: TaskContract) => Mutation<T>): StoreResult<T> {
       const pinCheck = verifyPin(pinFile, options);
       if (!pinCheck.ok) {
-        return storeFailure(
-          'E_PIN_MISMATCH',
-          'refusing to write: the pin does not match the files on disk',
-          { mismatches: pinCheck.mismatches },
-        );
+        return storeFailure('E_PIN_MISMATCH', 'refusing to write: the pin does not match the files on disk', {
+          mismatches: pinCheck.mismatches,
+        });
       }
       let contractAbsolute: string;
       try {
         contractAbsolute = resolveFileInsideRoot(stateRoot, pinCheck.pin.contract.path);
       } catch (error) {
-        return storeFailure(
-          'E_CONTRACT_PATH',
-          isPathError(error) ? error.message : 'contract path is unusable',
-        );
+        return storeFailure('E_CONTRACT_PATH', isPathError(error) ? error.message : 'contract path is unusable');
       }
       const contract = readContractFile(contractAbsolute);
       if (!contract.ok) {

@@ -1,7 +1,7 @@
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 
 export const THEME_IDS = ['gruvbox', 'catppuccin', 'tokyo-night', 'nord', 'dracula', 'rose-pine'] as const;
-export type OmsThemeId = typeof THEME_IDS[number];
+export type OmsThemeId = (typeof THEME_IDS)[number];
 export const DEFAULT_THEME_ID: OmsThemeId = 'gruvbox';
 export type ThemeRole = 'foreground' | 'muted' | 'accent' | 'success' | 'warning' | 'error' | 'border';
 export interface OmsTheme {
@@ -31,34 +31,94 @@ export interface OmsTheme {
  */
 const THEMES: Readonly<Record<OmsThemeId, OmsTheme>> = {
   gruvbox: {
-    id: 'gruvbox', name: 'Gruvbox', background: '#282828', surface: '#3c3836',
-    colors: { foreground: '#ebdbb2', muted: '#a89984', accent: '#8ec07c', success: '#b8bb26',
-      warning: '#fabd2f', error: '#fe8019', border: '#665c54' },
+    id: 'gruvbox',
+    name: 'Gruvbox',
+    background: '#282828',
+    surface: '#3c3836',
+    colors: {
+      foreground: '#ebdbb2',
+      muted: '#a89984',
+      accent: '#8ec07c',
+      success: '#b8bb26',
+      warning: '#fabd2f',
+      error: '#fe8019',
+      border: '#665c54',
+    },
   },
   catppuccin: {
-    id: 'catppuccin', name: 'Catppuccin Mocha', background: '#1e1e2e', surface: '#313244',
-    colors: { foreground: '#cdd6f4', muted: '#a6adc8', accent: '#89b4fa', success: '#a6e3a1',
-      warning: '#f9e2af', error: '#f38ba8', border: '#585b70' },
+    id: 'catppuccin',
+    name: 'Catppuccin Mocha',
+    background: '#1e1e2e',
+    surface: '#313244',
+    colors: {
+      foreground: '#cdd6f4',
+      muted: '#a6adc8',
+      accent: '#89b4fa',
+      success: '#a6e3a1',
+      warning: '#f9e2af',
+      error: '#f38ba8',
+      border: '#585b70',
+    },
   },
   'tokyo-night': {
-    id: 'tokyo-night', name: 'Tokyo Night', background: '#1a1b26', surface: '#292e42',
-    colors: { foreground: '#c0caf5', muted: '#a9b1d6', accent: '#7aa2f7', success: '#9ece6a',
-      warning: '#e0af68', error: '#f7768e', border: '#414868' },
+    id: 'tokyo-night',
+    name: 'Tokyo Night',
+    background: '#1a1b26',
+    surface: '#292e42',
+    colors: {
+      foreground: '#c0caf5',
+      muted: '#a9b1d6',
+      accent: '#7aa2f7',
+      success: '#9ece6a',
+      warning: '#e0af68',
+      error: '#f7768e',
+      border: '#414868',
+    },
   },
   nord: {
-    id: 'nord', name: 'Nord', background: '#2e3440', surface: '#3b4252',
-    colors: { foreground: '#eceff4', muted: '#d8dee9', accent: '#88c0d0', success: '#a3be8c',
-      warning: '#ebcb8b', error: '#ebcb8b', border: '#4c566a' },
+    id: 'nord',
+    name: 'Nord',
+    background: '#2e3440',
+    surface: '#3b4252',
+    colors: {
+      foreground: '#eceff4',
+      muted: '#d8dee9',
+      accent: '#88c0d0',
+      success: '#a3be8c',
+      warning: '#ebcb8b',
+      error: '#ebcb8b',
+      border: '#4c566a',
+    },
   },
   dracula: {
-    id: 'dracula', name: 'Dracula', background: '#282a36', surface: '#44475a',
-    colors: { foreground: '#f8f8f2', muted: '#bd93f9', accent: '#8be9fd', success: '#50fa7b',
-      warning: '#f1fa8c', error: '#ff5555', border: '#6272a4' },
+    id: 'dracula',
+    name: 'Dracula',
+    background: '#282a36',
+    surface: '#44475a',
+    colors: {
+      foreground: '#f8f8f2',
+      muted: '#bd93f9',
+      accent: '#8be9fd',
+      success: '#50fa7b',
+      warning: '#f1fa8c',
+      error: '#ff5555',
+      border: '#6272a4',
+    },
   },
   'rose-pine': {
-    id: 'rose-pine', name: 'Rosé Pine', background: '#191724', surface: '#1f1d2e',
-    colors: { foreground: '#e0def4', muted: '#908caa', accent: '#c4a7e7', success: '#9ccfd8',
-      warning: '#f6c177', error: '#eb6f92', border: '#524f67' },
+    id: 'rose-pine',
+    name: 'Rosé Pine',
+    background: '#191724',
+    surface: '#1f1d2e',
+    colors: {
+      foreground: '#e0def4',
+      muted: '#908caa',
+      accent: '#c4a7e7',
+      success: '#9ccfd8',
+      warning: '#f6c177',
+      error: '#eb6f92',
+      border: '#524f67',
+    },
   },
 };
 
