@@ -30,8 +30,6 @@ export interface SeatbeltPolicy {
   readOnly: string[];
   /** The only network destination: 127.0.0.1:<port>. */
   surfnetPort?: number;
-  /** `.env` and `.env.*` files stay unreadable, even inside root; the documented example templates stay readable. */
-  denyEnv?: boolean;
   /** Trusted Surfpool binary: readable, and commands may start it on loopback and reach it on the standard local Solana ports. */
   surfpool?: string;
 }
@@ -87,11 +85,6 @@ export function seatbeltProfile(policy: SeatbeltPolicy): string {
     )})`,
     // npm auth may live in a toolchain's project/user .npmrc or global PREFIX/etc/npmrc, but not its builtin npmrc.
     `(deny file-read-data file-read* (require-all (require-any ${subpaths(toolchains)}) (regex #"/(\\.[Nn][Pp][Mm][Rr][Cc]|[Ee][Tt][Cc]/[Nn][Pp][Mm][Rr][Cc])$")))`,
-    ...(policy.denyEnv
-      ? [
-          '(deny file-read-data file-read* (require-all (regex #"/\\.[Ee][Nn][Vv](\\.[^/]*)?$") (require-not (regex #"/\\.[Ee][Nn][Vv]\\.([Ee][Xx][Aa][Mm][Pp][Ll][Ee]|[Ss][Aa][Mm][Pp][Ll][Ee]|[Tt][Ee][Mm][Pp][Ll][Aa][Tt][Ee])$"))))',
-        ]
-      : []),
     ';; Keychain: no securityd, so no stored passwords or certificates.',
     '(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc"))',
     ';; Writes: worktree, private home, temp and devices only; pinned verifier files stay read-only.',
@@ -192,7 +185,6 @@ export function seatbeltArgv(
     readOnly: unique(o.protectedPaths ?? []),
     toolchains,
     cargoHome: resolved(cargoHome),
-    denyEnv: true,
     surfnetPort: o.surfnet?.port,
     surfpool: env.SURFPOOL_BINARY,
   };

@@ -73,19 +73,6 @@ test('seatbelt profile without a Surfnet port allows no network and quotes paths
   assert.throws(() => seatbeltProfile({ ...policy, root: '/Users/dev/x\n(allow default)' }), /control character/);
 });
 
-const denyEnvRule = String.raw`(deny file-read-data file-read* (require-all (regex #"/\.[Ee][Nn][Vv](\.[^/]*)?$") (require-not (regex #"/\.[Ee][Nn][Vv]\.([Ee][Xx][Aa][Mm][Pp][Ll][Ee]|[Ss][Aa][Mm][Pp][Ll][Ee]|[Tt][Ee][Mm][Pp][Ll][Aa][Tt][Ee])$"))))`;
-
-test('seatbelt .env regexes deny case variants while preserving templates and similar names', () => {
-  const rule = seatbeltProfile({ ...policy, denyEnv: true })
-    .split('\n')
-    .find((line) => line.includes('require-not'))!;
-  const [env, template] = [...rule.matchAll(/\(regex #"([^"]*)"\)/g)].map((match) => new RegExp(match[1]!));
-  for (const file of ['.ENV', '.Env.local', 'nested/.eNv.production', '.ENV.EXAMPLE.local'])
-    assert.ok(env!.test(`/${file}`) && !template!.test(`/${file}`), file);
-  for (const file of ['.ENV.EXAMPLE', '.Env.Sample', '.eNv.TeMpLaTe', '.envrc', '.environment', 'env.ts'])
-    assert.ok(!env!.test(`/${file}`) || template!.test(`/${file}`), file);
-});
-
 test('seatbelt npmrc regex denies case variants without blocking builtin npmrc', () => {
   const rule = seatbeltProfile(policy)
     .split('\n')
@@ -138,14 +125,7 @@ test('seatbelt profile denies npm auth configs only inside toolchain roots', () 
   assert.ok(!deny.includes(policy.root), 'project npm configuration stays readable');
 });
 
-test('seatbelt profile optionally denies .env files while excluding exactly the example templates', () => {
-  assert.ok(!seatbeltProfile(policy).includes(denyEnvRule));
-  const profile = seatbeltProfile({ ...policy, denyEnv: true });
-  assert.ok(profile.includes(denyEnvRule), 'deny must exclude .env.example, .env.sample and .env.template');
-  assert.ok(profile.indexOf(denyEnvRule) > profile.indexOf('(allow file-read-data file-read*'));
-});
-
-test('seatbelt argv enables .env protection and denies a custom CARGO_HOME', () => {
+test('seatbelt argv denies credentials in a custom CARGO_HOME', () => {
   const base = mkdtempSync(path.join(tmpdir(), 'oms-sb-policy-'));
   const root = path.join(base, 'task');
   const cargo = path.join(base, 'cargo');
@@ -154,7 +134,7 @@ test('seatbelt argv enables .env protection and denies a custom CARGO_HOME', () 
   try {
     const argv = seatbeltArgv(fixture(root, []), root, base, { CARGO_HOME: cargo }, ['true']);
     const profile = readFileSync(argv[2]!, 'utf8');
-    assert.ok(profile.includes(denyEnvRule));
+    assert.doesNotMatch(profile, /\.env|\[Ee\]\[Nn\]\[Vv\]/i);
     for (const file of ['credentials', 'credentials.toml'])
       assert.ok(profile.includes(`(subpath "${realpathSync(cargo)}/${file}")`));
   } finally {
@@ -500,14 +480,14 @@ test(
 );
 
 test(
-  'seatbelt: Cargo credentials and worktree .env files are blocked while templates and build files stay readable',
+  'seatbelt: Cargo and npm credentials are blocked while project configuration, caches and build files stay readable',
   darwin,
   async () => {
     const base = mkdtempSync(path.join(tmpdir(), 'oms-sb-credentials-'));
     const root = path.join(base, 'task');
     const cargo = path.join(base, 'cargo');
     const toolchain = path.join(base, 'tools', 'node');
-    mkdirSync(path.join(root, 'nested'), { recursive: true });
+    mkdirSync(root);
     mkdirSync(path.join(cargo, 'registry'), { recursive: true });
     mkdirSync(path.join(toolchain, 'etc'), { recursive: true });
     mkdirSync(path.join(toolchain, 'lib', 'node_modules', 'npm'), { recursive: true });
@@ -516,31 +496,9 @@ test(
       ...['.npmrc', '.NPMRC', '.NpMrC', 'etc/npmrc', 'etc/NPMRC', 'etc/NpMrC', 'credentials', 'credentials.toml'].map(
         (file) => path.join(toolchain, file),
       ),
-      ...[
-        '.env',
-        '.ENV',
-        '.Env.local',
-        '.env.local',
-        '.env.example.local',
-        'nested/.env',
-        'nested/.env.production',
-      ].map((file) => path.join(root, file)),
     ];
     const allowed = [
-      ...[
-        '.env.example',
-        '.ENV.EXAMPLE',
-        '.env.sample',
-        '.Env.Sample',
-        '.env.template',
-        '.eNv.TeMpLaTe',
-        '.envrc',
-        '.environment',
-        'env.ts',
-        '.npmrc',
-        'nested/.env.example',
-        'Cargo.toml',
-      ].map((file) => path.join(root, file)),
+      ...['.npmrc', 'Cargo.toml'].map((file) => path.join(root, file)),
       path.join(cargo, 'config.toml'),
       path.join(cargo, 'registry', 'cache-probe'),
       path.join(toolchain, 'lib', 'node_modules', 'npm', 'npmrc'),

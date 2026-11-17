@@ -19,7 +19,6 @@ Helper agents: the chat's agent can hand work to helpers that run beside it.
 - Approval questions are asked one at a time, so two helpers asking together do not deny each other. YOLO skips them as it does for the chat.
 - Pinned tasks and `oms run` are unchanged.
 - Sandboxed commands can no longer read Cargo or npm credentials inside toolchain folders, such as `~/.cargo/credentials.toml` or an `npmrc` under a Node install.
-- `.env` and `.env.*` files in the project are unreadable to sandboxed commands, as documented; `.env.example`, `.env.sample` and `.env.template` stay readable. A build that needs a `.env` file has to get those values another way.
 
 ### Claude Code
 
