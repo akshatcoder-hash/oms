@@ -22,6 +22,10 @@ export interface SeatbeltPolicy {
   writable: string[];
   /** Toolchain and dependency trees under `home` that commands must read. */
   readable: string[];
+  /** Computed toolchain roots whose credential files must stay unreadable. */
+  toolchains?: string[];
+  /** Custom Cargo home: its credential files stay unreadable after toolchain access is reopened. */
+  cargoHome?: string;
   /** Pinned verifier files and git control: never writable, even inside root. */
   readOnly: string[];
   /** The only network destination: 127.0.0.1:<port>. */
@@ -41,6 +45,7 @@ const quote = (value: string): string => {
 };
 /** Credential stores under home: unreadable even when a toolchain root contains them. */
 const SECRET_DIRS = ['.ssh', '.config/solana', '.aws', 'Library', '.config/gh', '.docker', '.netrc', '.npmrc'];
+const TOOLCHAIN_DIRS = ['.cargo', '.rustup', '.local/share/solana', '.avm', '.nvm', '.volta', '.bun', '.fnm'];
 const subpaths = (paths: readonly string[]) => paths.map((p) => `(subpath ${quote(p)})`).join(' ');
 /** Directories from home (inclusive) down to root's parent: only their listings are reopened. */
 const ancestors = (root: string, home: string): string[] => {
@@ -54,6 +59,7 @@ const ancestors = (root: string, home: string): string[] => {
 
 export function seatbeltProfile(policy: SeatbeltPolicy): string {
   const { home } = policy;
+  const toolchains = unique(policy.toolchains ?? TOOLCHAIN_DIRS.map((dir) => path.join(home, dir)));
   const rules = [
     '(version 1)',
     '(allow default)',
@@ -72,6 +78,20 @@ export function seatbeltProfile(policy: SeatbeltPolicy): string {
       : []),
     '(deny file-read-data file-read* (regex #"-keypair\\.json$") (regex #"/id\\.json$"))',
     `(deny file-read-data file-read* ${subpaths(SECRET_DIRS.map((dir) => path.join(home, dir)))})`,
+    `(deny file-read-data file-read* ${subpaths(
+      unique(
+        [path.join(home, '.cargo'), ...(policy.cargoHome ? [policy.cargoHome] : []), ...toolchains].flatMap((dir) =>
+          ['credentials', 'credentials.toml'].map((file) => path.join(dir, file)),
+        ),
+      ),
+    )})`,
+    // npm auth may live in a toolchain's project/user .npmrc or global PREFIX/etc/npmrc, but not its builtin npmrc.
+    `(deny file-read-data file-read* (require-all (require-any ${subpaths(toolchains)}) (regex #"/(\\.[Nn][Pp][Mm][Rr][Cc]|[Ee][Tt][Cc]/[Nn][Pp][Mm][Rr][Cc])$")))`,
+    ...(policy.denyEnv
+      ? [
+          '(deny file-read-data file-read* (require-all (regex #"/\\.[Ee][Nn][Vv](\\.[^/]*)?$") (require-not (regex #"/\\.[Ee][Nn][Vv]\\.([Ee][Xx][Aa][Mm][Pp][Ll][Ee]|[Ss][Aa][Mm][Pp][Ll][Ee]|[Tt][Ee][Mm][Pp][Ll][Aa][Tt][Ee])$"))))',
+        ]
+      : []),
     ';; Keychain: no securityd, so no stored passwords or certificates.',
     '(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc"))',
     ';; Writes: worktree, private home, temp and devices only; pinned verifier files stay read-only.',
@@ -114,12 +134,7 @@ const within = (child: string, parent: string): boolean => {
 
 /** Toolchain roots that host commands read: node, cargo/rustup, solana, anchor (avm) and PATH entries. */
 function toolchainRoots(env: NodeJS.ProcessEnv, home: string): string[] {
-  const roots = [
-    path.dirname(path.dirname(process.execPath)),
-    ...['.cargo', '.rustup', '.local/share/solana', '.avm', '.nvm', '.volta', '.bun', '.fnm'].map((dir) =>
-      path.join(home, dir),
-    ),
-  ];
+  const roots = [path.dirname(path.dirname(process.execPath)), ...TOOLCHAIN_DIRS.map((dir) => path.join(home, dir))];
   if (env.CARGO_HOME) roots.push(env.CARGO_HOME);
   if (env.RUSTUP_HOME) roots.push(env.RUSTUP_HOME);
   // The entry only, never its parent: ~/Library/pnpm must not open ~/Library.
@@ -154,6 +169,7 @@ export function seatbeltArgv(
 ): string[] {
   const home = resolved(homedir());
   const cargoHome = env.CARGO_HOME ?? path.join(home, '.cargo');
+  const toolchains = unique(toolchainRoots(env, home)).filter((dir) => !within(home, dir));
   const policy: SeatbeltPolicy = {
     home,
     root: resolved(root),
@@ -168,12 +184,15 @@ export function seatbeltArgv(
     ]),
     // A toolchain root that contains home (PATH=~/bin has parent ~) would reopen every repo.
     readable: unique([
-      ...toolchainRoots(env, home),
+      ...toolchains,
       ...gitControlDirs(root),
       ...o.mounts.readOnlyMounts.map((mount) => mount.hostPath),
       ...(env.SURFPOOL_BINARY ? [env.SURFPOOL_BINARY] : []),
     ]).filter((dir) => !within(home, dir)),
     readOnly: unique(o.protectedPaths ?? []),
+    toolchains,
+    cargoHome: resolved(cargoHome),
+    denyEnv: true,
     surfnetPort: o.surfnet?.port,
     surfpool: env.SURFPOOL_BINARY,
   };

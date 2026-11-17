@@ -73,6 +73,95 @@ test('seatbelt profile without a Surfnet port allows no network and quotes paths
   assert.throws(() => seatbeltProfile({ ...policy, root: '/Users/dev/x\n(allow default)' }), /control character/);
 });
 
+const denyEnvRule = String.raw`(deny file-read-data file-read* (require-all (regex #"/\.[Ee][Nn][Vv](\.[^/]*)?$") (require-not (regex #"/\.[Ee][Nn][Vv]\.([Ee][Xx][Aa][Mm][Pp][Ll][Ee]|[Ss][Aa][Mm][Pp][Ll][Ee]|[Tt][Ee][Mm][Pp][Ll][Aa][Tt][Ee])$"))))`;
+
+test('seatbelt .env regexes deny case variants while preserving templates and similar names', () => {
+  const rule = seatbeltProfile({ ...policy, denyEnv: true })
+    .split('\n')
+    .find((line) => line.includes('require-not'))!;
+  const [env, template] = [...rule.matchAll(/\(regex #"([^"]*)"\)/g)].map((match) => new RegExp(match[1]!));
+  for (const file of ['.ENV', '.Env.local', 'nested/.eNv.production', '.ENV.EXAMPLE.local'])
+    assert.ok(env!.test(`/${file}`) && !template!.test(`/${file}`), file);
+  for (const file of ['.ENV.EXAMPLE', '.Env.Sample', '.eNv.TeMpLaTe', '.envrc', '.environment', 'env.ts'])
+    assert.ok(!env!.test(`/${file}`) || template!.test(`/${file}`), file);
+});
+
+test('seatbelt npmrc regex denies case variants without blocking builtin npmrc', () => {
+  const rule = seatbeltProfile(policy)
+    .split('\n')
+    .find((line) => line.includes('require-any'))!;
+  const regex = new RegExp(/\(regex #"([^"]*)"\)/.exec(rule)![1]!);
+  for (const file of ['.NPMRC', '.NpMrC', 'etc/NPMRC', 'EtC/nPmRc']) assert.ok(regex.test(`/tools/node/${file}`), file);
+  assert.ok(!regex.test('/tools/node/lib/node_modules/npm/npmrc'));
+});
+
+test('seatbelt argv re-denies credentials in dynamic toolchain roots', () => {
+  const base = mkdtempSync(path.join(tmpdir(), 'oms-sb-dynamic-'));
+  const root = path.join(base, 'task');
+  const toolchain = path.join(base, 'tools', 'node');
+  const execPath = process.execPath;
+  mkdirSync(root);
+  mkdirSync(toolchain, { recursive: true });
+  try {
+    process.execPath = path.join(toolchain, 'bin', 'node');
+    const argv = seatbeltArgv(fixture(root, []), root, base, { PATH: path.join(base, 'path-tools') }, ['true']);
+    const profile = readFileSync(argv[2]!, 'utf8');
+    const npmrc = profile.split('\n').find((line) => line.includes('require-any'))!;
+    assert.ok(npmrc.includes(`(subpath "${realpathSync(toolchain)}")`), 'dynamic etc/npmrc must be denied');
+    assert.ok(npmrc.includes(`(subpath "${realpathSync(base)}/path-tools")`), 'PATH roots must be covered');
+    for (const file of ['credentials', 'credentials.toml'])
+      assert.ok(profile.includes(`(subpath "${realpathSync(toolchain)}/${file}")`), file);
+  } finally {
+    process.execPath = execPath;
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('seatbelt profile re-denies Cargo credentials after reopening toolchains', () => {
+  const profile = seatbeltProfile({ ...policy, cargoHome: '/private/tmp/custom-cargo' });
+  const deny = profile.split('\n').find((line) => line.includes('/.cargo/credentials.toml'));
+  assert.ok(deny, 'Cargo credential deny is missing');
+  assert.ok(deny.startsWith('(deny file-read-data file-read* '));
+  for (const root of ['/Users/dev/.cargo', '/private/tmp/custom-cargo'])
+    for (const file of ['credentials', 'credentials.toml']) assert.ok(deny.includes(`(subpath "${root}/${file}")`));
+  assert.ok(profile.indexOf(deny) > profile.indexOf('(allow file-read-data file-read*'));
+  assert.doesNotMatch(deny, /config|registry|\/bin/);
+});
+
+test('seatbelt profile denies npm auth configs only inside toolchain roots', () => {
+  const profile = seatbeltProfile(policy);
+  const deny = profile.split('\n').find((line) => line.includes('require-any'));
+  assert.ok(deny, 'npm credential deny is missing');
+  assert.ok(deny.startsWith('(deny file-read-data file-read* (require-all (require-any '));
+  for (const root of ['.nvm', '.fnm', '.volta', '.bun']) assert.ok(deny.includes(`(subpath "/Users/dev/${root}")`));
+  assert.ok(profile.indexOf(deny) > profile.indexOf('(allow file-read-data file-read*'));
+  assert.ok(!deny.includes(policy.root), 'project npm configuration stays readable');
+});
+
+test('seatbelt profile optionally denies .env files while excluding exactly the example templates', () => {
+  assert.ok(!seatbeltProfile(policy).includes(denyEnvRule));
+  const profile = seatbeltProfile({ ...policy, denyEnv: true });
+  assert.ok(profile.includes(denyEnvRule), 'deny must exclude .env.example, .env.sample and .env.template');
+  assert.ok(profile.indexOf(denyEnvRule) > profile.indexOf('(allow file-read-data file-read*'));
+});
+
+test('seatbelt argv enables .env protection and denies a custom CARGO_HOME', () => {
+  const base = mkdtempSync(path.join(tmpdir(), 'oms-sb-policy-'));
+  const root = path.join(base, 'task');
+  const cargo = path.join(base, 'cargo');
+  mkdirSync(root);
+  mkdirSync(cargo);
+  try {
+    const argv = seatbeltArgv(fixture(root, []), root, base, { CARGO_HOME: cargo }, ['true']);
+    const profile = readFileSync(argv[2]!, 'utf8');
+    assert.ok(profile.includes(denyEnvRule));
+    for (const file of ['credentials', 'credentials.toml'])
+      assert.ok(profile.includes(`(subpath "${realpathSync(cargo)}/${file}")`));
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('seatbelt profile opens loopback only for a trusted Surfpool, which only the caller can name', () => {
   assert.doesNotMatch(seatbeltProfile(policy), /network-bind|network-inbound|localhost:\*/);
   const profile = seatbeltProfile({ ...policy, surfpool: '/Users/dev/.oms/tools/surfpool' });
@@ -410,9 +499,72 @@ test(
   },
 );
 
-test('seatbelt: .env files are readable inside the root while keypairs stay blocked', darwin, async () => {
-  const { result } = await sandboxed('echo secret > .env && cat .env');
-  assert.equal(result.exitCode, 0, result.stderr);
-  assert.match(result.stdout, /secret/);
-  blocked((await sandboxed(`echo '[1]' > deployer-keypair.json && cat deployer-keypair.json`)).result);
-});
+test(
+  'seatbelt: Cargo credentials and worktree .env files are blocked while templates and build files stay readable',
+  darwin,
+  async () => {
+    const base = mkdtempSync(path.join(tmpdir(), 'oms-sb-credentials-'));
+    const root = path.join(base, 'task');
+    const cargo = path.join(base, 'cargo');
+    const toolchain = path.join(base, 'tools', 'node');
+    mkdirSync(path.join(root, 'nested'), { recursive: true });
+    mkdirSync(path.join(cargo, 'registry'), { recursive: true });
+    mkdirSync(path.join(toolchain, 'etc'), { recursive: true });
+    mkdirSync(path.join(toolchain, 'lib', 'node_modules', 'npm'), { recursive: true });
+    const denied = [
+      ...['credentials', 'credentials.toml'].map((file) => path.join(cargo, file)),
+      ...['.npmrc', '.NPMRC', '.NpMrC', 'etc/npmrc', 'etc/NPMRC', 'etc/NpMrC', 'credentials', 'credentials.toml'].map(
+        (file) => path.join(toolchain, file),
+      ),
+      ...[
+        '.env',
+        '.ENV',
+        '.Env.local',
+        '.env.local',
+        '.env.example.local',
+        'nested/.env',
+        'nested/.env.production',
+      ].map((file) => path.join(root, file)),
+    ];
+    const allowed = [
+      ...[
+        '.env.example',
+        '.ENV.EXAMPLE',
+        '.env.sample',
+        '.Env.Sample',
+        '.env.template',
+        '.eNv.TeMpLaTe',
+        '.envrc',
+        '.environment',
+        'env.ts',
+        '.npmrc',
+        'nested/.env.example',
+        'Cargo.toml',
+      ].map((file) => path.join(root, file)),
+      path.join(cargo, 'config.toml'),
+      path.join(cargo, 'registry', 'cache-probe'),
+      path.join(toolchain, 'lib', 'node_modules', 'npm', 'npmrc'),
+    ];
+    for (const file of [...denied, ...allowed]) writeFileSync(file, 'probe');
+    try {
+      const script = `const fs = require('node:fs');
+      const files = ${JSON.stringify([...denied, ...allowed])};
+      console.log(JSON.stringify(files.map(file => {
+        try { return fs.readFileSync(file, 'utf8'); } catch (error) { return error.code; }
+      })));`;
+      const result = await runInSandbox({
+        ...fixture(root, [process.execPath, '-e', script]),
+        env: { CARGO_HOME: cargo, PATH: toolchain },
+      });
+      assert.equal(result.exitCode, 0, result.stderr);
+      const reads = JSON.parse(result.stdout) as string[];
+      denied.forEach((file, i) => assert.match(reads[i]!, /^(EPERM|EACCES)$/, file));
+      assert.deepEqual(
+        reads.slice(denied.length),
+        allowed.map(() => 'probe'),
+      );
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  },
+);
