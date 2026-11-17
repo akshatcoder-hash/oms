@@ -27,8 +27,8 @@ const locked: Record<string, { bytes: number; sha256: string; text: () => string
     text: () => CLAUDE_DEPLOYMENT_KNOWLEDGE,
   },
   claude_capped_work: {
-    bytes: 1158,
-    sha256: 'f00d7b01902e2448f3a5caf40702ae2d606fd4d7a3322eef1e2624c8e97dfbf8',
+    bytes: 1250,
+    sha256: '4082c425a4c552cc39571837f7322166e7493ba7ace0291ae2b0e646dd75789b',
     text: () => CLAUDE_CAPPED_WORK,
   },
   system_plain: {

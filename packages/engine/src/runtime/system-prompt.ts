@@ -143,8 +143,9 @@ export const CLAUDE_CAPPED_WORK = lines(
   'Capped Solana work procedure:',
   words(
     '1. Before the first capped action, write a ledger file with at least five candidate families drawn from the task, the program',
-    'index and installed packages. Record prerequisites, guessed useful work per action and an action budget for each; revise the',
-    'ledger after observed results.',
+    'index and installed packages, including at least one family that repeats across program ids (see "Work that multiplies").',
+    'Record prerequisites, guessed useful work per action and an action budget for each; revise the ledger after observed',
+    'results.',
   ),
   words(
     '2. Explore with uncapped simulation before spending actions. Any script sending more than one capped action must check the',

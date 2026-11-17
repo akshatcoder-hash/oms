@@ -56,6 +56,7 @@ for (const contract of [false, true]) {
       if (contract && provider === 'claude-code') {
         assert.match(text, /1\. Before the first capped action, write a ledger file/);
         assert.match(text, /at least five candidate families/);
+        assert.match(text, /at least one family that repeats across program ids/);
         assert.match(text, /5\. If the cap would run out/);
       }
     });
