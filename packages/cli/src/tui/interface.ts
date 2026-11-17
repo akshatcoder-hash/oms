@@ -36,6 +36,7 @@ import {
   type Requirement,
 } from './commands.ts';
 import { SetupPane } from './setup.ts';
+import { copyToClipboard } from '@earendil-works/pi-coding-agent';
 import { HarnessSettingsPane } from './harness-settings.ts';
 import { AccountPane } from './account.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
@@ -57,6 +58,16 @@ import {
   type OmsTheme,
   type OmsThemeId,
 } from './theme.ts';
+
+/** Clipboard writer for copy-on-select: true on success, otherwise the reason shown to the user. */
+async function copySelectionText(text: string): Promise<boolean | string> {
+  try {
+    await copyToClipboard(text);
+    return true;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
 
 type ActionKind = 'agent' | 'command' | 'verification' | 'review';
 interface Action {
@@ -98,7 +109,8 @@ class InterfaceRenderer extends TuiAltScreen {
     prepareFrame: () => void,
     mouseFocus: (component: Component) => Component,
   ) {
-    super(terminal, true, undefined, { mouse: true, copyOnSelect: false });
+    // Selecting text copies it, like most coding CLIs; the terminal's own selection is captured by mouse mode.
+    super(terminal, true, undefined, { mouse: true, copyOnSelect: true, copySelection: copySelectionText });
     this.fail = fail;
     this.palette = palette;
     this.prepareFrame = prepareFrame;
