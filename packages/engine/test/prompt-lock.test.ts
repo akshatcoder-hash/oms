@@ -6,12 +6,21 @@ import { WEB_PROMPT, WEB_PROMPT_NO_KNOWLEDGE } from '../src/runtime/web.ts';
 import { KNOWLEDGE_RULE } from '../src/runtime/knowledge-service.ts';
 import { programReferenceIndex } from '../src/runtime/program-reference.ts';
 import { OMS_REFERENCE_PREFIX } from '../src/runtime/knowledge.ts';
-import { CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE } from '../src/runtime/system-prompt.ts';
+import {
+  CLAUDE_CAPPED_WORK,
+  CLAUDE_DEPLOYMENT_KNOWLEDGE,
+  CLAUDE_MULTIPLYING_WORK,
+} from '../src/runtime/system-prompt.ts';
 
 // The model-facing prompt text was tuned through benchmark rounds and also keeps provider prompt caches warm.
 // Any change here, including whitespace, must be a deliberate decision: re-measure, then update these hashes.
 const config = { endpoint: 'https://example.invalid/mcp', token: 't' };
 const locked: Record<string, { bytes: number; sha256: string; text: () => string }> = {
+  claude_multiplying_work: {
+    bytes: 623,
+    sha256: 'aad366c5540cd8bad2faa6472254a89663ffc10653b138d1d326d9a28c37ed7a',
+    text: () => CLAUDE_MULTIPLYING_WORK,
+  },
   claude_deployment_knowledge: {
     bytes: 863,
     sha256: '87eee05a577af585a1643c3f0f3bb3ea18b3f55c9b3b9694edecf83dae8f935e',

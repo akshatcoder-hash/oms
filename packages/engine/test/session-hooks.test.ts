@@ -12,7 +12,7 @@ import { createSessionHooks } from '../src/runtime/session-hooks.ts';
 import type { SessionLifecycle } from '../src/runtime/session-lifecycle.ts';
 import type { SessionTools } from '../src/runtime/session-tools.ts';
 import type { CommonSessionOptions } from '../src/runtime/session-types.ts';
-import { CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE } from '../src/runtime/system-prompt.ts';
+import { CLAUDE_DEPLOYMENT_KNOWLEDGE, CLAUDE_GUIDANCE } from '../src/runtime/system-prompt.ts';
 
 async function beforeStart(contract: boolean) {
   const hooks = createSessionHooks(
@@ -52,6 +52,7 @@ for (const contract of [false, true]) {
       const text = await start(provider);
       assert.equal(text.includes('Capped Solana work procedure:'), contract && provider === 'claude-code');
       assert.equal(text.includes('Solana deployment knowledge:'), contract && provider === 'claude-code');
+      assert.equal(text.includes('Work that multiplies:'), contract && provider === 'claude-code');
       if (contract && provider === 'claude-code') {
         assert.match(text, /1\. Before the first capped action, write a ledger file/);
         assert.match(text, /at least five candidate families/);
@@ -75,12 +76,11 @@ test('capped-work guidance is appended once across turns and follows the current
   );
 });
 
-test('each Claude guidance block is appended when only the other block is already present', async () => {
+test('each Claude guidance block is appended once when another block is already present', async () => {
   const start = await beforeStart(true);
-  for (const existing of [CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE]) {
+  for (const existing of CLAUDE_GUIDANCE) {
     const text = await start('claude-code', `Trusted prompt\n\n${existing}`);
-    for (const block of [CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE])
-      assert.equal(text.split(block).length - 1, 1);
+    for (const block of CLAUDE_GUIDANCE) assert.equal(text.split(block).length - 1, 1);
     assert.equal(await start('claude-code', text), text);
   }
 });

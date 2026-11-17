@@ -8,8 +8,7 @@ import type { RuntimeEnvironment } from './session-environment.ts';
 import type { SessionTools } from './session-tools.ts';
 import type { CommonSessionOptions } from './session-types.ts';
 import {
-  CLAUDE_CAPPED_WORK,
-  CLAUDE_DEPLOYMENT_KNOWLEDGE,
+  CLAUDE_GUIDANCE,
   knowledgeHint,
   omsChatPrompt,
   omsSystemPrompt,
@@ -50,9 +49,7 @@ export function createSessionHooks(
       event.systemPromptOptions.cwd = taskRoot;
       if (env.executionMode === 'bounded' && event.messageType === 'user') turn.id = randomUUID();
       if (env.contract && ctx.model?.provider === 'claude-code') {
-        const additions = [CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE].filter(
-          (text) => !event.systemPrompt.includes(text),
-        );
+        const additions = CLAUDE_GUIDANCE.filter((text) => !event.systemPrompt.includes(text));
         if (additions.length) return { systemPrompt: [event.systemPrompt, ...additions].join('\n\n') };
       }
     });

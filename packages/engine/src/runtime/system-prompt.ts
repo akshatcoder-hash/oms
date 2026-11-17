@@ -184,6 +184,23 @@ export const CLAUDE_DEPLOYMENT_KNOWLEDGE = lines(
   ),
 );
 
+export const CLAUDE_MULTIPLYING_WORK = lines(
+  'Work that multiplies:',
+  words(
+    'One lifecycle that works on one program id often works unchanged on many others: independent deployments of the same',
+    'program (SPL Governance instances, listed with their programId in the public Realms registry) and instructions a framework',
+    'adds to every program it builds (the Anchor IDL-account instructions, kept by many deployed Anchor programs).',
+  ),
+  words(
+    'Before the first capped action, put at least one such family in the ledger, estimated as useful work per program id times',
+    'the number of ids you can reach. Test it early on two ids with simulation; drop it only after that test, as for any other',
+    'family.',
+  ),
+);
+
+/** Guidance appended to contract sessions on the Claude Code path, in order. */
+export const CLAUDE_GUIDANCE = [CLAUDE_CAPPED_WORK, CLAUDE_DEPLOYMENT_KNOWLEDGE, CLAUDE_MULTIPLYING_WORK] as const;
+
 /**
  * The session system prompt. The static parts come first and the per-task text (task root, toolchain report) last, so the
  * reference prefix and the program index stay inside the provider's cached prompt prefix and are identical in every session.
