@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unreleased)
+
+- Selecting text in OMS with the mouse copies it to the clipboard, the same way as in other coding CLIs. Before, the mouse selection did nothing and Cmd+C had nothing to copy.
+
 ## 0.1.2
 
 Helper agents: the chat's agent can hand work to helpers that run beside it.
