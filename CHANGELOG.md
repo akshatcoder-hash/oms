@@ -19,6 +19,14 @@ Helper agents: the chat's agent can hand work to helpers that run beside it.
 - Approval questions are asked one at a time, so two helpers asking together do not deny each other. YOLO skips them as it does for the chat.
 - Pinned tasks and `oms run` are unchanged.
 
+### Claude Code
+
+- Pinned Solana tasks on Claude Code get a short work procedure for capped actions: plan several candidates first, simulate before sending, and stop a script when it stops paying off. They also get notes on how Solana programs are deployed, such as SPL Governance's many separate deployments. Other providers' prompts are unchanged.
+- Claude Code runs at high effort by default. Set `OMS_CLAUDE_EFFORT` to change it.
+- `program_reference` shows what an instruction is for, and for Orca, Meteora and Raydium, which pool and position operations a wallet can do on existing pools.
+- A Solana failure diagnosis adds the failing program's deployment note once per conversation.
+- The Claude Code model is resolved inside the OMS session, where its provider registers.
+
 ## 0.1.1
 
 OMS now works like the pi and Claude Code CLIs: run `oms` in any folder and it edits that folder.
