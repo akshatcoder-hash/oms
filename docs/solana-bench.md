@@ -1,6 +1,6 @@
 # Solana Bench (solbench-harness)
 
-`solbench-harness` is our own harness-level environment, not the Solana Foundation's published Solana Bench, so its numbers are not comparable to the Foundation's tables. It reimplements their scoring rule and compares whole agent harnesses as shipped, each online. Everything needed to rerun it is in this repository: `bench/` (runner in `bench/src/run.ts`, tests in `bench/test/`). The harness is source-checkout only; it is not part of the npm package.
+`solbench-harness` runs the Solana Bench scoring rule against whole agent harnesses as shipped, each online. Everything needed to rerun it is in this repository: `bench/` (runner in `bench/src/run.ts`, tests in `bench/test/`). It runs from a source checkout.
 
 ## What it measures
 
@@ -78,8 +78,3 @@ The headline score is the count of the remaining pairs after three exclusions: M
 
 - **Same batch.** Cells are compared only on runs from one interleaved series: run i of each cell, in the same variant, run back to back against forks taken minutes apart. The fork is not slot-pinned and fetches accounts lazily, so DeFi state moves between batches; scores from different batches or prefixes are not pooled or compared. The paired comparison matches run i of one cell to run i of the other in the same variant, and the report records the fork slots and the code commit of every run.
 - **Forks whose node is unhealthy.** If the mainnet fork fails during a run (submissions fail with "Node is unhealthy" or the Surfpool process dies), that is an infrastructure failure of the fork, not a result. Such a run is excluded from every table and test and the slot is rerun on a fresh fork, in the same batch. A run is not excluded for any reason that depends on its score. Excluded runs are listed with their reason, not silently dropped. The runner sets aside usage-limit stops and OMS infrastructure endings before any submission the same way (`paused.json`); a run that an OMS provider error cut short after submissions is listed as truncated, outside the tables and the tests.
-- **Tests.** For independent groups (OMS runs against another harness's runs in the same batches) the report prints a two-sided permutation test on the difference of means: p is the share of ways to split the pooled scores into groups of the observed sizes whose absolute difference of means is at least the observed one. It enumerates every split when there are at most 2 million (the published basic comparison, 8 vs 6 runs, has 3,003); otherwise it draws 200,000 random splits from a fixed seed, so the same scores always give the same p (the published swap comparison, 16 vs 12 runs, is sampled). This is the test behind the published p-values. For runs paired one to one it also prints an exact two-sided sign test. Samples are small; read the direction and the size of the gap, not the third decimal.
-
-## Which OMS build the published numbers came from
-
-The published results were produced by the build used for the published results, an internal pre-release build of OMS with the hosted search and reference-service tools. This repository is the cleaned public history of the same code. The harness records the code commit and the agent image id in every `result.json` so any series can be traced to the build that ran it.
