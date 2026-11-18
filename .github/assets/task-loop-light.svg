@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" role="img" aria-labelledby="title desc">
+<title id="title">How a task runs</title>
+<desc id="desc">Your request creates a task worktree with requirements and a budget. The model edits files there, then calls propose_done, which moves the requirement from active to proposed. The independent checker runs on a fresh offline Surfpool chain. A fail sends the requirement back to active for another attempt if budget remains. A pass lets the session settle. OMS stops and asks you on repeated_failure, when the budget is used up, or at the attempt cap, which defaults to 5.</desc>
+<style>
+  .s { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; fill: #392B1F; }
+  .m { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; fill: #392B1F; }
+  .mut { fill: #684E37; }
+  .cu { fill: #744123; }
+  .box { fill: none; stroke: #684E37; stroke-width: 1.5; }
+  .box-cu { fill: none; stroke: #744123; stroke-width: 2.5; }
+  .rule { fill: none; stroke: #CDB28F; stroke-width: 1.5; }
+  .ln { fill: none; stroke: #392B1F; stroke-width: 1.5; }
+  .ln-mut { fill: none; stroke: #684E37; stroke-width: 1.5; }
+  .ln-cu { fill: none; stroke: #744123; stroke-width: 2.5; }
+  .dash { stroke-dasharray: 6 7; }
+  .head { fill: #392B1F; }
+  .head-mut { fill: #684E37; }
+  .head-cu { fill: #744123; }
+  .draw { stroke-dasharray: 1 1; stroke-dashoffset: 0; }
+
+  /* Entrance: once, then rest. Delays are set per element. */
+  .in { animation: oms-in 500ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .fade { animation: oms-fade 500ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .d { animation: oms-draw 450ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+  @keyframes oms-in { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes oms-fade { from { opacity: 0; } }
+  @keyframes oms-draw { from { stroke-dashoffset: 1; } }
+  @keyframes oms-dim { from { opacity: 1; } }
+
+  /* Reduced motion: the finished diagram, no movement. */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; }
+  }
+</style>
+<g class="in" style="animation-delay: 0.30s;"><rect x="24" y="52" width="196" height="96" class="box"/><text x="122.0" y="109.52" class="s" font-size="28" text-anchor="middle">Your request</text></g>
+<path d="M220 100 H268" pathLength="1" class="ln draw d" style="animation-delay: 0.65s; animation-duration: 450ms;"/><polygon points="282.0,100.0 269.0,106.2 269.0,93.8" class="head fade" style="animation-delay: 0.99s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 0.90s;"><rect x="282" y="52" width="250" height="96" class="box"/><text x="407.0" y="94.0" class="s" font-size="28" text-anchor="middle">Task worktree</text><text x="407.0" y="126.0" class="s mut" font-size="24" text-anchor="middle">requirements, budget</text></g>
+<path d="M532 100 H570" pathLength="1" class="ln draw d" style="animation-delay: 1.25s; animation-duration: 450ms;"/><polygon points="584.0,100.0 571.0,106.2 571.0,93.8" class="head fade" style="animation-delay: 1.59s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 1.50s;"><rect x="584" y="52" width="240" height="96" class="box"/><text x="704.0" y="94.0" class="s" font-size="28" text-anchor="middle">Model edits</text><text x="704.0" y="126.0" class="s mut" font-size="24" text-anchor="middle">in the worktree</text></g>
+<path d="M824 100 H860" pathLength="1" class="ln draw d" style="animation-delay: 1.85s; animation-duration: 450ms;"/><polygon points="874.0,100.0 861.0,106.2 861.0,93.8" class="head fade" style="animation-delay: 2.19s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 2.10s;"><rect x="874" y="52" width="302" height="96" class="box"/><text x="1025" y="94" class="m" font-size="26" text-anchor="middle">propose_done</text></g>
+<text x="913" y="128" class="m mut in" font-size="22" text-anchor="start" style="animation-delay: 2.30s;">active</text>
+<text x="1005" y="128" class="m cu in" font-size="22" text-anchor="start" style="animation-delay: 2.75s;">→ proposed</text>
+<path d="M1025 148 V218" pathLength="1" class="ln draw d" style="animation-delay: 3.15s; animation-duration: 450ms;"/><polygon points="1025.0,232.0 1018.8,219.0 1031.2,219.0" class="head fade" style="animation-delay: 3.49s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 3.40s;"><rect x="874" y="232" width="302" height="104" class="box"/><text x="1025.0" y="278.0" class="s" font-size="28" text-anchor="middle">Independent checker</text><text x="1025.0" y="310.0" class="s mut" font-size="24" text-anchor="middle">fresh offline Surfpool</text></g>
+<path d="M874 284 H704 V166" pathLength="1" class="ln-mut draw d" style="animation-delay: 4.00s; animation-duration: 650ms;"/><polygon points="704.0,152.0 710.2,165.0 697.8,165.0" class="head-mut fade" style="animation-delay: 4.49s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 4.45s;"><text x="680" y="262" class="s" font-size="26" text-anchor="end">Fail: back to active</text><text x="680" y="294" class="s mut" font-size="24" text-anchor="end">another attempt if budget remains</text></g>
+<path d="M1025 336 V402" pathLength="1" class="ln-cu draw d" style="animation-delay: 4.75s; animation-duration: 450ms;"/><polygon points="1025.0,416.0 1018.8,403.0 1031.2,403.0" class="head-cu fade" style="animation-delay: 5.09s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 5.00s;"><rect x="874" y="416" width="302" height="80" class="box-cu"/><text x="1025" y="465" class="s cu" font-size="26" text-anchor="middle">Pass: the session settles</text></g>
+<g class="fade" style="animation-delay: 5.35s;"><path d="M704 284 V372" class="ln-mut dash"/><text x="24" y="396" class="s mut" font-size="24" text-anchor="start">OMS stops and asks you on</text></g>
+<g class="in" style="animation-delay: 5.55s;"><rect x="24" y="416" width="252" height="64" class="box"/><text x="150.0" y="456" class="m" font-size="24" text-anchor="middle">repeated_failure</text><rect x="294" y="416" width="230" height="64" class="box"/><text x="409.0" y="456" class="s" font-size="24" text-anchor="middle">budget used up</text><rect x="542" y="416" width="282" height="64" class="box"/><text x="683.0" y="456" class="s" font-size="24" text-anchor="middle">attempt cap (default 5)</text></g>
+</svg>
