@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src=".github/assets/banner.jpg" alt="Oh My Sol" width="100%">
+<img src="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/banner.jpg" alt="Oh My Sol" width="100%">
 
 # Oh My Sol
 
@@ -49,8 +49,8 @@ You need Node 22.19.0 or newer and Git. The first launch installs Surfpool 1.7.0
 Each model ran in OMS and in its own lab's harness. OMS scored higher on every model.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/solana-bench-dark.svg">
-  <img src=".github/assets/solana-bench-light.svg" alt="Solana Bench, basic environment: Oh My Sol 377 vs Codex CLI 273 on GPT-6.1 Sol, 303 vs 252 Claude Code on Claude Opus 5.5, 208 vs 100 Claude Code on Claude Sonnet 5.5" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/solana-bench-dark.svg">
+  <img src="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/solana-bench-light.svg" alt="Solana Bench, basic environment: Oh My Sol 377 vs Codex CLI 273 on GPT-6.1 Sol, 303 vs 252 Claude Code on Claude Opus 5.5, 208 vs 100 Claude Code on Claude Sonnet 5.5" width="100%">
 </picture>
 
 **Solana Bench**, mean score:
@@ -96,8 +96,8 @@ With a Claude subscription, OMS runs a native Claude Code chat tied to your OMS 
 ## When a task is done
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/task-loop-dark.svg">
-  <img src=".github/assets/task-loop-light.svg" alt="How a task runs: the model edits the worktree and proposes done, an independent checker runs on a fresh offline Surfpool chain, a pass settles the task" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/task-loop-dark.svg">
+  <img src="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/task-loop-light.svg" alt="How a task runs: the model edits the worktree and proposes done, an independent checker runs on a fresh offline Surfpool chain, a pass settles the task" width="100%">
 </picture>
 
 A task pins its requirements and verifier files before work starts. The model proposes a requirement as done, and an independent checker decides. It captures the proposed source, starts a fresh offline Surfpool chain and runs the pinned checks. The model cannot edit the pinned files and never closes a requirement itself.
@@ -109,8 +109,8 @@ A task pins its requirements and verifier files before work starts. The model pr
 `/goal` keeps the agent working until the check passes, feeding each failure back to the model. `/verify` runs the checker on its own, with no model turn.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/checker-dark.svg">
-  <img src=".github/assets/checker-light.svg" alt="The model can only propose a requirement as done. The independent checker closes it when its checks pass" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/checker-dark.svg">
+  <img src="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/checker-light.svg" alt="The model can only propose a requirement as done. The independent checker closes it when its checks pass" width="100%">
 </picture>
 
 ## Your keys stay out of reach
@@ -118,8 +118,8 @@ A task pins its requirements and verifier files before work starts. The model pr
 OMS never holds mainnet keys. Mainnet work comes back to you as a transaction to review and sign.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/security-layers-dark.svg">
-  <img src=".github/assets/security-layers-light.svg" alt="Protections around your keys: prompt rule, file-read guards, shell guard and the operating system sandbox" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/security-layers-dark.svg">
+  <img src="https://raw.githubusercontent.com/barestate-ai/oms/main/.github/assets/security-layers-light.svg" alt="Protections around your keys: prompt rule, file-read guards, shell guard and the operating system sandbox" width="100%">
 </picture>
 
 - **macOS:** every command runs under a per-run Seatbelt profile. Writes go only to the worktree, a private home and temp. `~/.ssh`, `~/.config/solana`, `~/.aws`, keypair files and the keychain are unreadable, and the only network destination is the local chain.
