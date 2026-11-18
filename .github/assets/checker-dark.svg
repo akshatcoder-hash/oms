@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" role="img" aria-labelledby="title desc">
+<title id="title">Only the checker can close</title>
+<desc id="desc">A requirement moves from active to proposed when the model calls propose_done. The model has no closing tool. The independent checker runs on a fresh offline Surfpool chain. When its checks pass, the requirement is closed as verified. When they fail, it is reopened and goes back to active. After 3 reopens it is blocked.</desc>
+<style>
+  .s { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; fill: #F1E4D0; }
+  .m { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; fill: #F1E4D0; }
+  .mut { fill: #C4B098; }
+  .cu { fill: #E9B98A; }
+  .box { fill: none; stroke: #C4B098; stroke-width: 1.5; }
+  .box-cu { fill: none; stroke: #E9B98A; stroke-width: 2.5; }
+  .rule { fill: none; stroke: #5A4E42; stroke-width: 1.5; }
+  .ln { fill: none; stroke: #F1E4D0; stroke-width: 1.5; }
+  .ln-mut { fill: none; stroke: #C4B098; stroke-width: 1.5; }
+  .ln-cu { fill: none; stroke: #E9B98A; stroke-width: 2.5; }
+  .dash { stroke-dasharray: 6 7; }
+  .head { fill: #F1E4D0; }
+  .head-mut { fill: #C4B098; }
+  .head-cu { fill: #E9B98A; }
+  .draw { stroke-dasharray: 1 1; stroke-dashoffset: 0; }
+
+  /* Entrance: once, then rest. Delays are set per element. */
+  .in { animation: oms-in 500ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .fade { animation: oms-fade 500ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .d { animation: oms-draw 450ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+  @keyframes oms-in { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes oms-fade { from { opacity: 0; } }
+  @keyframes oms-draw { from { stroke-dashoffset: 1; } }
+  @keyframes oms-dim { from { opacity: 1; } }
+
+  /* Reduced motion: the finished diagram, no movement. */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; }
+  }
+</style>
+<g class="in" style="animation-delay: 0.30s;"><rect x="40" y="228" width="220" height="84" class="box"/><text x="150.0" y="279.52" class="m" font-size="28" text-anchor="middle">active</text></g>
+<g class="in" style="animation-delay: 0.45s;"><rect x="490" y="228" width="220" height="84" class="box"/><text x="600.0" y="279.52" class="m" font-size="28" text-anchor="middle">proposed</text></g>
+<g class="in" style="animation-delay: 0.60s;"><rect x="940" y="228" width="236" height="84" class="box-cu"/><text x="1058" y="266.0" class="s cu" font-size="30" text-anchor="middle">Closed</text><text x="1058" y="296.0" class="s mut" font-size="24" text-anchor="middle">verified</text></g>
+<g class="in" style="animation-delay: 1.00s;"><rect x="225" y="40" width="300" height="96" class="box"/><text x="375.0" y="82.0" class="s" font-size="28" text-anchor="middle">Model</text><text x="375.0" y="114.0" class="s mut" font-size="24" text-anchor="middle">can only propose</text></g>
+<path d="M375 136 V256.0" pathLength="1" class="ln-mut draw d" style="animation-delay: 1.35s; animation-duration: 350ms;"/><polygon points="375.0,268.0 368.8,255.0 381.2,255.0" class="head-mut fade" style="animation-delay: 1.61s; animation-duration: 200ms;"/>
+<path d="M260 270.0 H476" pathLength="1" class="ln draw d" style="animation-delay: 1.65s; animation-duration: 450ms;"/><polygon points="490.0,270.0 477.0,276.2 477.0,263.8" class="head fade" style="animation-delay: 1.99s; animation-duration: 200ms;"/>
+<text x="375" y="306.0" class="m in" font-size="24" text-anchor="middle" style="animation-delay: 1.90s;">propose_done</text>
+<path d="M525 88 H748" class="ln-mut dash fade" style="animation-delay: 2.35s;"/>
+<g class="in" style="animation-delay: 2.75s;"><path d="M752 74 L780 102 M780 74 L752 102" class="ln-cu" stroke-linecap="square"/><text x="800" y="98" class="s" font-size="26" text-anchor="start">no closing tool</text></g>
+<g class="in" style="animation-delay: 3.20s;"><rect x="720" y="404" width="456" height="96" class="box"/><text x="948.0" y="446.0" class="s" font-size="28" text-anchor="middle">Independent checker</text><text x="948.0" y="478.0" class="s mut" font-size="24" text-anchor="middle">fresh offline Surfpool</text></g>
+<path d="M825 404 V284.0" pathLength="1" class="ln-mut draw d" style="animation-delay: 3.55s; animation-duration: 350ms;"/><polygon points="825.0,272.0 831.2,285.0 818.8,285.0" class="head-mut fade" style="animation-delay: 3.81s; animation-duration: 200ms;"/>
+<path d="M710 270.0 H926" pathLength="1" class="ln-cu draw d" style="animation-delay: 3.85s; animation-duration: 450ms;"/><polygon points="940.0,270.0 927.0,276.2 927.0,263.8" class="head-cu fade" style="animation-delay: 4.19s; animation-duration: 200ms;"/>
+<text x="825" y="252.0" class="s cu in" font-size="26" text-anchor="middle" style="animation-delay: 4.05s;">checks pass</text>
+<path d="M600 312 V370 H180 V326" pathLength="1" class="ln-mut draw d" style="animation-delay: 4.55s; animation-duration: 650ms;"/><polygon points="180.0,312.0 186.2,325.0 173.8,325.0" class="head-mut fade" style="animation-delay: 5.04s; animation-duration: 200ms;"/>
+<text x="390" y="358" class="s mut in" font-size="24" text-anchor="middle" style="animation-delay: 4.90s;">checks fail: reopen</text>
+<path d="M80 312 V424" pathLength="1" class="ln-mut draw d" style="animation-delay: 5.20s; animation-duration: 300ms;"/><polygon points="80.0,438.0 73.8,425.0 86.2,425.0" class="head-mut fade" style="animation-delay: 5.42s; animation-duration: 200ms;"/>
+<g class="in" style="animation-delay: 5.40s;"><text x="96" y="400" class="s mut" font-size="24" text-anchor="start">after 3 reopens</text><rect x="40" y="438" width="220" height="62" class="box"/><text x="150" y="478" class="m" font-size="26" text-anchor="middle">blocked</text></g>
+</svg>

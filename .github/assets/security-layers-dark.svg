@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" role="img" aria-labelledby="title desc">
+<title id="title">Security layers</title>
+<desc id="desc">Protections nest around your home folder, keys, network and writes. The outer layer is the system prompt rule, which guides the model. Inside it are the file-read guards and the shell guard, which scans command text. Inside those is the operating system sandbox, macOS Seatbelt or Docker, so a shell command that gets past the shell guard still meets the sandbox. The signer is a separate component. In Linux host mode you approve every model shell command.</desc>
+<style>
+  .s { font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif; fill: #F1E4D0; }
+  .m { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; fill: #F1E4D0; }
+  .mut { fill: #C4B098; }
+  .cu { fill: #E9B98A; }
+  .box { fill: none; stroke: #C4B098; stroke-width: 1.5; }
+  .box-cu { fill: none; stroke: #E9B98A; stroke-width: 2.5; }
+  .rule { fill: none; stroke: #5A4E42; stroke-width: 1.5; }
+  .ln { fill: none; stroke: #F1E4D0; stroke-width: 1.5; }
+  .ln-mut { fill: none; stroke: #C4B098; stroke-width: 1.5; }
+  .ln-cu { fill: none; stroke: #E9B98A; stroke-width: 2.5; }
+  .dash { stroke-dasharray: 6 7; }
+  .head { fill: #F1E4D0; }
+  .head-mut { fill: #C4B098; }
+  .head-cu { fill: #E9B98A; }
+  .draw { stroke-dasharray: 1 1; stroke-dashoffset: 0; }
+
+  /* Entrance: once, then rest. Delays are set per element. */
+  .in { animation: oms-in 500ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .fade { animation: oms-fade 500ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+  .d { animation: oms-draw 450ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+  @keyframes oms-in { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes oms-fade { from { opacity: 0; } }
+  @keyframes oms-draw { from { stroke-dashoffset: 1; } }
+  @keyframes oms-dim { from { opacity: 1; } }
+
+  /* Reduced motion: the finished diagram, no movement. */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; }
+  }
+</style>
+<g class="in" style="animation-delay: 0.30s;"><rect x="300" y="24" width="876" height="472" class="ln-mut dash"/><text x="324" y="64" class="s" font-size="26" text-anchor="start">System prompt rule</text><text x="1152" y="64" class="s mut" font-size="24" text-anchor="end">guidance to the model</text></g>
+<g class="in" style="animation-delay: 0.65s;"><rect x="340" y="96" width="796" height="360" class="box"/><text x="364" y="136" class="s" font-size="26" text-anchor="start">File-read guards and shell guard</text><text x="1112" y="136" class="s mut" font-size="24" text-anchor="end">shell guard: text scan</text></g>
+<g class="in" style="animation-delay: 1.00s;"><rect x="380" y="168" width="716" height="248" class="box-cu"/><text x="404" y="208" class="s" font-size="26" text-anchor="start">Sandbox: Seatbelt or Docker</text><text x="1072" y="208" class="s cu" font-size="24" text-anchor="end">confines each command</text></g>
+<g class="in" style="animation-delay: 1.35s;"><rect x="420" y="240" width="636" height="136" class="rule"/><text x="738" y="300" class="s" font-size="28" text-anchor="middle">Your home folder, keys,</text><text x="738" y="336" class="s" font-size="28" text-anchor="middle">network and writes</text></g>
+<g class="in" style="animation-delay: 1.80s;"><rect x="24" y="268" width="236" height="104" class="box"/><text x="142.0" y="314.0" class="s" font-size="28" text-anchor="middle">Model</text><text x="142.0" y="346.0" class="s mut" font-size="24" text-anchor="middle">shell command</text></g>
+<path d="M260 320 H366" pathLength="1" class="ln-cu draw d" style="animation-delay: 2.20s; animation-duration: 700ms;"/><polygon points="378.0,320.0 365.0,326.2 365.0,313.8" class="head-cu fade" style="animation-delay: 2.73s; animation-duration: 200ms;"/>
+<path d="M380 296 V344" class="ln-cu fade" stroke-width="5" style="animation-delay: 2.85s; animation-duration: 300ms;"/>
+<g class="in" style="animation-delay: 3.15s;"><rect x="24" y="36" width="236" height="96" class="ln-mut dash"/><text x="142" y="78" class="s" font-size="26" text-anchor="middle">Signer</text><text x="142" y="110" class="s mut" font-size="24" text-anchor="middle">separate component</text></g>
+<g class="in" style="animation-delay: 3.35s;"><text x="24" y="412" class="s" font-size="24" text-anchor="start">Linux host mode:</text><text x="24" y="442" class="s mut" font-size="24" text-anchor="start">no sandbox, so you</text><text x="24" y="472" class="s mut" font-size="24" text-anchor="start">approve every</text><text x="24" y="502" class="s mut" font-size="24" text-anchor="start">shell command</text></g>
+</svg>

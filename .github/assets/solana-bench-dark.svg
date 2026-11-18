@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 604" width="1200" height="604" role="img" aria-labelledby="t d">
+<title id="t">Solana Bench, basic environment</title>
+<desc id="d">Mean score, each model in Oh My Sol against its own harness. GPT-6.1 Sol: OMS 377, Codex CLI 273. Claude Opus 5.5: OMS 303, Claude Code 252. Claude Sonnet 5.5: OMS 208, Claude Code 100.</desc>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif}.serif{font-family:"Source Serif 4",Georgia,"Times New Roman",serif}@keyframes g{from{transform:scaleX(0)}}.b{transform-box:fill-box;transform-origin:left;animation:g .9s cubic-bezier(.23,1,.32,1) both}@keyframes f{from{opacity:0}}.v{animation:f .5s ease both}@media (prefers-reduced-motion:reduce){.b,.v{animation:none}}</style>
+<rect x="1" y="1" width="1198" height="602" rx="10" fill="#262220" stroke="#433a31" stroke-width="2"/>
+<text x="56" y="76" class="serif" font-size="34" fill="#f1e4d0">Solana Bench</text>
+<text x="56" y="110" font-size="19" fill="#c4b098">Mean score, basic environment. Each model in Oh My Sol against its own harness.</text>
+<circle cx="64" cy="146" r="7" fill="#e9b98a"/><text x="80" y="152" font-size="18" fill="#c4b098">Oh My Sol</text>
+<circle cx="196" cy="146" r="7" fill="#6f6458"/><text x="212" y="152" font-size="18" fill="#c4b098">The model&#8217;s own harness</text>
+<text x="56" y="206" font-size="20" font-weight="600" fill="#f1e4d0">GPT-6.1 Sol</text>
+<text x="1144" y="206" font-size="17" font-weight="600" text-anchor="end" fill="#e9b98a">+38% vs Codex CLI</text>
+<text x="56" y="248" font-size="18" fill="#f1e4d0">Oh My Sol</text>
+<rect class="b" style="animation-delay:0.15s" x="300" y="230" width="659.8" height="24" rx="4" fill="#e9b98a"/>
+<text class="v" style="animation-delay:0.55s" x="973.8" y="249" font-size="19" font-weight="700" fill="#f1e4d0">377</text>
+<text x="56" y="284" font-size="18" fill="#f1e4d0">Codex CLI</text>
+<rect class="b" style="animation-delay:0.24s" x="300" y="266" width="477.8" height="24" rx="4" fill="#6f6458"/>
+<text class="v" style="animation-delay:0.64s" x="791.8" y="285" font-size="19" font-weight="500" fill="#f1e4d0">273</text>
+<line x1="56" x2="1144" y1="318" y2="318" stroke="#433a31" stroke-width="1.5"/>
+<text x="56" y="346" font-size="20" font-weight="600" fill="#f1e4d0">Claude Opus 5.5</text>
+<text x="1144" y="346" font-size="17" font-weight="600" text-anchor="end" fill="#e9b98a">+20% vs Claude Code</text>
+<text x="56" y="388" font-size="18" fill="#f1e4d0">Oh My Sol</text>
+<rect class="b" style="animation-delay:0.33s" x="300" y="370" width="530.2" height="24" rx="4" fill="#e9b98a"/>
+<text class="v" style="animation-delay:0.73s" x="844.2" y="389" font-size="19" font-weight="700" fill="#f1e4d0">303</text>
+<text x="56" y="424" font-size="18" fill="#f1e4d0">Claude Code</text>
+<rect class="b" style="animation-delay:0.42s" x="300" y="406" width="441.0" height="24" rx="4" fill="#6f6458"/>
+<text class="v" style="animation-delay:0.82s" x="755.0" y="425" font-size="19" font-weight="500" fill="#f1e4d0">252</text>
+<line x1="56" x2="1144" y1="458" y2="458" stroke="#433a31" stroke-width="1.5"/>
+<text x="56" y="486" font-size="20" font-weight="600" fill="#f1e4d0">Claude Sonnet 5.5</text>
+<text x="1144" y="486" font-size="17" font-weight="600" text-anchor="end" fill="#e9b98a">+107% vs Claude Code</text>
+<text x="56" y="528" font-size="18" fill="#f1e4d0">Oh My Sol</text>
+<rect class="b" style="animation-delay:0.51s" x="300" y="510" width="364.0" height="24" rx="4" fill="#e9b98a"/>
+<text class="v" style="animation-delay:0.91s" x="678.0" y="529" font-size="19" font-weight="700" fill="#f1e4d0">208</text>
+<text x="56" y="564" font-size="18" fill="#f1e4d0">Claude Code</text>
+<rect class="b" style="animation-delay:0.60s" x="300" y="546" width="175.0" height="24" rx="4" fill="#6f6458"/>
+<text class="v" style="animation-delay:1.00s" x="489.0" y="565" font-size="19" font-weight="500" fill="#f1e4d0">100</text>
+</svg>
