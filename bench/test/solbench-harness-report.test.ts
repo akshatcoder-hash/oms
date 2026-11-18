@@ -49,7 +49,7 @@ test('runs paused on a usage limit are left out and said so', () => {
   );
   assert.match(text, /\| a \| 1 \| 5 \| 0 \| 5 \| 5 \|/);
   assert.match(text, /1 run\(s\) paused .* are not counted: a basic run 1 \(usage-limit\)/);
-  assert.match(text, /not the Solana Foundation's published Solana Bench/);
+  assert.match(text, /runs the Solana Bench scoring rule against whole harnesses/);
   assert.match(text, /\| b \| 0 \|/);
   assert.match(text, /Truncated, not a score .*b basic run 0 \(oms-usage-unknown, 50 submissions, headline 3\)/);
 });
