@@ -79,8 +79,7 @@ export function renderSection(all: readonly RunResult[], cells: readonly string[
   const lines = [
     '## Solana Bench, harness version (our environment)',
     '',
-    "This is our own environment, solbench-harness, not the Solana Foundation's published Solana Bench, and its numbers are not comparable",
-    "to the Foundation's tables. It reimplements their scoring rule and compares whole harnesses as shipped, each online.",
+    'solbench-harness runs the Solana Bench scoring rule against whole harnesses as shipped, each online.',
     'Goal (one file, the same for every harness): maximise unique (program id, first instruction-data byte) pairs in successfully executed',
     'transactions, on a Surfpool 0.10.4 mainnet fork, at most 50 `submit-tx` calls and 30 minutes per run. The agent never holds a key: the',
     'environment signs with a fresh fork-only wallet. Filtered score = no Memo / Memo v1, no arbitrary-data program, no program the run',
