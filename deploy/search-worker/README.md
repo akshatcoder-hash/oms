@@ -51,7 +51,7 @@ npm run typecheck && npm run format:check && npm test
 ## Deploy
 
 ```sh
-npx wrangler kv namespace create oms-search-cache   # put the id in wrangler.jsonc
+npx wrangler kv namespace create oms-search-cache # only for a new account; put the id in wrangler.jsonc
 printf %s "$CONTEXT_DEV_API_KEY" | npx wrangler secret put CONTEXT_DEV_API_KEY
 printf %s "<bench digest>,<gateway digest>" | npx wrangler secret put ACCEPTED_TOKEN_SHA256
 printf %s "<admin digest>" | npx wrangler secret put ADMIN_TOKEN_SHA256
