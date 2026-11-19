@@ -29,7 +29,7 @@ test('a context.dev scrape answers /fetch with main-content markdown, in the oms
     url: `${PAGE}/page`,
     formats: { markdown: true },
     sharedParams: { mainContentOnly: true },
-    timeoutOpts: { milliseconds: 30000 },
+    timeoutOpts: { milliseconds: 8000 },
   });
 });
 

@@ -44,7 +44,7 @@ export const USER_RATE_PER_MIN = 30;
 const SESSION_OK_MS = 5 * 60_000;
 const SESSION_REFUSED_MS = 30_000;
 const ME_URL = 'https://barestate.xyz/oms/api/me';
-const FETCH_TIMEOUT_MS = 45_000;
+const FETCH_TIMEOUT_MS = 9_000;
 const WINDOW_MS = 60_000;
 
 /** `answered` names the backends whose output is in the answer, so a run record can say what "OMS search" was. */

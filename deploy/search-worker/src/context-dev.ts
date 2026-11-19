@@ -101,9 +101,9 @@ export async function contextDevScrape(config: ContextDevConfig, url: string): P
       url,
       formats: { markdown: true },
       sharedParams: { mainContentOnly: true },
-      timeoutOpts: { milliseconds: 30_000 },
+      timeoutOpts: { milliseconds: 8_000 },
     },
-    45_000,
+    10_000,
   );
   if (!outcome.ok) return outcome;
   const markdown = outcome.value?.markdown;
