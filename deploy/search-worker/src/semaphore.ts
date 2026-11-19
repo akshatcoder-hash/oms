@@ -37,7 +37,8 @@ export class Semaphore {
   /** Pauses new grants for `ms` (Retry-After); only ever extends a pause. */
   pause(ms: number): void {
     this.pausedUntil = Math.max(this.pausedUntil, this.now() + Math.max(0, ms));
-    setTimeout(() => this.drain(), this.pausedFor());
+    const timer = setTimeout(() => this.drain(), this.pausedFor());
+    (timer as unknown as { unref?: () => void }).unref?.();
   }
 
   acquire(waitMs: number): Promise<Grant> {
