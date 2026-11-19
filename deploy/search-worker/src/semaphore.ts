@@ -38,7 +38,7 @@ export class Semaphore {
   pause(ms: number): void {
     this.pausedUntil = Math.max(this.pausedUntil, this.now() + Math.max(0, ms));
     const timer = setTimeout(() => this.drain(), this.pausedFor());
-    (timer as unknown as { unref?: () => void }).unref?.();
+    if (!this.waiting.length) (timer as unknown as { unref?: () => void }).unref?.();
   }
 
   acquire(waitMs: number): Promise<Grant> {
