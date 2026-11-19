@@ -75,3 +75,22 @@ jobs:
           npm install "$GITHUB_WORKSPACE"/.tmp/release/barestate-oms-*.tgz --ignore-scripts --no-audit --no-fund
           npx --no-install oms --version
           npx --no-install oms --help
+
+  search-worker:
+    name: Search Worker typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: deploy/search-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: deploy/search-worker/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
