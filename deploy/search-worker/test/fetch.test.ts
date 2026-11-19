@@ -33,6 +33,26 @@ test('a context.dev scrape answers /fetch with main-content markdown, in the oms
   });
 });
 
+test('a context.dev scrape body stream failure falls back to the plain fetch', async () => {
+  const { call } = setup({
+    [SCRAPE]: () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            controller.error(new Error('boom'));
+          },
+        }),
+        { status: 200 },
+      ),
+    [PAGE]: () => html('Plain', 'plain body'),
+  });
+  const response = await call('/fetch', { url: `${PAGE}/stream-error` });
+  assert.equal(response.status, 200);
+  const body = await response.json<any>();
+  assert.equal(body.backend, 'plain');
+  assert.deepEqual(body.attempts, { contextdev: 'unreachable' });
+});
+
 test('KV cache: /fetch stores 7 days under the canonical URL and serves the hit without calling out', async () => {
   const { call, upstream, kv } = setup({ [SCRAPE]: () => scrapeBody('text') });
   assert.equal((await (await call('/fetch', { url: `${PAGE}/x/` })).json<any>()).cached, false);

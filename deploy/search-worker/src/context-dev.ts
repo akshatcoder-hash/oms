@@ -61,7 +61,13 @@ async function call(config: ContextDevConfig, path: string, body: object, timeou
     void response.body?.cancel().catch(() => {});
     return fail(`HTTP ${response.status}`, creditsOf(response));
   }
-  const { bytes, truncated } = await readCapped(response, RESPONSE_BYTE_LIMIT);
+  let bytes: Uint8Array;
+  let truncated: boolean;
+  try {
+    ({ bytes, truncated } = await readCapped(response, RESPONSE_BYTE_LIMIT));
+  } catch {
+    return fail('unreachable', creditsOf(response), true);
+  }
   if (truncated) return fail('response too large', creditsOf(response));
   let parsed: any;
   try {
