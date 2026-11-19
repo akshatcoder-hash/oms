@@ -20,8 +20,8 @@ test('a context.dev scrape answers /fetch with main-content markdown, in the oms
     title: 'Docs',
     text: '# Hello',
     truncated: false,
-    backend: 'context.dev',
-    answered: ['context.dev'],
+    backend: 'contextdev',
+    answered: ['contextdev'],
     attempts: {},
     cached: false,
   });
@@ -58,7 +58,7 @@ for (const status of [402, 429, 500, 503]) {
     assert.deepEqual(body.answered, ['plain']);
     assert.equal(body.title, '');
     assert.equal(body.text, '# Plain\n\nplain body');
-    assert.deepEqual(body.attempts, { 'context.dev': `HTTP ${status}` });
+    assert.deepEqual(body.attempts, { contextdev: `HTTP ${status}` });
     const paused = gate.semaphore.pausedFor();
     assert.ok(paused > 25_000 && paused <= 30_000, String(paused));
   });
@@ -81,7 +81,7 @@ test('while context.dev is paused, /fetch goes straight to the plain fetch', asy
   gate.semaphore.pause(10_000);
   const body = await (await call('/fetch', { url: `${PAGE}/q` })).json<any>();
   assert.equal(body.backend, 'plain');
-  assert.deepEqual(body.attempts, { 'context.dev': 'cooling down 10 s' });
+  assert.deepEqual(body.attempts, { contextdev: 'cooling down 10 s' });
   assert.ok(!upstream.calls.some((c) => c.url === SCRAPE));
 });
 
@@ -96,7 +96,7 @@ test('a failed scrape output (blocked page) falls back to the plain fetch', asyn
   });
   const body = await (await call('/fetch', { url: `${PAGE}/b` })).json<any>();
   assert.equal(body.backend, 'plain');
-  assert.deepEqual(body.attempts, { 'context.dev': 'no page (website_blocked)' });
+  assert.deepEqual(body.attempts, { contextdev: 'no page (website_blocked)' });
 });
 
 test('every backend failing is a 502 with the attempts', async () => {
@@ -108,7 +108,7 @@ test('every backend failing is a 502 with the attempts', async () => {
   assert.equal(response.status, 502);
   assert.deepEqual(await response.json<any>(), {
     error: 'every fetch backend failed',
-    attempts: { 'context.dev': 'HTTP 500', plain: 'web_fetch got HTTP 404' },
+    attempts: { contextdev: 'HTTP 500', plain: 'web_fetch got HTTP 404' },
     answered: [],
   });
 });
@@ -244,7 +244,7 @@ test('size caps: an oversized context.dev response is not parsed and the plain f
   });
   const body = await (await call('/fetch', { url: `${PAGE}/huge` })).json<any>();
   assert.equal(body.backend, 'plain');
-  assert.deepEqual(body.attempts, { 'context.dev': 'response too large' });
+  assert.deepEqual(body.attempts, { contextdev: 'response too large' });
 });
 
 test('non-text pages are refused by the plain fetch without echoing the content type', async () => {

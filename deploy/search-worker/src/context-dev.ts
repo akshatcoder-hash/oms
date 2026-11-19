@@ -1,7 +1,8 @@
 import type { Hit } from './fusion.ts';
 import { readCapped, type Page } from './fetch-guard.ts';
 
-export const CONTEXT_DEV = 'context.dev';
+/** The backend name in `answered`, `backends` and `attempts`; dot-free so the OMS client keeps it in run records. */
+export const CONTEXT_DEV = 'contextdev';
 const API = 'https://api.context.dev/v1';
 const DEFAULT_RETRY_AFTER_MS = 60_000;
 /** Largest upstream JSON body read. */

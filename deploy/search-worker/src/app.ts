@@ -62,7 +62,7 @@ const describe = (error: unknown) =>
 const coolingDown = (ms: number) => `cooling down ${Math.ceil(ms / 1000)} s`;
 
 function gate(env: Env) {
-  const stub = env.GATE.get(env.GATE.idFromName(CONTEXT_DEV));
+  const stub = env.GATE.get(env.GATE.idFromName('context.dev'));
   const post = (path: string, body: unknown) =>
     stub.fetch(`https://gate${path}`, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json());
   return {
@@ -108,7 +108,7 @@ function contextDev(env: Env, deps: Deps): ContextDevConfig | undefined {
 
 async function search(env: Env, deps: Deps, digest: string, query: string, count: number): Promise<Response> {
   // The key is a digest, so KV never holds query text.
-  const key = `search:${await sha256Hex(query.toLowerCase())}`;
+  const key = `search:v2:${await sha256Hex(query.toLowerCase())}`;
   const hit = await env.CACHE.get<SearchAnswer>(key, 'json');
   if (hit)
     return json(200, {
@@ -166,7 +166,7 @@ async function fetchPage(env: Env, deps: Deps, digest: string, raw: string): Pro
     if (addresses.some(isPrivateAddress))
       return json(400, { error: 'private, loopback and link-local addresses are refused' });
   }
-  const key = `page:${await sha256Hex(canonicalUrl(url.href) ?? url.href)}`;
+  const key = `page:v2:${await sha256Hex(canonicalUrl(url.href) ?? url.href)}`;
   const hit = await env.CACHE.get<PageAnswer>(key, 'json');
   if (hit) return json(200, { ...hit, cached: true });
 

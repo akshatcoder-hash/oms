@@ -17,6 +17,7 @@ Deployed as `oms-search-api` on `barestate.xyz/oms-search-api/*` only (`workers_
 - A missing or wrong token gets `401 Unauthorized` (text/plain). Tokens are compared by SHA-256 digest and never logged.
 - Each token has a fixed one-minute window (`RATE_PER_MIN`, default 60, per isolate); over it the answer is `429` with `Retry-After`.
 - `query` is 1-400 characters (whitespace collapsed); `count` is an integer from 1 to 20 (default 10).
+- context.dev is named `contextdev` in `answered`, `backends` and `attempts` (the OMS client keeps only `[a-z]` names), and the plain fetch is `plain`.
 - `/search`: context.dev web search, merged with reciprocal rank fusion (k = 60), deduplicated by canonical URL (no scheme,
   `www.`, port, fragment or tracking parameters; one form per Stack Exchange question), Solana sources scored x1.2.
   The top 20 are cached in KV for 24 h. When context.dev is unavailable it answers `503` with `Retry-After`.

@@ -15,10 +15,10 @@ test('result shape matches the oms-search contract', async () => {
   assert.deepEqual(Object.keys(body).sort(), ['answered', 'backends', 'cached', 'query', 'results']);
   assert.equal(body.query, 'anchor idl');
   assert.deepEqual(body.results, [
-    { title: 'A', url: 'https://example.com/a', snippet: 'snippet a', sources: ['context.dev'] },
+    { title: 'A', url: 'https://example.com/a', snippet: 'snippet a', sources: ['contextdev'] },
   ]);
-  assert.deepEqual(body.backends, { 'context.dev': 'ok (1)' });
-  assert.deepEqual(body.answered, ['context.dev']);
+  assert.deepEqual(body.backends, { contextdev: 'ok (1)' });
+  assert.deepEqual(body.answered, ['contextdev']);
   assert.equal(body.cached, false);
 });
 
@@ -82,7 +82,7 @@ test('duplicates are merged by canonical URL; the first title and snippet win', 
     ['https://example.com/docs/', 'https://example.com/other'],
   );
   assert.equal(body.results[0].title, 'Docs');
-  assert.equal(body.backends['context.dev'], 'ok (5)');
+  assert.equal(body.backends['contextdev'], 'ok (5)');
 });
 
 test('reciprocal rank fusion puts a result both lists agree on first and dedupes it', () => {
