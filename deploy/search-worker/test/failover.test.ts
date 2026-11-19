@@ -105,6 +105,26 @@ test('semaphore: a pause answers paused with the time left', async () => {
   assert.ok('lease' in (await semaphore.acquire(10)));
 });
 
+test('semaphore: waiters resume after a pause that began while a lease was active', async () => {
+  const semaphore = new Semaphore(1, 60_000);
+  const lease = await semaphore.acquire(1_000);
+  assert.ok('lease' in lease);
+  let resolved = false;
+  const waiter = semaphore.acquire(1_000).then((grant) => {
+    resolved = true;
+    return grant;
+  });
+  const started = Date.now();
+  semaphore.pause(50);
+  semaphore.release(lease.lease);
+  await sleep(20);
+  assert.equal(resolved, false);
+  const grant = await waiter;
+  assert.ok('lease' in grant);
+  assert.ok(Date.now() - started <= 150);
+  assert.ok(semaphore.inFlight === 1);
+});
+
 test('worker: 30 concurrent searches put at most 5 calls in flight at context.dev, and all succeed', async () => {
   const { call, upstream, gate } = setup({
     [SEARCH]: async () => {
