@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "oms-search-api",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "barestate.xyz/oms-search-api/*", "zone_name": "barestate.xyz" }],
+  "kv_namespaces": [{ "binding": "CACHE", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "durable_objects": { "bindings": [{ "name": "GATE", "class_name": "ContextDevGate" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ContextDevGate"] }],
+  "analytics_engine_datasets": [{ "binding": "USAGE_EVENTS", "dataset": "oms_search_usage" }],
+  "vars": { "CONTEXT_DEV_ZDR": "disabled" },
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+}
