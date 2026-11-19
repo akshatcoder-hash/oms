@@ -19,7 +19,16 @@ import { thinkingBudgetForLevel, MIN_ANSWER_TOKENS } from '@earendil-works/pi-ai
 import { isRetryableAssistantError } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { createBudgetLedger, type BudgetLedgerEvent } from '@oms/core';
-import { createMeteredStream, openBudgetJournal, modelReadiness } from '../src/runtime/usage.ts';
+import {
+  createMeteredStream,
+  openBudgetJournal,
+  modelReadiness,
+  MAX_RATE_LIMIT_RETRIES,
+  MAX_RATE_LIMIT_WAIT_MS,
+  rateLimitDelayMs,
+  requestedRetryDelayMs,
+} from '../src/runtime/usage.ts';
+import { providerLimit } from '../src/runtime/provider-rejection.ts';
 import { modelReservationBound, normalizePiUsage } from '@oms/core/usage';
 import { createDispatchAllocator } from '@oms/core/dispatch';
 
@@ -57,7 +66,17 @@ function message(): AssistantMessage {
     },
   };
 }
-function fixture(streamFunction?: StreamFn, customCaps = caps, onBareBadRequest?: () => void) {
+const waits: number[] = [];
+const noWait = async (ms: number) => {
+  waits.push(ms);
+};
+
+function fixture(
+  streamFunction?: StreamFn,
+  customCaps = caps,
+  onBareBadRequest?: () => void,
+  sleep: (ms: number, signal: AbortSignal) => Promise<void> = noWait,
+) {
   const events: BudgetLedgerEvent[] = [];
   const ledger = createBudgetLedger({
     caps: customCaps,
@@ -86,6 +105,7 @@ function fixture(streamFunction?: StreamFn, customCaps = caps, onBareBadRequest?
     maxOutputTokens: 50,
     logicalTurnId: () => 'user-run-1',
     onBareBadRequest,
+    sleep,
   });
   return { stream, ledger, events, calls: () => calls };
 }
@@ -646,7 +666,7 @@ test('real Codex adapter uses one metered SSE fetch and normalized final usage w
   assert.equal(f.ledger.snapshot().used.spendMicroUsd, Math.ceil(Math.max(47, result.usage.cost.total * 1_000_000)));
 });
 
-test('real Codex adapter cannot retry a metered rate-limit response', async () => {
+test('real Codex adapter never retries inside one metered request; a throttled request is resent as a new dispatch', async () => {
   const codex: Model<'openai-codex-responses'> = { ...model, api: 'openai-codex-responses', provider: 'openai-codex' };
   const token = `synthetic.${Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'synthetic-account' } })).toString('base64')}.synthetic`;
   let requests = 0;
@@ -660,10 +680,12 @@ test('real Codex adapter cannot retry a metered rate-limit response', async () =
       return new Response('controlled rate limit', { status: 429 });
     },
   });
-  assert.equal((await source.result()).stopReason, 'error');
-  assert.equal(requests, 1);
-  assert.equal(f.ledger.snapshot().used.tokens, 1100);
-  // A 429 is transient: settled at the reserved bound so the turn can be retried.
+  const result = await source.result();
+  assert.equal(result.stopReason, 'error');
+  assert.equal(providerLimit(result), 'rate-limited');
+  assert.equal(requests, 1 + MAX_RATE_LIMIT_RETRIES);
+  // A 429 refusal did no work: released, so the waits cost wall time but no tokens.
+  assert.equal(f.ledger.snapshot().used.tokens, 0);
   assert.equal(f.ledger.snapshot().accounting, 'known');
 });
 
@@ -1288,9 +1310,18 @@ test('only OpenAI itself is asked for background: false; xAI rejects the field',
   assert.ok(sent.xai && !('background' in sent.xai), 'xAI request carries no background field');
 });
 
-async function rejectedWith(status: number, body: string, provider = 'xai') {
-  const f = fixture((selected, context, options) =>
-    openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+async function rejectedWith(
+  status: number,
+  body: string,
+  provider = 'xai',
+  headers: Record<string, string> = {},
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>,
+) {
+  const f = fixture(
+    (selected, context, options) => openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+    caps,
+    undefined,
+    sleep,
   );
   const selected = { ...model, api: 'openai-responses' as const, provider };
   const send = async () => {
@@ -1299,7 +1330,7 @@ async function rejectedWith(status: number, body: string, provider = 'xai') {
       normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
       {
         apiKey: 'synthetic-offline',
-        fetch: async () => new Response(body, { status, headers: { 'content-type': 'application/json' } }),
+        fetch: async () => new Response(body, { status, headers: { 'content-type': 'application/json', ...headers } }),
       },
     );
     return stream.result();
@@ -1347,17 +1378,141 @@ test('a 4xx message never carries raw JSON or a key', async () => {
   assert.ok(!text.includes('{') && !text.includes('sk-abcdefghijklmnopqrstu'), text);
 });
 
-test('a rate limit or a server error stays charged at its bound and says what happened', async () => {
-  const limited = await rejectedWith(429, 'slow down');
-  const rate = await limited.send();
-  assert.equal(rate.errorMessage, 'xAI is rate limiting requests. Wait a moment and try again.');
-  assert.ok(isRetryableAssistantError(rate), 'a rate limit is retried');
-  assert.ok(limited.f.ledger.snapshot().used.tokens > 0, 'a 429 stays charged at the reserved bound');
+test('a server error stays charged at its bound and says what happened', async () => {
   const broken = await rejectedWith(500, 'boom');
   const server = await broken.send();
   assert.equal(server.errorMessage, 'xAI reported a server error. Try again in a moment.');
   assert.ok(isRetryableAssistantError(server));
   assert.ok(broken.f.ledger.snapshot().used.tokens > 0, 'a 5xx stays charged at the reserved bound');
+});
+
+function completedResponse(): Response {
+  const completed = {
+    type: 'response.completed',
+    response: {
+      id: 'after-throttle',
+      status: 'completed',
+      output: [],
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        total_tokens: 15,
+        input_tokens_details: { cached_tokens: 0 },
+        output_tokens_details: { reasoning_tokens: 0 },
+      },
+    },
+  };
+  return new Response(`data: ${JSON.stringify(completed)}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+}
+
+test('a 429 then success: OMS waits the Retry-After time, resends the same request and charges nothing for the refusal', async () => {
+  waits.length = 0;
+  const f = fixture((selected, context, options) =>
+    openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+  );
+  const bodies: string[] = [];
+  const result = await (
+    await f.stream(
+      { ...model, api: 'openai-responses', provider: 'xai' },
+      normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
+      {
+        apiKey: 'synthetic-offline',
+        fetch: async (_url, init) => {
+          bodies.push(String(init?.body));
+          return bodies.length === 1
+            ? new Response('slow down', { status: 429, headers: { 'retry-after': '7' } })
+            : completedResponse();
+        },
+      },
+    )
+  ).result();
+  assert.equal(result.stopReason, 'stop', result.errorMessage);
+  assert.deepEqual(waits, [7_000]);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[1], bodies[0], 'the same request is resent');
+  assert.equal(f.ledger.snapshot().used.tokens, 15, 'only the answered request is charged');
+  assert.equal(f.ledger.snapshot().accounting, 'known');
+  const outcomes = f.events.filter((event) => event.type === 'budget_settle').map((event) => event.receipt.outcome);
+  assert.deepEqual(outcomes, ['not_dispatched', 'known']);
+});
+
+test('repeated 429s end after the retry cap with a rate-limit reason Pi does not retry, uncharged', async () => {
+  waits.length = 0;
+  const { f, send } = await rejectedWith(429, 'slow down');
+  const result = await send();
+  assert.equal(result.stopReason, 'error');
+  assert.equal(
+    result.errorMessage,
+    `xAI is still throttling requests after ${MAX_RATE_LIMIT_RETRIES} retries; OMS stopped waiting. Your work is saved.`,
+  );
+  assert.equal(providerLimit(result), 'rate-limited');
+  assert.ok(!isRetryableAssistantError(result), 'Pi must not resend the turn after OMS stopped waiting');
+  assert.deepEqual(waits, [5_000, 10_000, 20_000, 40_000, 60_000, 60_000]);
+  assert.equal(f.ledger.snapshot().used.tokens, 0);
+  assert.equal(f.ledger.snapshot().accounting, 'known');
+});
+
+test('a Retry-After beyond the wait cap, or an account usage limit, ends the request without waiting', async () => {
+  waits.length = 0;
+  const long = await rejectedWith(429, 'slow down', 'xai', {
+    'retry-after': String(MAX_RATE_LIMIT_WAIT_MS / 1000 + 1),
+  });
+  assert.equal(providerLimit(await long.send()), 'rate-limited');
+  const quota = await rejectedWith(429, JSON.stringify({ type: 'error', error: { type: 'GoUsageLimitError' } }), 'xai');
+  const usage = await quota.send();
+  assert.equal(
+    usage.errorMessage,
+    "xAI reports that this account's usage limit is reached; OMS stopped. Your work is saved.",
+  );
+  assert.equal(providerLimit(usage), 'usage-limit');
+  assert.ok(!isRetryableAssistantError(usage));
+  assert.deepEqual(waits, []);
+});
+
+test('a 503 carrying Retry-After is waited out like a 429', async () => {
+  waits.length = 0;
+  const { send } = await rejectedWith(503, 'busy', 'xai', { 'retry-after-ms': '1500' });
+  assert.equal(providerLimit(await send()), 'rate-limited');
+  assert.deepEqual(waits, Array(MAX_RATE_LIMIT_RETRIES).fill(1_500));
+});
+
+test('the wait counts against the wall clock: the run deadline cancels it', async () => {
+  let requests = 0;
+  const f = fixture(
+    (selected, context, options) => openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+    { ...caps, wallClockMs: 200 },
+    undefined,
+    (_ms, signal) =>
+      new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))),
+  );
+  const result = await (
+    await f.stream(
+      { ...model, api: 'openai-responses', provider: 'xai' },
+      normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
+      {
+        apiKey: 'synthetic-offline',
+        fetch: async () => {
+          requests++;
+          return new Response('slow down', { status: 429, headers: { 'retry-after': '60' } });
+        },
+      },
+    )
+  ).result();
+  assert.equal(result.stopReason, 'aborted');
+  assert.equal(requests, 1);
+  assert.equal(f.ledger.snapshot().used.tokens, 0);
+});
+
+test('Retry-After is read as milliseconds, seconds or an HTTP date, and backoff is capped', () => {
+  assert.equal(requestedRetryDelayMs(new Headers({ 'retry-after-ms': '250' })), 250);
+  assert.equal(requestedRetryDelayMs(new Headers({ 'retry-after': '3' })), 3_000);
+  assert.equal(requestedRetryDelayMs(new Headers({ 'retry-after': new Date(10_000).toUTCString() }), 4_000), 6_000);
+  assert.equal(requestedRetryDelayMs(new Headers({ 'retry-after': 'soon' })), undefined);
+  assert.equal(requestedRetryDelayMs(new Headers()), undefined);
+  assert.equal(rateLimitDelayMs(1, undefined), 5_000);
+  assert.equal(rateLimitDelayMs(MAX_RATE_LIMIT_RETRIES, undefined), 60_000);
+  assert.equal(rateLimitDelayMs(MAX_RATE_LIMIT_RETRIES + 1, 0), undefined);
+  assert.equal(rateLimitDelayMs(1, MAX_RATE_LIMIT_WAIT_MS + 1), undefined);
 });
 
 test('a dropped network says so in plain words and is retried', async () => {

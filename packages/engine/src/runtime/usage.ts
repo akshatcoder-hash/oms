@@ -39,7 +39,9 @@ import { BYTES_PER_TOKEN } from './context-trim.ts';
 import {
   describeFailure,
   describeRejection,
+  describeThrottled,
   describeTransient,
+  describeUsageLimit,
   isRejectionStatus,
   providerName,
 } from './provider-rejection.ts';
@@ -81,6 +83,33 @@ export interface MeteredStreamOptions {
   readonly headroom?: () => { tokens: number; spendMicroUsd: number };
   /** Called when the provider rejects a request with a bare 400 that gives no reason, before the turn is retried. */
   readonly onBareBadRequest?: () => void;
+  /** Tests only: replaces the wait before a throttled request is sent again. */
+  readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+}
+
+/** Times a throttled request (429, or a refusal carrying Retry-After) is sent again before the turn ends as rate-limited. */
+export const MAX_RATE_LIMIT_RETRIES = 6;
+const RATE_LIMIT_BASE_DELAY_MS = 5_000;
+const RATE_LIMIT_MAX_DELAY_MS = 60_000;
+/** A provider asking for a longer pause than this is reporting a quota window, not a throttle: OMS stops instead of waiting. */
+export const MAX_RATE_LIMIT_WAIT_MS = 120_000;
+
+/** The pause a refusal asks for (Retry-After-Ms, or Retry-After as seconds or an HTTP date); undefined when it names none. */
+export function requestedRetryDelayMs(headers: Headers, now = Date.now()): number | undefined {
+  const ms = headers.get('retry-after-ms');
+  if (ms && Number.isFinite(Number(ms)) && Number(ms) >= 0) return Number(ms);
+  const value = headers.get('retry-after')?.trim();
+  if (!value) return undefined;
+  if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value) * 1000;
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
+}
+
+/** The wait before the retry-th resend (1-based): the provider's own request when it names one, else 5 s doubling to 60 s. Undefined: stop. */
+export function rateLimitDelayMs(retry: number, requested: number | undefined): number | undefined {
+  if (retry > MAX_RATE_LIMIT_RETRIES) return undefined;
+  if (requested !== undefined) return requested <= MAX_RATE_LIMIT_WAIT_MS ? requested : undefined;
+  return Math.min(RATE_LIMIT_BASE_DELAY_MS * 2 ** (retry - 1), RATE_LIMIT_MAX_DELAY_MS);
 }
 
 function cleanMessage(message: AssistantMessage): AssistantMessage {
@@ -260,6 +289,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
     context: Parameters<StreamFn>[1],
     options: Parameters<StreamFn>[2],
     retries = 2,
+    throttledRetries = 0,
   ) => {
     const output = createAssistantMessageEventStream();
     let model = selectedModel;
@@ -328,6 +358,50 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
     const interrupted = (cause: string | undefined): boolean => {
       if (!transient(cause) || !settleAtBound()) return false;
       failed(describeTransient(model.provider, cause));
+      return true;
+    };
+    // The provider refused with a throttle before doing any work. It is resent here as a new dispatch after the wait it asks for,
+    // so the refusal costs wall time but no tokens, and Pi's own turn retry never sees it.
+    let throttle: { requestedMs: number | undefined; usageLimit: boolean } | undefined;
+    const retryThrottled = async (): Promise<boolean> => {
+      if (!throttle || !dispatchId || settled || controller.signal.aborted) return false;
+      const released = config.ledger.settle({
+        dispatchId,
+        receiptId: randomUUID(),
+        outcome: 'not_dispatched',
+        tokens: 0,
+        spendMicroUsd: 0,
+      });
+      if (!released.ok) return false;
+      settled = true;
+      const wait = throttle.usageLimit ? undefined : rateLimitDelayMs(throttledRetries + 1, throttle.requestedMs);
+      if (wait === undefined) {
+        failed(
+          throttle.usageLimit
+            ? describeUsageLimit(model.provider)
+            : describeThrottled(model.provider, throttledRetries),
+        );
+        return true;
+      }
+      try {
+        await (config.sleep ?? ((ms, signal) => delay(ms, undefined, { signal })))(wait, controller.signal);
+      } catch {
+        failed('Request cancelled while waiting for the provider to accept requests again; no provider usage.', true);
+        return true;
+      }
+      if (controller.signal.aborted) {
+        failed('Request cancelled while waiting for the provider to accept requests again; no provider usage.', true);
+        return true;
+      }
+      const retry = streamAttempt(
+        selectedModel,
+        context,
+        { ...options, signal: controller.signal },
+        retries,
+        throttledRetries + 1,
+      );
+      for await (const next of retry) output.push(next);
+      output.end();
       return true;
     };
     let httpRequests = 0;
@@ -510,7 +584,9 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
               throw new Error('metered transport refused another request');
             const signal = init?.signal ? AbortSignal.any([controller.signal, init.signal]) : controller.signal;
             const response = await fetchRequest(input, { ...init, signal, redirect: 'error' });
-            if (isRejectionStatus(response.status)) {
+            const requested = response.status >= 400 ? requestedRetryDelayMs(response.headers) : undefined;
+            const throttled = response.status === 429 || requested !== undefined;
+            if (throttled || isRejectionStatus(response.status)) {
               const text = await Promise.race([
                 response
                   .clone()
@@ -518,7 +594,16 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                   .catch(() => ''),
                 new Promise<string>((resolve) => setTimeout(resolve, 3_000, '')),
               ]);
-              rejection = describeRejection(model.provider, response.status, text);
+              // Pi's classifier tells an account usage limit (e.g. OpenCode Go's GoUsageLimitError) from a passing throttle.
+              if (throttled)
+                throttle = {
+                  requestedMs: requested,
+                  usageLimit: !isRetryableAssistantError({
+                    stopReason: 'error',
+                    errorMessage: `429 ${text}`,
+                  } as AssistantMessage),
+                };
+              else rejection = describeRejection(model.provider, response.status, text);
             }
             return response;
           }) as typeof globalThis.fetch,
@@ -607,7 +692,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                 'oms stream error',
                 JSON.stringify({ reason: event.reason, message: errorMessage }).slice(0, 600),
               );
-            if (releaseUnsent() || releaseRejected()) return;
+            if (releaseUnsent() || releaseRejected() || (await retryThrottled())) return;
             if (
               isClaudeCodeModel(model) &&
               event.error.rawStopReason === CLAUDE_CODE_EMPTY_RESPONSE &&
@@ -623,6 +708,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
                 context,
                 { ...options, signal: controller.signal },
                 retries - 1,
+                throttledRetries,
               );
               for await (const next of retry) output.push(next);
               output.end();
@@ -684,7 +770,7 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
           failed('Request cancelled during retry backoff; usage was counted at its maximum cost.', true);
           return;
         }
-        if (releaseUnsent() || releaseRejected()) return;
+        if (releaseUnsent() || releaseRejected() || (await retryThrottled())) return;
         if (!isClaudeCodeModel(model) && dispatched && interrupted(error instanceof Error ? error.message : undefined))
           return;
         uncertain();

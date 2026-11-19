@@ -35,6 +35,33 @@ export function describeTransient(provider: string, cause: string | undefined): 
   return `Provider stream disconnected before completion; ${name} may have partly answered. Try again.`;
 }
 
+/** The provider kept throttling past every wait. Worded so Pi does not read it as retryable and resend the turn again. */
+export function describeThrottled(provider: string, retries: number): string {
+  return `${providerName(provider)} is still throttling requests after ${retries} ${retries === 1 ? 'retry' : 'retries'}; OMS stopped waiting. Your work is saved.`;
+}
+
+/** The provider refused with an account usage limit, which resets in hours rather than seconds. */
+export function describeUsageLimit(provider: string): string {
+  return `${providerName(provider)} reports that this account's usage limit is reached; OMS stopped. Your work is saved.`;
+}
+
+const THROTTLED = / is still throttling requests after \d+ retr(?:y|ies); OMS stopped waiting\./;
+const USAGE_LIMITED = / reports that this account's usage limit is reached; OMS stopped\./;
+
+/** The provider limit that ended an assistant turn, if any. */
+export function providerLimit(message: unknown): 'rate-limited' | 'usage-limit' | undefined {
+  if (!message || typeof message !== 'object') return undefined;
+  const { role, stopReason, errorMessage } = message as {
+    role?: unknown;
+    stopReason?: unknown;
+    errorMessage?: unknown;
+  };
+  if (role !== 'assistant' || stopReason !== 'error' || typeof errorMessage !== 'string') return undefined;
+  if (THROTTLED.test(errorMessage)) return 'rate-limited';
+  if (USAGE_LIMITED.test(errorMessage)) return 'usage-limit';
+  return undefined;
+}
+
 const KEY_LIKE = /\b(?:sk|xai|gsk|key)[-_][A-Za-z0-9_-]{8,}/g;
 
 function messageFrom(value: unknown): string | undefined {

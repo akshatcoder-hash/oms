@@ -10,6 +10,7 @@ export * from './runtime/verifier-backend.ts';
 export * from './runtime/usage.ts';
 export * from './runtime/run-record.ts';
 export { registerOmsCatalog } from './runtime/catalog.ts';
+export { providerLimit } from './runtime/provider-rejection.ts';
 export {
   backendFor,
   executionBackend,

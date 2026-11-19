@@ -6,6 +6,7 @@ import {
   knowledgePrimer,
   modelReadiness,
   parseRunRecord,
+  providerLimit,
   type HarnessSession,
   type HarnessSessionOptions,
   type RunRecord,
@@ -192,6 +193,13 @@ export async function runHeadlessHarness(options: HarnessSessionOptions, jsonOut
         if (noProgressTurns > 0) noProgressContinuations++;
         await current.session.prompt(turn === 0 ? firstTurn : HEADLESS_INSTRUCTION);
         observe();
+        // The provider still refused after every wait, or reported an account usage limit: a provider stop, not an agent outcome.
+        const limit = providerLimit(current.session.messages.at(-1));
+        if (limit) {
+          status = 'infra';
+          reason = limit;
+          break;
+        }
         if (JSON.stringify(itemStates(current)) !== before) {
           noProgressTurns = 0;
           continue;
