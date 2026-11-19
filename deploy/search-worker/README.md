@@ -26,7 +26,7 @@ Deployed as `oms-search-api` on `barestate.xyz/oms-search-api/*` only (`workers_
   - HTTPS only, no credentials in the URL, no hosts that are or resolve to private, loopback, link-local, CGNAT or
     metadata addresses. Every redirect of the plain fetch is checked again.
   - The download stops at 2 MB and the text at 200,000 characters (`truncated: true`).
-- A 402, a 429, or any response with `Retry-After` pauses context.dev until the time it asked for (60 s if absent).
+- A 402 or 429, or a 5xx with `Retry-After`, pauses context.dev until the time it asked for (60 s if absent).
   Upstream error bodies are never returned.
 
 ## Signed-in OMS users
