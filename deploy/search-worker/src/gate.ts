@@ -3,11 +3,14 @@ import { Semaphore } from './semaphore.ts';
 export const CONTEXT_DEV_CONCURRENCY = 5;
 export const QUEUE_WAIT_MS = 4_000;
 const LEASE_MS = 90_000;
+const WINDOW_MS = 60_000;
 
 export interface UsageEvent {
   route: 'search' | 'fetch';
-  /** First 16 hex characters of the caller's token digest. */
+  /** First 16 hex characters of the caller's token digest, or "session" for signed-in OMS users. */
   token: string;
+  /** The OMS user id, for calls on the signed-in user route. */
+  user?: string;
   credits: number;
 }
 
@@ -19,6 +22,7 @@ export interface DayUsage extends Tally {
   date: string;
   routes: Record<string, Tally>;
   tokens: Record<string, Tally>;
+  users: Record<string, Tally>;
 }
 
 const add = (into: Record<string, Tally>, key: string, credits: number) => {
@@ -34,6 +38,7 @@ const add = (into: Record<string, Tally>, key: string, credits: number) => {
 export class ContextDevGate {
   private readonly storage: DurableObjectStorage;
   readonly semaphore: Semaphore;
+  private readonly windows = new Map<string, { start: number; count: number }>();
 
   constructor(state: DurableObjectState, _env: unknown) {
     this.storage = state.storage;
@@ -50,6 +55,8 @@ export class ContextDevGate {
         this.semaphore.release(String(body.lease));
         if (body.usage) await this.record(body.usage as UsageEvent);
         return Response.json({ ok: true });
+      case '/limit':
+        return Response.json({ waitMs: this.limit(String(body.key), Number(body.perMinute) || 1) });
       case '/pause':
         this.semaphore.pause(Number(body.ms) || 0);
         return Response.json({ ok: true });
@@ -68,15 +75,37 @@ export class ContextDevGate {
     }
   }
 
+  /** Fixed one-minute window per key: 0 when the call may go ahead, else ms until the window resets. */
+  private limit(key: string, perMinute: number): number {
+    const at = Date.now();
+    let window = this.windows.get(key);
+    if (!window || at - window.start >= WINDOW_MS) {
+      for (const [old, entry] of this.windows) if (at - entry.start >= WINDOW_MS) this.windows.delete(old);
+      this.windows.set(key, (window = { start: at, count: 0 }));
+    }
+    if (window.count >= perMinute) return window.start + WINDOW_MS - at;
+    window.count++;
+    return 0;
+  }
+
   private async record(event: UsageEvent): Promise<void> {
     const date = new Date().toISOString().slice(0, 10);
     const key = `usage:${date}`;
-    const day = (await this.storage.get<DayUsage>(key)) ?? { date, requests: 0, credits: 0, routes: {}, tokens: {} };
+    const day = (await this.storage.get<DayUsage>(key)) ?? {
+      date,
+      requests: 0,
+      credits: 0,
+      routes: {},
+      tokens: {},
+      users: {},
+    };
+    day.users ??= {};
     const credits = Number.isFinite(event.credits) ? event.credits : 0;
     day.requests += 1;
     day.credits += credits;
     add(day.routes, event.route, credits);
     add(day.tokens, event.token, credits);
+    if (event.user) add(day.users, event.user, credits);
     await this.storage.put(key, day);
   }
 

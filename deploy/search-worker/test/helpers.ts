@@ -49,13 +49,13 @@ export type Route = (url: URL, init: RequestInit) => Response | Promise<Response
 
 /** A fetch that answers context.dev and page URLs from `routes`, recording every call. */
 export function fakeFetch(routes: Record<string, Route>) {
-  const calls: { url: string; body?: any }[] = [];
+  const calls: { url: string; body?: any; headers: string }[] = [];
   let inFlight = 0;
   const stats = { peakContextDev: 0 };
   const fn = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(String(input));
     const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
-    calls.push({ url: url.href, body });
+    calls.push({ url: url.href, body, headers: JSON.stringify([...new Headers(init.headers)]) });
     const route = routes[`${url.origin}${url.pathname}`] ?? routes[url.origin];
     if (!route) throw new TypeError('fetch failed');
     const upstream = url.hostname === 'api.context.dev';
@@ -76,8 +76,28 @@ export const publicResolve = async (host: string) => {
   return ['93.184.216.34'];
 };
 
+export const SESSION = 'oms_session_token_AAAAAAAAAAAAAAAAAAAAAAAA';
+export const OTHER_SESSION = 'oms_session_token_BBBBBBBBBBBBBBBBBBBBBBBB';
+
+/** The `oms` gateway binding: /oms/api/me answers 200 with a user for known sessions, else `refusal`. */
+export function fakeGateway(users: Record<string, string> = { [SESSION]: 'user-1', [OTHER_SESSION]: 'user-2' }) {
+  const calls: { url: string; authorization: string | null }[] = [];
+  const state = { refusal: 401 };
+  const gateway = {
+    fetch: async (input: RequestInfo | URL, init: RequestInit = {}) => {
+      const authorization = new Headers(init.headers).get('authorization');
+      calls.push({ url: String(input), authorization });
+      const token = authorization?.replace(/^Bearer /, '') ?? '';
+      if (users[token]) return Response.json({ user: { id: users[token], email: `${users[token]}@example.com` } });
+      return Response.json({ error: { code: 'AUTH_REQUIRED', message: 'Sign in' } }, { status: state.refusal });
+    },
+  };
+  return { gateway, calls, state };
+}
+
 export function setup(routes: Record<string, Route>, overrides: Partial<Env> = {}) {
   const kv = new FakeKV();
+  const gateway = fakeGateway();
   const { gate, namespace } = fakeGate();
   const upstream = fakeFetch(routes);
   const events: unknown[] = [];
@@ -89,6 +109,7 @@ export function setup(routes: Record<string, Route>, overrides: Partial<Env> = {
     ACCEPTED_TOKEN_SHA256: `${sha(TOKEN)}, ${sha(GATEWAY_TOKEN)}`,
     ADMIN_TOKEN_SHA256: sha(ADMIN),
     CONTEXT_DEV_ZDR: 'disabled',
+    GATEWAY: gateway.gateway as unknown as Fetcher,
     ...overrides,
   };
   const handle = createApp({ fetch: upstream.fn, resolve: publicResolve, now: Date.now });
@@ -106,7 +127,22 @@ export function setup(routes: Record<string, Route>, overrides: Partial<Env> = {
       }),
       env,
     );
-  return { env, kv, gate, upstream, events, call };
+  /** A signed-in OMS client call to /oms/search/<path>; `authorization` is the raw header (null for none). */
+  const userCall = (
+    path: string,
+    body?: unknown,
+    authorization: string | null = `Bearer ${SESSION}`,
+    method = 'POST',
+  ) =>
+    handle(
+      new Request(`https://barestate.xyz/oms/search${path}`, {
+        method,
+        headers: { ...(authorization === null ? {} : { authorization }), 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+      env,
+    );
+  return { env, kv, gate, upstream, events, call, userCall, gateway };
 }
 
 export const searchResult = (url: string, title = url, relevance = 'medium', description = `about ${url}`) => ({

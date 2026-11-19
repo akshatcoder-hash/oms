@@ -12,7 +12,7 @@ Deployed as `oms-search-api` on `barestate.xyz/oms-search-api/*` only (`workers_
 | `GET /health`  | none                                |                        | `{ "ok": true }`                                                                     |
 | `POST /search` | `Bearer` in `ACCEPTED_TOKEN_SHA256` | `{ "query", "count" }` | `{ query, results: [{ title, url, snippet, sources }], backends, answered, cached }` |
 | `POST /fetch`  | `Bearer` in `ACCEPTED_TOKEN_SHA256` | `{ "url" }`            | `{ url, finalUrl, title, text, truncated, backend, answered, attempts, cached }`     |
-| `GET /usage`   | `Bearer` in `ADMIN_TOKEN_SHA256`    | `?days=1..90`          | `{ days: [{ date, requests, credits, routes, tokens }] }`                            |
+| `GET /usage`   | `Bearer` in `ADMIN_TOKEN_SHA256`    | `?days=1..90`          | `{ days: [{ date, requests, credits, routes, tokens, users }] }`                     |
 
 - A missing or wrong token gets `401 Unauthorized` (text/plain). Tokens are compared by SHA-256 digest and never logged.
 - Each token has a fixed one-minute window (`RATE_PER_MIN`, default 60, per isolate); over it the answer is `429` with `Retry-After`.
@@ -28,6 +28,22 @@ Deployed as `oms-search-api` on `barestate.xyz/oms-search-api/*` only (`workers_
   - The download stops at 2 MB and the text at 200,000 characters (`truncated: true`).
 - A 402, a 429, or any response with `Retry-After` pauses context.dev until the time it asked for (60 s if absent).
   Upstream error bodies are never returned.
+
+## Signed-in OMS users
+
+`barestate.xyz/oms/search/*` also routes here. It is more specific than the `oms` gateway's `barestate.xyz/oms*`
+route, so it takes priority, and the gateway Worker is not changed.
+
+- `POST /oms/search/v1/search` and `POST /oms/search/v1/fetch` take and return the same JSON as `/search` and `/fetch`.
+- `Authorization: Bearer <OMS session token>`: only `[A-Za-z0-9_-]{16,512}` tokens are checked, with one call to the
+  gateway's `/oms/api/me` through the `GATEWAY` service binding. A 200 gives the user id; anything else is a 401.
+  The result is cached in KV under the token's SHA-256 (5 minutes valid, 30 seconds refused; gateway errors are not
+  cached). The token is not logged, stored or sent anywhere else.
+- 30 calls per minute per user id (in the Durable Object); over it, `429` with `Retry-After`.
+- Failures use the gateway's style, `{"error":{"code","message"}}`, with codes `UNAUTHENTICATED`, `RATE_LIMITED`,
+  `INVALID_REQUEST`, `SEARCH_UNAVAILABLE`, `NOT_FOUND` and `METHOD_NOT_ALLOWED`.
+- These calls share the context.dev gate and the KV cache with the bench route, and `/usage` adds per-user totals
+  (`users`); their `tokens` key is `session`.
 
 ## Concurrency and usage
 

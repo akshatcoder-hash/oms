@@ -17,6 +17,15 @@ export interface Env {
   CONTEXT_DEV_ZDR?: string;
   /** Calls per token per minute (default 60). */
   RATE_PER_MIN?: string;
+  /** The `oms` gateway Worker, used only to check OMS session tokens on /oms/search/v1/*. */
+  GATEWAY?: Fetcher;
+}
+
+/** Who a call is charged to in /usage. */
+interface Caller {
+  /** First 16 hex characters of the bench/gateway token digest, or "session". */
+  token: string;
+  user?: string;
 }
 
 export interface Deps {
@@ -29,6 +38,12 @@ export const SEARCH_TTL_S = 24 * 60 * 60;
 export const FETCH_TTL_S = 7 * 24 * 60 * 60;
 export const MAX_RESULTS = 20;
 const PREFIX = '/oms-search-api';
+const USER_PREFIX = '/oms/search';
+/** The gateway's old SEARCH_RATE_LIMIT. */
+export const USER_RATE_PER_MIN = 30;
+const SESSION_OK_MS = 5 * 60_000;
+const SESSION_REFUSED_MS = 30_000;
+const ME_URL = 'https://barestate.xyz/oms/api/me';
 const FETCH_TIMEOUT_MS = 45_000;
 const WINDOW_MS = 60_000;
 
@@ -69,6 +84,8 @@ function gate(env: Env) {
     acquire: () => post('/acquire', { waitMs: QUEUE_WAIT_MS }) as Promise<Grant>,
     release: (lease: string, usage?: UsageEvent) => post('/release', { lease, usage }),
     pause: (ms: number) => post('/pause', { ms }),
+    limit: (key: string, perMinute: number) =>
+      (post('/limit', { key, perMinute }) as Promise<{ waitMs: number }>).then((r) => r.waitMs),
     usage: (days: string | null) => stub.fetch(`https://gate/usage?days=${encodeURIComponent(days ?? '')}`),
   };
 }
@@ -77,7 +94,7 @@ function gate(env: Env) {
 async function throughGate<T>(
   env: Env,
   route: UsageEvent['route'],
-  digest: string,
+  caller: Caller,
   call: () => Promise<Outcome<T>>,
 ): Promise<{ grant: Grant; outcome?: Outcome<T> }> {
   const slots = gate(env);
@@ -89,12 +106,12 @@ async function throughGate<T>(
     return { grant, outcome };
   } finally {
     const credits = outcome?.credits ?? 0;
-    const token = digest.slice(0, 16);
+    const { token, user } = caller;
     if (outcome && !outcome.ok && outcome.pauseMs !== undefined) await slots.pause(outcome.pauseMs);
-    await slots.release(grant.lease, { route, token, credits });
+    await slots.release(grant.lease, { route, token, ...(user ? { user } : {}), credits });
     env.USAGE_EVENTS?.writeDataPoint({
-      indexes: [token],
-      blobs: [route, token, outcome?.ok ? 'ok' : 'error'],
+      indexes: [user ?? token],
+      blobs: [route, token, outcome?.ok ? 'ok' : 'error', user ?? ''],
       doubles: [credits],
     });
   }
@@ -106,7 +123,7 @@ function contextDev(env: Env, deps: Deps): ContextDevConfig | undefined {
     : undefined;
 }
 
-async function search(env: Env, deps: Deps, digest: string, query: string, count: number): Promise<Response> {
+async function search(env: Env, deps: Deps, caller: Caller, query: string, count: number): Promise<Response> {
   // The key is a digest, so KV never holds query text.
   const key = `search:v2:${await sha256Hex(query.toLowerCase())}`;
   const hit = await env.CACHE.get<SearchAnswer>(key, 'json');
@@ -122,7 +139,7 @@ async function search(env: Env, deps: Deps, digest: string, query: string, count
   const config = contextDev(env, deps);
   if (!config)
     return json(503, { error: 'no search backend is configured', backends, answered: [] }, retryAfter(60_000));
-  const { grant, outcome } = await throughGate(env, 'search', digest, () => contextDevSearch(config, query));
+  const { grant, outcome } = await throughGate(env, 'search', caller, () => contextDevSearch(config, query));
   if (!('lease' in grant)) {
     backends[CONTEXT_DEV] = coolingDown(grant.retryAfterMs);
     return json(
@@ -151,7 +168,7 @@ async function search(env: Env, deps: Deps, digest: string, query: string, count
   return json(200, { query, results: results.slice(0, count), backends, answered, cached: false });
 }
 
-async function fetchPage(env: Env, deps: Deps, digest: string, raw: string): Promise<Response> {
+async function fetchPage(env: Env, deps: Deps, caller: Caller, raw: string): Promise<Response> {
   let url: URL;
   try {
     url = parseFetchUrl(raw);
@@ -188,7 +205,7 @@ async function fetchPage(env: Env, deps: Deps, digest: string, raw: string): Pro
 
   const config = contextDev(env, deps);
   if (config) {
-    const { grant, outcome } = await throughGate(env, 'fetch', digest, () => contextDevScrape(config, url.href));
+    const { grant, outcome } = await throughGate(env, 'fetch', caller, () => contextDevScrape(config, url.href));
     if (!('lease' in grant)) attempts[CONTEXT_DEV] = coolingDown(grant.retryAfterMs);
     else if (outcome?.ok) return answer(CONTEXT_DEV, outcome.value);
     else attempts[CONTEXT_DEV] = outcome?.error ?? 'failed';
@@ -217,10 +234,100 @@ function rateLimiter(now: () => number): (digest: string, perMinute: number) => 
   };
 }
 
+/** Parses the body and runs /search or /fetch; the answers are the oms-search shapes. */
+async function serve(pathname: '/search' | '/fetch', request: Request, env: Env, deps: Deps, caller: Caller) {
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return json(400, { error: 'body must be JSON' });
+  }
+  try {
+    if (pathname === '/search') {
+      const query = typeof body?.query === 'string' ? body.query.replace(/\s+/g, ' ').trim() : '';
+      if (!query || query.length > 400) return json(400, { error: 'query must be 1-400 characters' });
+      const count = body.count ?? 10;
+      if (!Number.isInteger(count) || count < 1 || count > MAX_RESULTS)
+        return json(400, { error: `count must be an integer 1-${MAX_RESULTS}` });
+      return await search(env, deps, caller, query, count);
+    }
+    if (typeof body?.url !== 'string' || body.url.length > 2048)
+      return json(400, { error: 'url must be a string of at most 2048 characters' });
+    return await fetchPage(env, deps, caller, body.url);
+  } catch {
+    return json(500, { error: 'internal error' });
+  }
+}
+
+const gatewayError = (status: number, code: string, message: string, headers: Record<string, string> = {}) =>
+  json(status, { error: { code, message } }, headers);
+
+const UNAUTHENTICATED = () => gatewayError(401, 'UNAUTHENTICATED', 'Sign in to OMS to use hosted search.');
+
+/** Rewrites a failed oms-search answer into the gateway's {"error":{"code","message"}} style, keeping Retry-After. */
+async function gatewayStyle(response: Response): Promise<Response> {
+  if (response.ok) return response;
+  const body = (await response.json().catch(() => ({}))) as { error?: unknown };
+  const message = typeof body.error === 'string' ? body.error : 'request failed';
+  const { status } = response;
+  const code = status === 400 ? 'INVALID_REQUEST' : status === 429 ? 'RATE_LIMITED' : 'SEARCH_UNAVAILABLE';
+  const retry = response.headers.get('retry-after');
+  return gatewayError(status, code, message, retry ? { 'retry-after': retry } : {});
+}
+
+/**
+ * The OMS user behind a session token, checked with the gateway's /api/me. Only the token's SHA-256 is cached:
+ * a valid session for 5 minutes, a refused one for 30 seconds. Gateway failures other than 401/403 are not cached.
+ */
+async function sessionUser(request: Request, env: Env, deps: Deps): Promise<string | undefined> {
+  const token = /^Bearer ([A-Za-z0-9_-]{16,512})$/.exec(request.headers.get('authorization') ?? '')?.[1];
+  if (!token || !env.GATEWAY) return undefined;
+  const key = `session:${await sha256Hex(token)}`;
+  const cached = await env.CACHE.get<{ userId?: string; until: number }>(key, 'json');
+  if (cached && cached.until > deps.now()) return cached.userId;
+  let userId: string | undefined;
+  let settled = false;
+  try {
+    const response = await env.GATEWAY.fetch(ME_URL, { headers: { authorization: `Bearer ${token}` } });
+    if (response.status === 200) {
+      const id = ((await response.json().catch(() => undefined)) as { user?: { id?: unknown } } | undefined)?.user?.id;
+      if (typeof id === 'string' && id.length >= 1 && id.length <= 256) userId = id;
+      settled = true;
+    } else {
+      void response.body?.cancel().catch(() => {});
+      settled = response.status === 401 || response.status === 403;
+    }
+  } catch {
+    /* the gateway is unreachable: refuse, uncached */
+  }
+  if (settled) {
+    const ms = userId ? SESSION_OK_MS : SESSION_REFUSED_MS;
+    // KV expiry has a 60 s floor, so `until` carries the exact lifetime.
+    await env.CACHE.put(key, JSON.stringify({ ...(userId ? { userId } : {}), until: deps.now() + ms }), {
+      expirationTtl: Math.max(60, ms / 1000),
+    });
+  }
+  return userId;
+}
+
+/** POST /oms/search/v1/search and /v1/fetch for signed-in OMS users. */
+async function userRoute(subpath: string, request: Request, env: Env, deps: Deps): Promise<Response> {
+  const pathname = subpath === '/v1/search' ? '/search' : subpath === '/v1/fetch' ? '/fetch' : undefined;
+  if (!pathname) return gatewayError(404, 'NOT_FOUND', 'not found');
+  if (request.method !== 'POST') return gatewayError(405, 'METHOD_NOT_ALLOWED', 'use POST', { allow: 'POST' });
+  const user = await sessionUser(request, env, deps);
+  if (!user) return UNAUTHENTICATED();
+  const wait = await gate(env).limit(`user:${user}`, USER_RATE_PER_MIN);
+  if (wait) return gatewayError(429, 'RATE_LIMITED', 'Too many search calls; slow down.', retryAfter(wait));
+  return gatewayStyle(await serve(pathname, request, env, deps, { token: 'session', user }));
+}
+
 export function createApp(deps: Deps) {
   const limit = rateLimiter(deps.now);
   return async function handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname.startsWith(`${USER_PREFIX}/`))
+      return userRoute(url.pathname.slice(USER_PREFIX.length), request, env, deps);
     const pathname = url.pathname.startsWith(PREFIX) ? url.pathname.slice(PREFIX.length) || '/' : url.pathname;
     if (pathname === '/health' && request.method === 'GET') return json(200, { ok: true });
     if (pathname === '/usage') {
@@ -234,26 +341,6 @@ export function createApp(deps: Deps) {
     if (request.method !== 'POST') return json(405, { error: 'use POST' }, { allow: 'POST' });
     const wait = limit(digest, Number(env.RATE_PER_MIN) || 60);
     if (wait) return json(429, { error: 'rate limit exceeded' }, retryAfter(wait));
-    let body: any;
-    try {
-      body = await request.json();
-    } catch {
-      return json(400, { error: 'body must be JSON' });
-    }
-    try {
-      if (pathname === '/search') {
-        const query = typeof body?.query === 'string' ? body.query.replace(/\s+/g, ' ').trim() : '';
-        if (!query || query.length > 400) return json(400, { error: 'query must be 1-400 characters' });
-        const count = body.count ?? 10;
-        if (!Number.isInteger(count) || count < 1 || count > MAX_RESULTS)
-          return json(400, { error: `count must be an integer 1-${MAX_RESULTS}` });
-        return await search(env, deps, digest, query, count);
-      }
-      if (typeof body?.url !== 'string' || body.url.length > 2048)
-        return json(400, { error: 'url must be a string of at most 2048 characters' });
-      return await fetchPage(env, deps, digest, body.url);
-    } catch {
-      return json(500, { error: 'internal error' });
-    }
+    return serve(pathname, request, env, deps, { token: digest.slice(0, 16) });
   };
 }
