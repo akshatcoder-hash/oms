@@ -83,6 +83,8 @@ export interface MeteredStreamOptions {
   readonly headroom?: () => { tokens: number; spendMicroUsd: number };
   /** Called when the provider rejects a request with a bare 400 that gives no reason, before the turn is retried. */
   readonly onBareBadRequest?: () => void;
+  /** Benchmark runner only: keep resending a throttled request until the wall deadline instead of stopping after MAX_RATE_LIMIT_RETRIES. */
+  readonly retryRateLimitsUntilDeadline?: boolean;
   /** Tests only: replaces the wait before a throttled request is sent again. */
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
@@ -105,11 +107,18 @@ export function requestedRetryDelayMs(headers: Headers, now = Date.now()): numbe
   return Number.isNaN(at) ? undefined : Math.max(0, at - now);
 }
 
-/** The wait before the retry-th resend (1-based): the provider's own request when it names one, else 5 s doubling to 60 s. Undefined: stop. */
-export function rateLimitDelayMs(retry: number, requested: number | undefined): number | undefined {
-  if (retry > MAX_RATE_LIMIT_RETRIES) return undefined;
+/**
+ * The wait before the retry-th resend (1-based): the provider's own request when it names one, else 5 s doubling to 60 s.
+ * Undefined: stop. `untilDeadline` lifts the retry cap; the wall deadline then ends the waiting.
+ */
+export function rateLimitDelayMs(
+  retry: number,
+  requested: number | undefined,
+  untilDeadline = false,
+): number | undefined {
+  if (!untilDeadline && retry > MAX_RATE_LIMIT_RETRIES) return undefined;
   if (requested !== undefined) return requested <= MAX_RATE_LIMIT_WAIT_MS ? requested : undefined;
-  return Math.min(RATE_LIMIT_BASE_DELAY_MS * 2 ** (retry - 1), RATE_LIMIT_MAX_DELAY_MS);
+  return Math.min(RATE_LIMIT_BASE_DELAY_MS * 2 ** Math.min(retry - 1, 16), RATE_LIMIT_MAX_DELAY_MS);
 }
 
 function cleanMessage(message: AssistantMessage): AssistantMessage {
@@ -374,7 +383,9 @@ export function createMeteredStream(config: MeteredStreamOptions): StreamFn {
       });
       if (!released.ok) return false;
       settled = true;
-      const wait = throttle.usageLimit ? undefined : rateLimitDelayMs(throttledRetries + 1, throttle.requestedMs);
+      const wait = throttle.usageLimit
+        ? undefined
+        : rateLimitDelayMs(throttledRetries + 1, throttle.requestedMs, config.retryRateLimitsUntilDeadline);
       if (wait === undefined) {
         failed(
           throttle.usageLimit

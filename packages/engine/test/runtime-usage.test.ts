@@ -1503,6 +1503,71 @@ test('the wait counts against the wall clock: the run deadline cancels it', asyn
   assert.equal(f.ledger.snapshot().used.tokens, 0);
 });
 
+function benchStream(customCaps = caps, sleep: (ms: number, signal: AbortSignal) => Promise<void> = noWait) {
+  const ledger = createBudgetLedger({ caps: customCaps, clock: Date.now, persist() {} });
+  const stream = createMeteredStream({
+    streamFunction: (selected, context, options) =>
+      openaiStreamSimple({ ...selected, api: 'openai-responses' }, context, options),
+    ledger,
+    allocate: createDispatchAllocator(),
+    maxOutputTokens: 50,
+    logicalTurnId: () => 'bench-run',
+    retryRateLimitsUntilDeadline: true,
+    sleep,
+  });
+  const send = async (fetch: typeof globalThis.fetch) =>
+    (
+      await stream(
+        { ...model, api: 'openai-responses', provider: 'xai' },
+        normalizeContext({ messages: [{ role: 'user', content: 'hi', timestamp: 0 }] }),
+        { apiKey: 'synthetic-offline', fetch },
+      )
+    ).result();
+  return { ledger, send };
+}
+
+test('in bench mode a throttled request is resent past the retry cap until it is answered', async () => {
+  waits.length = 0;
+  const { ledger, send } = benchStream();
+  const throttled = MAX_RATE_LIMIT_RETRIES + 4;
+  let requests = 0;
+  const result = await send(async () =>
+    ++requests <= throttled ? new Response('slow down', { status: 429 }) : completedResponse(),
+  );
+  assert.equal(result.stopReason, 'stop', result.errorMessage);
+  assert.equal(requests, throttled + 1);
+  assert.deepEqual(waits, [5_000, 10_000, 20_000, 40_000, ...Array(throttled - 4).fill(60_000)]);
+  assert.equal(ledger.snapshot().used.tokens, 15, 'only the answered request is charged');
+});
+
+test('in bench mode a long Retry-After or a usage limit still stops, and the deadline still ends the waiting', async () => {
+  waits.length = 0;
+  const long = benchStream();
+  const tooLong = String(MAX_RATE_LIMIT_WAIT_MS / 1000 + 1);
+  assert.equal(
+    providerLimit(
+      await long.send(async () => new Response('slow down', { status: 429, headers: { 'retry-after': tooLong } })),
+    ),
+    'rate-limited',
+  );
+  const quota = benchStream();
+  const body = JSON.stringify({ type: 'error', error: { type: 'GoUsageLimitError' } });
+  assert.equal(providerLimit(await quota.send(async () => new Response(body, { status: 429 }))), 'usage-limit');
+  assert.deepEqual(waits, []);
+  let requests = 0;
+  const timed = benchStream(
+    { ...caps, wallClockMs: 200 },
+    (_ms, signal) =>
+      new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))),
+  );
+  const result = await timed.send(async () => {
+    requests++;
+    return new Response('slow down', { status: 429 });
+  });
+  assert.equal(result.stopReason, 'aborted');
+  assert.equal(requests, 1);
+});
+
 test('Retry-After is read as milliseconds, seconds or an HTTP date, and backoff is capped', () => {
   assert.equal(requestedRetryDelayMs(new Headers({ 'retry-after-ms': '250' })), 250);
   assert.equal(requestedRetryDelayMs(new Headers({ 'retry-after': '3' })), 3_000);
@@ -1513,6 +1578,8 @@ test('Retry-After is read as milliseconds, seconds or an HTTP date, and backoff 
   assert.equal(rateLimitDelayMs(MAX_RATE_LIMIT_RETRIES, undefined), 60_000);
   assert.equal(rateLimitDelayMs(MAX_RATE_LIMIT_RETRIES + 1, 0), undefined);
   assert.equal(rateLimitDelayMs(1, MAX_RATE_LIMIT_WAIT_MS + 1), undefined);
+  assert.equal(rateLimitDelayMs(MAX_RATE_LIMIT_RETRIES + 100, undefined, true), 60_000);
+  assert.equal(rateLimitDelayMs(1, MAX_RATE_LIMIT_WAIT_MS + 1, true), undefined);
 });
 
 test('a dropped network says so in plain words and is retried', async () => {

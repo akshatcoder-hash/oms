@@ -223,6 +223,7 @@ export async function runHarnessCommand(
         '--sandbox',
         '--host-approval',
         '--subscription-spend-exempt',
+        '--retry-rate-limits-until-deadline',
         '--web',
         '--edge-check',
       ],
@@ -232,6 +233,7 @@ export async function runHarnessCommand(
         '--knowledge-hint',
         '--knowledge-inject',
         '--subscription-spend-exempt',
+        '--retry-rate-limits-until-deadline',
         '--web',
         '--edge-check',
       ],
@@ -277,6 +279,10 @@ export async function runHarnessCommand(
         : {}),
       // Subscription-backed calls spend no API credit; opt in only when the provider is a ChatGPT subscription.
       ...(headless && parsed.values.has('--subscription-spend-exempt') ? { subscriptionSpendExempt: true } : {}),
+      // The bench runner waits out provider throttling for the whole run, as other harnesses do.
+      ...(headless && parsed.values.has('--retry-rate-limits-until-deadline')
+        ? { retryRateLimitsUntilDeadline: true }
+        : {}),
       ...runtime,
       ...(sessionId === undefined ? {} : { sessionId }),
       ...(provider && model ? { modelSelection: { provider, id: model } } : {}),

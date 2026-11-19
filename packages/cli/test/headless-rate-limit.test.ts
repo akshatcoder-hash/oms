@@ -35,6 +35,15 @@ const expected = {
     calls: 1 + progress.length,
     exit: 0,
   },
+  'in bench mode stays throttled past the retry cap, then makes progress': {
+    bench: true,
+    throttled: MAX_RATE_LIMIT_RETRIES + 2,
+    body: 'slow down',
+    status: 'closed',
+    reason: null,
+    calls: MAX_RATE_LIMIT_RETRIES + 2 + progress.length,
+    exit: 0,
+  },
   'stays throttled past every retry': {
     throttled: Infinity,
     body: 'slow down',
@@ -159,6 +168,7 @@ for (const [scenario, want] of Object.entries(expected)) {
           binary,
           '--json-out',
           jsonOut,
+          ...('bench' in want ? ['--retry-rate-limits-until-deadline'] : []),
         ],
         { modelRuntime: f.modelRuntime },
       );

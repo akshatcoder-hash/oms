@@ -283,6 +283,7 @@ export async function runHelper(parts: SessionApiParts, run: HelperRun): Promise
       maxOutputTokens: options.maxOutputTokens,
       maxInputTokens: helperInputCap(options.maxInputTokens, run.model),
       subscriptionExempt: options.subscriptionSpendExempt,
+      retryRateLimitsUntilDeadline: options.retryRateLimitsUntilDeadline,
       subscribed: (provider) => chat.modelRuntime.isUsingSubscription(provider),
       logicalTurnId: () => run.turnId,
       concurrent: true,

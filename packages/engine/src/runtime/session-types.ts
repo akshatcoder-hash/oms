@@ -46,6 +46,8 @@ export interface CommonSessionOptions {
   maxInputTokens?: number;
   /** Benchmark runner only: bounded ChatGPT-subscription calls are not held to the API-dollar cap (they cost no API credit). */
   subscriptionSpendExempt?: boolean;
+  /** Benchmark runner only: a throttled request is resent until the run's deadline, not only MAX_RATE_LIMIT_RETRIES times. */
+  retryRateLimitsUntilDeadline?: boolean;
   executionMode?: ExecutionMode;
   /** Opt-in model/user command previews and session-scoped read_log; never verifier output. */
   outputMode?: 'head-tail';
