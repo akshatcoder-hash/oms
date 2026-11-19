@@ -49,6 +49,14 @@ test('a valid session gets the /search and /fetch shapes from /oms/search/v1/*',
   assert.equal(bench.cached, true, 'the KV cache is shared with the bench route');
 });
 
+test('KV write failures do not fail search, fetch, or signed-in search responses', async () => {
+  const { call, userCall, kv } = setup(routes);
+  kv.failPuts = true;
+  assert.equal((await call('/search', { query: 'bench' })).status, 200);
+  assert.equal((await call('/fetch', { url: 'https://docs.example.com/p' })).status, 200);
+  assert.equal((await userCall('/v1/search', { query: 'signed-in' })).status, 200);
+});
+
 test('a missing or malformed token is 401 UNAUTHENTICATED and never reaches the gateway', async () => {
   const { userCall, gateway, upstream } = setup(routes);
   for (const authorization of [

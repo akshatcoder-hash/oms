@@ -10,6 +10,7 @@ export const sha = (text: string) => createHash('sha256').update(text).digest('h
 export class FakeKV {
   readonly data = new Map<string, { value: string; ttl?: number }>();
   gets = 0;
+  failPuts = false;
   async get(key: string, type?: string) {
     this.gets++;
     const entry = this.data.get(key);
@@ -17,6 +18,7 @@ export class FakeKV {
     return type === 'json' ? JSON.parse(entry.value) : entry.value;
   }
   async put(key: string, value: string, options?: { expirationTtl?: number }) {
+    if (this.failPuts) throw new Error('KV put failed');
     this.data.set(key, { value, ttl: options?.expirationTtl });
   }
 }

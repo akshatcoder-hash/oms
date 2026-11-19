@@ -161,10 +161,13 @@ async function search(env: Env, deps: Deps, caller: Caller, query: string, count
   backends[CONTEXT_DEV] = `ok (${outcome.value.length})`;
   const results = fuse([{ source: CONTEXT_DEV, hits: outcome.value }], MAX_RESULTS).map(({ score: _score, ...r }) => r);
   const answered = [CONTEXT_DEV];
-  if (results.length)
-    await env.CACHE.put(key, JSON.stringify({ results, backends, answered } satisfies SearchAnswer), {
-      expirationTtl: SEARCH_TTL_S,
-    });
+  if (results.length) {
+    try {
+      await env.CACHE.put(key, JSON.stringify({ results, backends, answered } satisfies SearchAnswer), {
+        expirationTtl: SEARCH_TTL_S,
+      });
+    } catch {}
+  }
   return json(200, { query, results: results.slice(0, count), backends, answered, cached: false });
 }
 
@@ -199,7 +202,9 @@ async function fetchPage(env: Env, deps: Deps, caller: Caller, raw: string): Pro
       backend,
       answered: [backend],
     };
-    await env.CACHE.put(key, JSON.stringify(value), { expirationTtl: FETCH_TTL_S });
+    try {
+      await env.CACHE.put(key, JSON.stringify(value), { expirationTtl: FETCH_TTL_S });
+    } catch {}
     return json(200, { ...value, attempts, cached: false });
   };
 
@@ -303,9 +308,11 @@ async function sessionUser(request: Request, env: Env, deps: Deps): Promise<stri
   if (settled) {
     const ms = userId ? SESSION_OK_MS : SESSION_REFUSED_MS;
     // KV expiry has a 60 s floor, so `until` carries the exact lifetime.
-    await env.CACHE.put(key, JSON.stringify({ ...(userId ? { userId } : {}), until: deps.now() + ms }), {
-      expirationTtl: Math.max(60, ms / 1000),
-    });
+    try {
+      await env.CACHE.put(key, JSON.stringify({ ...(userId ? { userId } : {}), until: deps.now() + ms }), {
+        expirationTtl: Math.max(60, ms / 1000),
+      });
+    } catch {}
   }
   return userId;
 }
