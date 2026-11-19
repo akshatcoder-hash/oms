@@ -1,24 +1,28 @@
+/** Result fusion, ported from packages/search-service/src/fusion.ts: reciprocal rank fusion, canonical-URL dedupe, Solana boost. */
+
+/** `engines` names the engines behind a hit, for diagnostics. */
 export interface Hit {
   title: string;
   url: string;
   snippet: string;
-  /** Higher is better; backends score their own hits before fusion. */
-  score: number;
+  engines?: string[];
+}
+export interface RankedList {
   source: string;
-  engines?: string[];
+  hits: Hit[];
 }
-
-export interface Result {
-  title: string;
-  url: string;
-  snippet: string;
+export interface FusedResult extends Hit {
   sources: string[];
-  engines?: string[];
+  score: number;
 }
 
-const TRACKING = /^(utm_[a-z]+|gclid|fbclid|dclid|msclkid|mc_cid|mc_eid|ref_src|igshid|_hsenc|_hsmi|yclid)$/i;
+/** The usual RRF constant: damps the gap between rank 1 and rank 2 so agreement across backends matters. */
+const RRF_K = 60;
+/** A Solana source at rank r beats a generic result up to rank ~1.2r + 12. */
+export const SOLANA_BOOST = 1.2;
+const TRACKING = /^(utm_|fbclid$|gclid$|msclkid$|ref$|ref_src$)/i;
 
-/** One key per page: lowercase scheme and host, no www., default port, fragment, tracking params or trailing slash. */
+/** Dedupe key: host without www, path without trailing slash (one form per Stack Exchange question), sorted query minus tracking params; no scheme, port or fragment. */
 export function canonicalUrl(raw: string): string | undefined {
   let url: URL;
   try {
@@ -27,22 +31,21 @@ export function canonicalUrl(raw: string): string | undefined {
     return undefined;
   }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
-  const host = url.hostname
-    .toLowerCase()
-    .replace(/^www\./, '')
-    .replace(/\.$/, '');
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  let path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : '/';
+  // Stack Exchange: /q/<id> and /questions/<id>/<slug> are the same question.
+  const question = /^\/(?:q|questions)\/(\d+)(?:\/|$)/.exec(path);
+  if (question && (host.endsWith('stackexchange.com') || host === 'stackoverflow.com'))
+    path = `/questions/${question[1]}`;
   const params = [...url.searchParams]
     .filter(([name]) => !TRACKING.test(name))
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  const query = params.length ? `?${new URLSearchParams(params).toString()}` : '';
-  let path = url.pathname.replace(/\/{2,}/g, '/');
-  path = path.replace(/\/(index\.html?)?$/i, '') || '';
-  return `${host}${url.port ? `:${url.port}` : ''}${path}${query}`;
+  return host + path + (params.length ? '?' + new URLSearchParams(params).toString() : '');
 }
 
-const SOLANA_HOSTS = ['solana.com', 'anchor-lang.com', 'solana.stackexchange.com', 'surfpool.run', 'helius.dev'];
+const hostIs = (host: string, domain: string) => host === domain || host.endsWith('.' + domain);
 
-/** Solana sources: solana.com, Anchor, Solana StackExchange, github.com/solana-*, Surfpool and Helius docs. */
+/** solana.com, anchor-lang, solana.stackexchange.com, github.com/solana-*, surfpool, helius docs. */
 export function isSolanaSource(raw: string): boolean {
   let url: URL;
   try {
@@ -50,48 +53,48 @@ export function isSolanaSource(raw: string): boolean {
   } catch {
     return false;
   }
-  const host = url.hostname.toLowerCase().replace(/^www\./, '');
-  const path = url.pathname.toLowerCase();
-  if (host === 'github.com')
-    return (
-      /^\/(solana-[^/]+|solana-labs|solana-foundation|solana-developers)(\/|$)/.test(path) ||
-      /^\/[^/]+\/surfpool(\/|$)/.test(path)
-    );
-  if (host.includes('anchor-lang')) return true;
-  if (host.includes('surfpool')) return true;
-  if (host === 'helius.dev' || host.endsWith('.helius.dev'))
-    return host.startsWith('docs.') || path.startsWith('/docs');
-  return SOLANA_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  const host = url.hostname.toLowerCase();
+  const [first = '', second = ''] = url.pathname
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+  if (
+    hostIs(host, 'solana.com') ||
+    hostIs(host, 'anchor-lang.com') ||
+    hostIs(host, 'surfpool.run') ||
+    hostIs(host, 'solana.stackexchange.com')
+  )
+    return true;
+  if (host === 'docs.rs') return first === 'anchor-lang';
+  if (host === 'github.com') return first.startsWith('solana-') || second === 'surfpool' || second === 'anchor';
+  if (hostIs(host, 'helius.dev')) return host === 'docs.helius.dev' || first === 'docs';
+  return false;
 }
 
-export const SOLANA_BOOST = 1.2;
-
-/** Dedupes hits by canonical URL (first title/snippet kept, scores and sources merged), boosts Solana sources, ranks. */
-export function fuse(hits: Hit[], count: number): Result[] {
-  const merged = new Map<string, Hit & { sources: Set<string>; engineSet: Set<string> }>();
-  for (const hit of hits) {
-    const key = canonicalUrl(hit.url);
-    if (!key) continue;
-    const seen = merged.get(key);
-    if (seen) {
-      seen.score += hit.score;
-      seen.sources.add(hit.source);
-      for (const engine of hit.engines ?? []) seen.engineSet.add(engine);
-      if (!seen.snippet && hit.snippet) seen.snippet = hit.snippet;
-      if (!seen.title && hit.title) seen.title = hit.title;
-    } else {
-      merged.set(key, { ...hit, sources: new Set([hit.source]), engineSet: new Set(hit.engines ?? []) });
-    }
+export function fuse(lists: RankedList[], count: number): FusedResult[] {
+  const byKey = new Map<string, FusedResult>();
+  for (const { source, hits } of lists) {
+    hits.forEach((hit, index) => {
+      const key = canonicalUrl(hit.url);
+      if (!key) return;
+      const contribution = 1 / (RRF_K + index + 1);
+      const seen = byKey.get(key);
+      if (seen) {
+        seen.score += contribution;
+        if (!seen.sources.includes(source)) seen.sources.push(source);
+        if (!seen.snippet) seen.snippet = hit.snippet;
+        for (const engine of hit.engines ?? []) if (!seen.engines?.includes(engine)) (seen.engines ??= []).push(engine);
+      } else
+        byKey.set(key, {
+          ...hit,
+          ...(hit.engines ? { engines: [...hit.engines] } : {}),
+          sources: [source],
+          score: contribution,
+        });
+    });
   }
-  return [...merged.values()]
-    .map((hit) => ({ hit, score: hit.score * (isSolanaSource(hit.url) ? SOLANA_BOOST : 1) }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, count)
-    .map(({ hit }) => ({
-      title: hit.title,
-      url: hit.url,
-      snippet: hit.snippet,
-      sources: [...hit.sources],
-      ...(hit.engineSet.size ? { engines: [...hit.engineSet] } : {}),
-    }));
+  const results = [...byKey.values()];
+  for (const result of results) if (isSolanaSource(result.url)) result.score *= SOLANA_BOOST;
+  // Array.prototype.sort is stable: equal scores keep first-seen order.
+  return results.sort((a, b) => b.score - a.score).slice(0, count);
 }

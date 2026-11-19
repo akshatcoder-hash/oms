@@ -1,15 +1,21 @@
 import type { Hit } from './fusion.ts';
-import { MAX_DOWNLOAD_BYTES, readCapped, type Page } from './fetch-guard.ts';
+import { readCapped, type Page } from './fetch-guard.ts';
 
 export const CONTEXT_DEV = 'context.dev';
 const API = 'https://api.context.dev/v1';
 const DEFAULT_RETRY_AFTER_MS = 60_000;
-const RELEVANCE: Record<string, number> = { high: 1, medium: 0.8, low: 0.6 };
+/** Largest upstream JSON body read. */
+const RESPONSE_BYTE_LIMIT = 4_000_000;
+/** Results asked for on every search; answers are cached for any `count` (as the old service fused its top 20). */
+export const SEARCH_RESULTS = 20;
 
 export type Outcome<T> =
   | { ok: true; value: T; credits: number }
-  /** `pauseMs` is set for 402, 429 and 5xx: the backend is out of credit, rate limited or down. */
-  | { ok: false; status: number; pauseMs?: number; credits: number };
+  /**
+   * `error` is a short, upstream-free description. `unavailable` marks a 402, 429, 5xx or unreachable upstream;
+   * `pauseMs` is set when it asked us to back off (429, 402, or any Retry-After).
+   */
+  | { ok: false; error: string; unavailable: boolean; pauseMs?: number; credits: number };
 
 /** Retry-After as delta-seconds or an HTTP date; absent or unreadable means 60 s. */
 export function retryAfterMs(header: string | null, now: number): number {
@@ -27,6 +33,10 @@ export interface ContextDevConfig {
   now: () => number;
 }
 
+const creditsOf = (response: Response) => Number(response.headers.get('x-credits-used')) || 0;
+const fail = (error: string, credits: number, unavailable = false, pauseMs?: number) =>
+  ({ ok: false, error, unavailable, credits, ...(pauseMs === undefined ? {} : { pauseMs }) }) as const;
+
 async function call(config: ContextDevConfig, path: string, body: object, timeoutMs: number): Promise<Outcome<any>> {
   let response: Response;
   try {
@@ -36,55 +46,46 @@ async function call(config: ContextDevConfig, path: string, body: object, timeou
       body: JSON.stringify({ ...body, ...(config.zdr ? { zdr: 'enabled' } : {}) }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-  } catch {
-    return { ok: false, status: 0, pauseMs: 5_000, credits: 0 };
+  } catch (error) {
+    return fail(error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'unreachable', 0, true);
   }
-  // Error bodies are never read past their credit count and never echoed.
-  if (!response.ok) {
-    const credits = Number(response.headers.get('x-credits-used')) || 0;
+  // Error bodies are never read or echoed.
+  if (response.status === 429 || response.status === 402 || response.status >= 500) {
+    const header = response.headers.get('retry-after');
     void response.body?.cancel().catch(() => {});
-    const unavailable = response.status === 402 || response.status === 429 || response.status >= 500;
-    return {
-      ok: false,
-      status: response.status,
-      credits,
-      ...(unavailable ? { pauseMs: retryAfterMs(response.headers.get('retry-after'), config.now()) } : {}),
-    };
+    const pause = response.status < 500 || header ? retryAfterMs(header, config.now()) : undefined;
+    return fail(`HTTP ${response.status}`, creditsOf(response), true, pause);
   }
-  const { bytes, truncated } = await readCapped(response, MAX_DOWNLOAD_BYTES + 64 * 1024);
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => {});
+    return fail(`HTTP ${response.status}`, creditsOf(response));
+  }
+  const { bytes, truncated } = await readCapped(response, RESPONSE_BYTE_LIMIT);
+  if (truncated) return fail('response too large', creditsOf(response));
   let parsed: any;
   try {
-    if (truncated) throw new Error('too large');
     parsed = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return { ok: false, status: 502, credits: Number(response.headers.get('x-credits-used')) || 0 };
+    return fail('unreadable response', creditsOf(response));
   }
   const credits = Number(parsed?.key_metadata?.credits_consumed ?? response.headers.get('x-credits-used')) || 0;
   return { ok: true, value: parsed, credits };
 }
 
-/** Ranked hits; each is scored by reciprocal rank (k = 60) times its relevance band. */
-export async function contextDevSearch(
-  config: ContextDevConfig,
-  query: string,
-  count: number,
-): Promise<Outcome<Hit[]>> {
-  const outcome = await call(config, '/web/search', { query, numResults: count }, 30_000);
+const str = (value: unknown) => (typeof value === 'string' ? value : '');
+
+/** Ranked hits, best first. */
+export async function contextDevSearch(config: ContextDevConfig, query: string): Promise<Outcome<Hit[]>> {
+  const outcome = await call(config, '/web/search', { query, numResults: SEARCH_RESULTS }, 12_000);
   if (!outcome.ok) return outcome;
   const results: any[] = Array.isArray(outcome.value?.results) ? outcome.value.results : [];
   const hits = results
     .filter((r) => typeof r?.url === 'string')
-    .map((r, rank) => ({
-      title: typeof r.title === 'string' ? r.title : '',
-      url: r.url as string,
-      snippet: typeof r.description === 'string' ? r.description : '',
-      score: (RELEVANCE[r.relevance] ?? 0.6) / (60 + rank + 1),
-      source: CONTEXT_DEV,
-    }));
+    .map((r) => ({ title: str(r.title), url: r.url as string, snippet: str(r.description) }));
   return { ok: true, value: hits, credits: outcome.credits };
 }
 
-/** Main-content Markdown of one page, or a failure when the scrape output did not succeed. */
+/** Main-content Markdown of one page. */
 export async function contextDevScrape(config: ContextDevConfig, url: string): Promise<Outcome<Page>> {
   const outcome = await call(
     config,
@@ -95,18 +96,20 @@ export async function contextDevScrape(config: ContextDevConfig, url: string): P
       sharedParams: { mainContentOnly: true },
       timeoutOpts: { milliseconds: 30_000 },
     },
-    40_000,
+    45_000,
   );
   if (!outcome.ok) return outcome;
   const markdown = outcome.value?.markdown;
-  if (markdown?.success !== true || typeof markdown.data !== 'string')
-    return { ok: false, status: 200, credits: outcome.credits };
+  if (markdown?.success !== true || typeof markdown.data !== 'string') {
+    const code = /^[a-z_]{1,40}$/i.exec(str(markdown?.error_code))?.[0]?.toLowerCase() ?? 'unknown';
+    return fail(`no page (${code})`, outcome.credits);
+  }
   return {
     ok: true,
     credits: outcome.credits,
     value: {
-      finalUrl: typeof outcome.value.url === 'string' ? outcome.value.url : url,
-      title: typeof outcome.value.metadata?.title === 'string' ? outcome.value.metadata.title : '',
+      finalUrl: str(outcome.value.url) || url,
+      title: str(outcome.value.metadata?.title),
       text: markdown.data,
       truncated: false,
     },

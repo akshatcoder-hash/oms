@@ -9,21 +9,24 @@ Deployed as `oms-search-api` on `barestate.xyz/oms-search-api/*` only (`workers_
 
 | Route          | Auth                                | Body                   | Answer                                                                               |
 | -------------- | ----------------------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `GET /health`  | none                                |                        | `{ "status": "ok" }`                                                                 |
+| `GET /health`  | none                                |                        | `{ "ok": true }`                                                                     |
 | `POST /search` | `Bearer` in `ACCEPTED_TOKEN_SHA256` | `{ "query", "count" }` | `{ query, results: [{ title, url, snippet, sources }], backends, answered, cached }` |
 | `POST /fetch`  | `Bearer` in `ACCEPTED_TOKEN_SHA256` | `{ "url" }`            | `{ url, finalUrl, title, text, truncated, backend, answered, attempts, cached }`     |
 | `GET /usage`   | `Bearer` in `ADMIN_TOKEN_SHA256`    | `?days=1..90`          | `{ days: [{ date, requests, credits, routes, tokens }] }`                            |
 
-- A missing or wrong token gets `401` `text/plain`. Tokens are compared by SHA-256 digest and never logged.
-- `count` is an integer from 1 to 20 (default 10).
-- `/search`: context.dev web search, deduplicated by canonical URL, Solana sources scored x1.2, cached in KV for 24 h.
-  When context.dev is unavailable it answers `503` with `Retry-After`.
+- A missing or wrong token gets `401 Unauthorized` (text/plain). Tokens are compared by SHA-256 digest and never logged.
+- Each token has a fixed one-minute window (`RATE_PER_MIN`, default 60, per isolate); over it the answer is `429` with `Retry-After`.
+- `query` is 1-400 characters (whitespace collapsed); `count` is an integer from 1 to 20 (default 10).
+- `/search`: context.dev web search, merged with reciprocal rank fusion (k = 60), deduplicated by canonical URL (no scheme,
+  `www.`, port, fragment or tracking parameters; one form per Stack Exchange question), Solana sources scored x1.2.
+  The top 20 are cached in KV for 24 h. When context.dev is unavailable it answers `503` with `Retry-After`.
 - `/fetch`: context.dev scrape (Markdown, main content only), then a plain fetch. A 402, 429 or 5xx from context.dev
-  moves on to the plain fetch. Cached in KV for 7 days.
+  moves on to the plain fetch. `attempts` maps each backend that failed to a short reason. Cached in KV for 7 days.
   - HTTPS only, no credentials in the URL, no hosts that are or resolve to private, loopback, link-local, CGNAT or
     metadata addresses. Every redirect of the plain fetch is checked again.
   - The download stops at 2 MB and the text at 200,000 characters (`truncated: true`).
-- A 402, 429 or 5xx pauses context.dev for its `Retry-After` (60 s if absent). Upstream error bodies are never returned.
+- A 402, a 429, or any response with `Retry-After` pauses context.dev until the time it asked for (60 s if absent).
+  Upstream error bodies are never returned.
 
 ## Concurrency and usage
 

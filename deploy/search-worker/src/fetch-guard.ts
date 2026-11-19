@@ -1,7 +1,7 @@
 import { htmlToMarkdown } from './html.ts';
 import { isIP, isPrivateAddress } from './net.ts';
 
-export const MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024;
+export const MAX_DOWNLOAD_BYTES = 2_000_000;
 export const MAX_TEXT_CHARS = 200_000;
 const MAX_REDIRECTS = 5;
 const METADATA_HOSTS = new Set([
@@ -12,6 +12,8 @@ const METADATA_HOSTS = new Set([
   'instance-data.ec2.internal',
   'metadata.azure.com',
 ]);
+
+const PRIVATE = 'web_fetch refuses private, loopback and link-local addresses';
 
 /** A refusal whose message is safe to return to the caller. */
 export class GuardError extends Error {}
@@ -24,10 +26,10 @@ export function parseFetchUrl(raw: unknown): URL {
   try {
     url = new URL(String(raw));
   } catch {
-    throw new GuardError('url must be an absolute https:// URL');
+    throw new GuardError('web_fetch needs an absolute https:// URL');
   }
-  if (url.protocol !== 'https:') throw new GuardError('only https:// URLs are fetched');
-  if (url.username || url.password) throw new GuardError('URLs with credentials are refused');
+  if (url.protocol !== 'https:') throw new GuardError('web_fetch only fetches https:// URLs');
+  if (url.username || url.password) throw new GuardError('web_fetch refuses URLs with credentials');
   const host = bareHost(url);
   if (
     !host ||
@@ -37,9 +39,8 @@ export function parseFetchUrl(raw: unknown): URL {
     host === 'localhost' ||
     host.endsWith('.localhost')
   )
-    throw new GuardError('private, loopback, link-local and metadata hosts are refused');
-  if (isIP(host) && isPrivateAddress(host))
-    throw new GuardError('private, loopback, link-local and metadata hosts are refused');
+    throw new GuardError(PRIVATE);
+  if (isIP(host) && isPrivateAddress(host)) throw new GuardError(PRIVATE);
   return url;
 }
 
@@ -63,16 +64,12 @@ export const dohResolve: Resolve = async (host) => {
   return answers;
 };
 
-/** Resolves the host and refuses it when any answer is private, loopback, link-local, CGNAT or reserved. */
+/** Resolves the host and refuses it when it does not resolve or any answer is private, loopback, link-local, CGNAT or reserved. */
 export async function assertPublicHost(url: URL, resolve: Resolve): Promise<void> {
   const host = bareHost(url);
   if (isIP(host)) return;
-  const addresses = await resolve(host).catch(() => {
-    throw new GuardError('the host could not be resolved');
-  });
-  if (!addresses.length) throw new GuardError('the host could not be resolved');
-  if (addresses.some(isPrivateAddress))
-    throw new GuardError('private, loopback, link-local and metadata hosts are refused');
+  const addresses = await resolve(host).catch(() => [] as string[]);
+  if (!addresses.length || addresses.some(isPrivateAddress)) throw new GuardError(PRIVATE);
 }
 
 /** Reads at most `limit` bytes of the body; the rest is cancelled. */
@@ -115,11 +112,11 @@ export interface Page {
 }
 
 /** Caps text at MAX_TEXT_CHARS. */
-export function capText(page: Page): Page {
-  return page.text.length > MAX_TEXT_CHARS
-    ? { ...page, text: page.text.slice(0, MAX_TEXT_CHARS), truncated: true }
-    : page;
-}
+export const capText = (page: Page): Page => ({
+  ...page,
+  text: page.text.slice(0, MAX_TEXT_CHARS),
+  truncated: page.truncated || page.text.length > MAX_TEXT_CHARS,
+});
 
 /** GET with every hop re-checked (URL rules and DNS), at most 5 redirects, the body capped at 2 MB. */
 export async function plainFetch(
@@ -148,20 +145,23 @@ export async function plainFetch(
     }
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
-      throw new GuardError(`the page answered HTTP ${response.status}`);
+      throw new GuardError(`web_fetch got HTTP ${response.status}`);
     }
     const contentType = response.headers.get('content-type') ?? '';
-    if (contentType && !/html|^text\/|^application\/(json|xml|xhtml\+xml|markdown)/i.test(contentType)) {
+    if (contentType && !/html/i.test(contentType) && !/^(text\/|application\/(json|xml|markdown))/i.test(contentType)) {
       void response.body?.cancel().catch(() => {});
-      throw new GuardError('the page is not text');
+      // The server's own Content-Type text is not echoed.
+      throw new GuardError(
+        `web_fetch does not read ${/^[\w.+-]{1,64}\/[\w.+-]{1,64}/.exec(contentType)?.[0] ?? 'this'} content`,
+      );
     }
     const { bytes, truncated } = await readCapped(response, MAX_DOWNLOAD_BYTES);
     const body = new TextDecoder().decode(bytes);
     if (/html/i.test(contentType)) {
       const { title, markdown } = htmlToMarkdown(body, url.href);
-      return capText({ finalUrl: url.href, title, text: markdown, truncated });
+      return { finalUrl: url.href, title: '', text: title ? `# ${title}\n\n${markdown}` : markdown, truncated };
     }
-    return capText({ finalUrl: url.href, title: '', text: body, truncated });
+    return { finalUrl: url.href, title: '', text: body, truncated };
   }
-  throw new GuardError(`stopped after ${MAX_REDIRECTS} redirects`);
+  throw new GuardError(`web_fetch stopped after ${MAX_REDIRECTS} redirects`);
 }

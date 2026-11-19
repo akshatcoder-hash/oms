@@ -4,7 +4,7 @@ import { ContextDevGate } from '../src/gate.ts';
 
 export const TOKEN = 'bench-token-0123456789';
 export const GATEWAY_TOKEN = 'gateway-token-abcdef';
-export const ADMIN = 'admin-token-xyz';
+export const ADMIN = 'admin-token-xyz-000001';
 export const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 
 export class FakeKV {
@@ -72,6 +72,7 @@ export function fakeFetch(routes: Record<string, Route>) {
 export const publicResolve = async (host: string) => {
   if (host.endsWith('internal.example')) return ['10.0.0.7'];
   if (host === 'rebind.example') return ['93.184.216.34', '127.0.0.1'];
+  if (host === 'nx.example') return [];
   return ['93.184.216.34'];
 };
 

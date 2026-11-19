@@ -22,7 +22,7 @@ function sameHex(a: string, b: string): boolean {
 
 /** The digest of the request's bearer token when it is in `accepted`, else undefined. The token itself is never kept. */
 export async function authorize(request: Request, accepted: string[]): Promise<string | undefined> {
-  const match = /^Bearer ([\x21-\x7e]{1,512})$/.exec(request.headers.get('authorization') ?? '');
+  const match = /^Bearer ([\x21-\x7e]{16,512})$/.exec(request.headers.get('authorization') ?? '');
   if (!match || !accepted.length) return undefined;
   const digest = await sha256Hex(match[1]!);
   let ok = false;

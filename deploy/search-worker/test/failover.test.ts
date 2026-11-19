@@ -4,7 +4,7 @@ import { Semaphore } from '../src/semaphore.ts';
 import { SEARCH, searchBody, searchResult, setup, sleep } from './helpers.ts';
 
 for (const status of [402, 429, 500, 502, 503]) {
-  test(`search: context.dev ${status} returns 503 with Retry-After, pauses the backend, never echoes the body`, async () => {
+  test(`search: context.dev ${status} returns 503 with Retry-After, pauses context.dev, never echoes the body`, async () => {
     const { call, upstream } = setup({
       [SEARCH]: () => new Response('UPSTREAM-SECRET-BODY', { status, headers: { 'retry-after': '42' } }),
     });
@@ -13,11 +13,18 @@ for (const status of [402, 429, 500, 502, 503]) {
     assert.equal(response.headers.get('retry-after'), '42');
     const raw = await response.text();
     assert.ok(!raw.includes('UPSTREAM-SECRET-BODY'));
-    assert.deepEqual(JSON.parse(raw).backends, { 'context.dev': status === 429 ? 'rate_limited' : 'error' });
+    assert.deepEqual(JSON.parse(raw), {
+      error: 'every search backend failed',
+      backends: { 'context.dev': `HTTP ${status}` },
+      answered: [],
+    });
     const again = await call('/search', { query: 'other' });
     assert.equal(again.status, 503);
-    assert.ok(Number(again.headers.get('retry-after')) <= 42 && Number(again.headers.get('retry-after')) >= 40);
-    assert.deepEqual((await again.json<any>()).backends, { 'context.dev': 'paused' });
+    const wait = Number(again.headers.get('retry-after'));
+    assert.ok(wait <= 42 && wait >= 40, String(wait));
+    const body = await again.json<any>();
+    assert.equal(body.error, 'every search backend is cooling down');
+    assert.match(body.backends['context.dev'], /^cooling down 4\d s$/);
     assert.equal(upstream.calls.length, 1);
   });
 }
@@ -27,12 +34,14 @@ test('search: an unreachable context.dev is a 503 with Retry-After', async () =>
   const response = await call('/search', { query: 'q' });
   assert.equal(response.status, 503);
   assert.ok(Number(response.headers.get('retry-after')) >= 1);
+  assert.deepEqual((await response.json<any>()).backends, { 'context.dev': 'unreachable' });
 });
 
-test('search: a non-retryable 4xx from context.dev is a 503 and does not pause', async () => {
+test('search: a non-retryable 4xx from context.dev is a 502 and does not pause', async () => {
   const { call, gate } = setup({ [SEARCH]: () => new Response('nope', { status: 401 }) });
   const response = await call('/search', { query: 'q' });
-  assert.equal(response.status, 503);
+  assert.equal(response.status, 502);
+  assert.deepEqual((await response.json<any>()).backends, { 'context.dev': 'HTTP 401' });
   assert.equal(gate.semaphore.pausedFor(), 0);
 });
 
@@ -82,7 +91,7 @@ test('semaphore: an abandoned lease expires so the slot comes back', async () =>
   let now = 0;
   const semaphore = new Semaphore(1, 1_000, () => now);
   assert.ok('lease' in (await semaphore.acquire(10)));
-  assert.equal((await semaphore.acquire(10)).hasOwnProperty('lease'), false);
+  assert.ok(!('lease' in (await semaphore.acquire(10))));
   now = 1_001;
   assert.ok('lease' in (await semaphore.acquire(10)));
 });
@@ -122,7 +131,7 @@ test('worker: when the queue wait runs out, callers get 503 + Retry-After, never
   const response = await call('/search', { query: 'late' });
   assert.equal(response.status, 503);
   assert.equal(response.headers.get('retry-after'), '2');
-  assert.deepEqual((await response.json<any>()).backends, { 'context.dev': 'busy' });
+  assert.deepEqual((await response.json<any>()).backends, { 'context.dev': 'cooling down 2 s' });
   assert.equal(upstream.stats.peakContextDev, 5);
   assert.equal(gate.semaphore.peak, 5);
   await Promise.all(held);

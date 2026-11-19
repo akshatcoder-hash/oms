@@ -1,16 +1,9 @@
 import { authorize, digestList, sha256Hex } from './auth.ts';
 import { CONTEXT_DEV, contextDevScrape, contextDevSearch, type ContextDevConfig, type Outcome } from './context-dev.ts';
-import {
-  capText,
-  GuardError,
-  assertPublicHost,
-  parseFetchUrl,
-  plainFetch,
-  type Page,
-  type Resolve,
-} from './fetch-guard.ts';
-import { fuse } from './fusion.ts';
+import { capText, GuardError, parseFetchUrl, plainFetch, type Page, type Resolve } from './fetch-guard.ts';
+import { canonicalUrl, fuse, type FusedResult } from './fusion.ts';
 import { QUEUE_WAIT_MS, type UsageEvent } from './gate.ts';
+import { isIP, isPrivateAddress } from './net.ts';
 import type { Grant } from './semaphore.ts';
 
 export interface Env {
@@ -22,6 +15,8 @@ export interface Env {
   ADMIN_TOKEN_SHA256?: string;
   /** "enabled" sends zdr: "enabled" on every context.dev request. */
   CONTEXT_DEV_ZDR?: string;
+  /** Calls per token per minute (default 60). */
+  RATE_PER_MIN?: string;
 }
 
 export interface Deps {
@@ -32,20 +27,39 @@ export interface Deps {
 
 export const SEARCH_TTL_S = 24 * 60 * 60;
 export const FETCH_TTL_S = 7 * 24 * 60 * 60;
+export const MAX_RESULTS = 20;
 const PREFIX = '/oms-search-api';
-const MAX_QUERY_CHARS = 1_000;
+const FETCH_TIMEOUT_MS = 45_000;
+const WINDOW_MS = 60_000;
 
-const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-  Response.json(body, { status, headers: { 'cache-control': 'no-store', ...headers } });
-const text = (body: string, status: number, headers: Record<string, string> = {}) =>
-  new Response(body, {
-    status,
-    headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...headers },
-  });
-const unauthorized = () => text('unauthorized\n', 401, { 'www-authenticate': 'Bearer' });
-const retryAfter = (ms: number) => String(Math.max(1, Math.ceil(ms / 1000)));
+/** `answered` names the backends whose output is in the answer, so a run record can say what "OMS search" was. */
+interface SearchAnswer {
+  results: Omit<FusedResult, 'score'>[];
+  backends: Record<string, string>;
+  answered: string[];
+}
+interface PageAnswer {
+  url: string;
+  finalUrl: string;
+  title: string;
+  text: string;
+  truncated: boolean;
+  backend: string;
+  answered: string[];
+}
 
-type BackendState = 'ok' | 'error' | 'rate_limited' | 'busy' | 'paused' | 'skipped';
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
+const retryAfter = (ms: number) => ({ 'retry-after': String(Math.max(1, Math.ceil(ms / 1000))) });
+const unauthorized = () =>
+  new Response('Unauthorized', { status: 401, headers: { 'content-type': 'text/plain;charset=UTF-8' } });
+const describe = (error: unknown) =>
+  error instanceof Error && error.name === 'TimeoutError'
+    ? 'timeout'
+    : error instanceof GuardError
+      ? error.message.slice(0, 160)
+      : 'failed';
+const coolingDown = (ms: number) => `cooling down ${Math.ceil(ms / 1000)} s`;
 
 function gate(env: Env) {
   const stub = env.GATE.get(env.GATE.idFromName(CONTEXT_DEV));
@@ -59,7 +73,7 @@ function gate(env: Env) {
   };
 }
 
-/** Runs `call` inside a gate slot, records its credits, and pauses the backend on 402/429/5xx. */
+/** Runs `call` in a gate slot, records its credits, and pauses context.dev for the Retry-After it asked for. */
 async function throughGate<T>(
   env: Env,
   route: UsageEvent['route'],
@@ -76,7 +90,7 @@ async function throughGate<T>(
   } finally {
     const credits = outcome?.credits ?? 0;
     const token = digest.slice(0, 16);
-    if (!outcome?.ok && outcome?.pauseMs) await slots.pause(outcome.pauseMs);
+    if (outcome && !outcome.ok && outcome.pauseMs !== undefined) await slots.pause(outcome.pauseMs);
     await slots.release(grant.lease, { route, token, credits });
     env.USAGE_EVENTS?.writeDataPoint({
       indexes: [token],
@@ -86,136 +100,160 @@ async function throughGate<T>(
   }
 }
 
-const stateOf = (grant: Grant, outcome?: Outcome<unknown>): BackendState =>
-  !('lease' in grant)
-    ? grant.reason
-    : outcome?.ok
-      ? 'ok'
-      : outcome && 'status' in outcome && outcome.status === 429
-        ? 'rate_limited'
-        : 'error';
-
-async function readJson(request: Request): Promise<Record<string, unknown> | undefined> {
-  if (Number(request.headers.get('content-length') ?? 0) > 64 * 1024) return undefined;
-  try {
-    const body = await request.json();
-    return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function contextDev(env: Env, deps: Deps): ContextDevConfig | undefined {
   return env.CONTEXT_DEV_API_KEY
     ? { apiKey: env.CONTEXT_DEV_API_KEY, zdr: env.CONTEXT_DEV_ZDR === 'enabled', fetch: deps.fetch, now: deps.now }
     : undefined;
 }
 
-async function search(request: Request, env: Env, deps: Deps, digest: string): Promise<Response> {
-  const body = await readJson(request);
-  const query = typeof body?.query === 'string' ? body.query.trim() : '';
-  const count = body?.count === undefined ? 10 : body.count;
-  if (!query || query.length > MAX_QUERY_CHARS) return json({ error: 'query must be a non-empty string' }, 400);
-  if (typeof count !== 'number' || !Number.isInteger(count) || count < 1 || count > 20)
-    return json({ error: 'count must be an integer from 1 to 20' }, 400);
-
-  const key = `search:v1:${await sha256Hex(JSON.stringify([query, count]))}`;
-  const hit = await env.CACHE.get<Record<string, unknown>>(key, 'json');
-  if (hit) return json({ ...hit, cached: true });
-
+async function search(env: Env, deps: Deps, digest: string, query: string, count: number): Promise<Response> {
+  // The key is a digest, so KV never holds query text.
+  const key = `search:${await sha256Hex(query.toLowerCase())}`;
+  const hit = await env.CACHE.get<SearchAnswer>(key, 'json');
+  if (hit)
+    return json(200, {
+      query,
+      results: hit.results.slice(0, count),
+      backends: hit.backends,
+      answered: hit.answered,
+      cached: true,
+    });
+  const backends: Record<string, string> = {};
   const config = contextDev(env, deps);
   if (!config)
-    return json({ error: 'search is unavailable', backends: { [CONTEXT_DEV]: 'error' } }, 503, { 'retry-after': '60' });
-  const { grant, outcome } = await throughGate(env, 'search', digest, () => contextDevSearch(config, query, count));
-  const backends = { [CONTEXT_DEV]: stateOf(grant, outcome) };
-  if (!outcome?.ok) {
-    const wait = !('lease' in grant)
-      ? grant.retryAfterMs
-      : (outcome && 'pauseMs' in outcome && outcome.pauseMs) || 60_000;
-    return json({ error: 'search is unavailable', backends }, 503, { 'retry-after': retryAfter(wait) });
+    return json(503, { error: 'no search backend is configured', backends, answered: [] }, retryAfter(60_000));
+  const { grant, outcome } = await throughGate(env, 'search', digest, () => contextDevSearch(config, query));
+  if (!('lease' in grant)) {
+    backends[CONTEXT_DEV] = coolingDown(grant.retryAfterMs);
+    return json(
+      503,
+      { error: 'every search backend is cooling down', backends, answered: [] },
+      retryAfter(grant.retryAfterMs),
+    );
   }
-  const answer = { query, results: fuse(outcome.value, count), backends, answered: [CONTEXT_DEV] };
-  await env.CACHE.put(key, JSON.stringify(answer), { expirationTtl: SEARCH_TTL_S });
-  return json({ ...answer, cached: false });
+  if (!outcome?.ok) {
+    backends[CONTEXT_DEV] = outcome?.error ?? 'failed';
+    if (outcome?.unavailable)
+      return json(
+        503,
+        { error: 'every search backend failed', backends, answered: [] },
+        retryAfter(outcome.pauseMs ?? 5_000),
+      );
+    return json(502, { error: 'every search backend failed', backends, answered: [] });
+  }
+  backends[CONTEXT_DEV] = `ok (${outcome.value.length})`;
+  const results = fuse([{ source: CONTEXT_DEV, hits: outcome.value }], MAX_RESULTS).map(({ score: _score, ...r }) => r);
+  const answered = [CONTEXT_DEV];
+  if (results.length)
+    await env.CACHE.put(key, JSON.stringify({ results, backends, answered } satisfies SearchAnswer), {
+      expirationTtl: SEARCH_TTL_S,
+    });
+  return json(200, { query, results: results.slice(0, count), backends, answered, cached: false });
 }
 
-async function fetchPage(request: Request, env: Env, deps: Deps, digest: string): Promise<Response> {
-  const body = await readJson(request);
+async function fetchPage(env: Env, deps: Deps, digest: string, raw: string): Promise<Response> {
   let url: URL;
   try {
-    url = parseFetchUrl(body?.url);
-    await assertPublicHost(url, deps.resolve);
+    url = parseFetchUrl(raw);
   } catch (error) {
-    return json({ error: error instanceof GuardError ? error.message : 'url refused' }, 400);
+    return json(400, { error: describe(error) });
   }
-  const key = `fetch:v1:${await sha256Hex(url.href)}`;
-  const hit = await env.CACHE.get<Record<string, unknown>>(key, 'json');
-  if (hit) return json({ ...hit, cached: true });
+  // context.dev dials for us, so the host must resolve public before it gets the URL; the plain fetch re-checks every hop.
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  if (!isIP(host)) {
+    const addresses = await deps.resolve(host).catch(() => [] as string[]);
+    if (!addresses.length) return json(400, { error: 'host does not resolve' });
+    if (addresses.some(isPrivateAddress))
+      return json(400, { error: 'private, loopback and link-local addresses are refused' });
+  }
+  const key = `page:${await sha256Hex(canonicalUrl(url.href) ?? url.href)}`;
+  const hit = await env.CACHE.get<PageAnswer>(key, 'json');
+  if (hit) return json(200, { ...hit, cached: true });
 
-  const attempts: { backend: string; state: BackendState }[] = [];
-  let page: Page | undefined;
-  let backend = '';
+  const attempts: Record<string, string> = {};
+  const answer = async (backend: string, page: Page) => {
+    const capped = capText(page);
+    const value: PageAnswer = {
+      url: url.href,
+      finalUrl: capped.finalUrl,
+      title: capped.title,
+      text: capped.text,
+      truncated: capped.truncated,
+      backend,
+      answered: [backend],
+    };
+    await env.CACHE.put(key, JSON.stringify(value), { expirationTtl: FETCH_TTL_S });
+    return json(200, { ...value, attempts, cached: false });
+  };
+
   const config = contextDev(env, deps);
   if (config) {
     const { grant, outcome } = await throughGate(env, 'fetch', digest, () => contextDevScrape(config, url.href));
-    attempts.push({ backend: CONTEXT_DEV, state: stateOf(grant, outcome) });
-    if (outcome?.ok) {
-      page = capText(outcome.value);
-      backend = CONTEXT_DEV;
-    }
-  } else attempts.push({ backend: CONTEXT_DEV, state: 'skipped' });
-
-  if (!page) {
-    try {
-      page = await plainFetch(url, deps.resolve, AbortSignal.timeout(20_000), deps.fetch);
-      backend = 'plain';
-      attempts.push({ backend, state: 'ok' });
-    } catch (error) {
-      attempts.push({ backend: 'plain', state: 'error' });
-      const refused = error instanceof GuardError && /refused|https/.test(error.message);
-      return json(
-        { error: error instanceof GuardError ? error.message : 'the page could not be fetched', attempts },
-        refused ? 400 : 502,
-      );
-    }
+    if (!('lease' in grant)) attempts[CONTEXT_DEV] = coolingDown(grant.retryAfterMs);
+    else if (outcome?.ok) return answer(CONTEXT_DEV, outcome.value);
+    else attempts[CONTEXT_DEV] = outcome?.error ?? 'failed';
   }
-  const answer = {
-    url: url.href,
-    finalUrl: page.finalUrl,
-    title: page.title,
-    text: page.text,
-    truncated: page.truncated,
-    backend,
-    answered: [backend],
-    attempts,
+  try {
+    return await answer(
+      'plain',
+      await plainFetch(url, deps.resolve, AbortSignal.timeout(FETCH_TIMEOUT_MS), deps.fetch),
+    );
+  } catch (error) {
+    attempts.plain = describe(error);
+  }
+  return json(502, { error: 'every fetch backend failed', attempts, answered: [] });
+}
+
+/** Fixed one-minute window per token digest, per isolate. Returns 0 when allowed, else ms until the window resets. */
+function rateLimiter(now: () => number): (digest: string, perMinute: number) => number {
+  const windows = new Map<string, { start: number; count: number }>();
+  return (digest, perMinute) => {
+    const at = now();
+    let window = windows.get(digest);
+    if (!window || at - window.start >= WINDOW_MS) windows.set(digest, (window = { start: at, count: 0 }));
+    if (window.count >= perMinute) return window.start + WINDOW_MS - at;
+    window.count++;
+    return 0;
   };
-  await env.CACHE.put(key, JSON.stringify(answer), { expirationTtl: FETCH_TTL_S });
-  return json({ ...answer, cached: false });
 }
 
 export function createApp(deps: Deps) {
+  const limit = rateLimiter(deps.now);
   return async function handle(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const path = url.pathname.startsWith(PREFIX) ? url.pathname.slice(PREFIX.length) || '/' : url.pathname;
-    if (path === '/health')
-      return request.method === 'GET' || request.method === 'HEAD'
-        ? json({ status: 'ok' })
-        : text('method not allowed\n', 405);
-    if (path === '/usage') {
+    const pathname = url.pathname.startsWith(PREFIX) ? url.pathname.slice(PREFIX.length) || '/' : url.pathname;
+    if (pathname === '/health' && request.method === 'GET') return json(200, { ok: true });
+    if (pathname === '/usage') {
       if (!(await authorize(request, digestList(env.ADMIN_TOKEN_SHA256)))) return unauthorized();
-      if (request.method !== 'GET') return text('method not allowed\n', 405);
+      if (request.method !== 'GET') return json(405, { error: 'use GET' }, { allow: 'GET' });
       return gate(env).usage(url.searchParams.get('days'));
     }
+    if (pathname !== '/search' && pathname !== '/fetch') return json(404, { error: 'not found' });
     const digest = await authorize(request, digestList(env.ACCEPTED_TOKEN_SHA256));
     if (!digest) return unauthorized();
-    if (path !== '/search' && path !== '/fetch') return text('not found\n', 404);
-    if (request.method !== 'POST') return text('method not allowed\n', 405);
+    if (request.method !== 'POST') return json(405, { error: 'use POST' }, { allow: 'POST' });
+    const wait = limit(digest, Number(env.RATE_PER_MIN) || 60);
+    if (wait) return json(429, { error: 'rate limit exceeded' }, retryAfter(wait));
+    let body: any;
     try {
-      return path === '/search'
-        ? await search(request, env, deps, digest)
-        : await fetchPage(request, env, deps, digest);
+      body = await request.json();
     } catch {
-      return json({ error: 'internal error' }, 500);
+      return json(400, { error: 'body must be JSON' });
+    }
+    try {
+      if (pathname === '/search') {
+        const query = typeof body?.query === 'string' ? body.query.replace(/\s+/g, ' ').trim() : '';
+        if (!query || query.length > 400) return json(400, { error: 'query must be 1-400 characters' });
+        const count = body.count ?? 10;
+        if (!Number.isInteger(count) || count < 1 || count > MAX_RESULTS)
+          return json(400, { error: `count must be an integer 1-${MAX_RESULTS}` });
+        return await search(env, deps, digest, query, count);
+      }
+      if (typeof body?.url !== 'string' || body.url.length > 2048)
+        return json(400, { error: 'url must be a string of at most 2048 characters' });
+      return await fetchPage(env, deps, digest, body.url);
+    } catch {
+      return json(500, { error: 'internal error' });
     }
   };
 }
