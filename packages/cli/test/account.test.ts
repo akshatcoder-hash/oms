@@ -1,9 +1,133 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { AccountPane } from '../src/tui/account.ts';
 import type { OmsAccountSnapshot } from '@oms/engine';
 import { getTheme } from '../src/tui/theme.ts';
+import { createOmsAccountControls } from '../../engine/src/runtime/oms-account.ts';
+import { writeInferencePreferences } from '../../engine/src/runtime/inference-preferences.ts';
+
+function storedAccount(t: TestContext, meStatus = 200) {
+  const root = mkdtempSync(join(tmpdir(), 'oms-account-pane-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const origin = 'http://127.0.0.1:8788/oms';
+  writeInferencePreferences(join(root, 'inference.json'), {
+    version: 1,
+    gatewayOrigin: origin,
+    mimoProvider: 'xiaomi-token-plan-sgp',
+  });
+  const accountPath = join(root, 'oms-account.json');
+  writeFileSync(
+    accountPath,
+    JSON.stringify({ origin, token: 'stored-token', userId: 'user-1', expiresAt: Date.now() + 3600000 }),
+    { mode: 0o600 },
+  );
+  const calls: string[] = [];
+  const controls = createOmsAccountControls({
+    agentRoot: root,
+    signal: new AbortController().signal,
+    withUserOperation: (action) => action(),
+    async openBrowser() {},
+    async fetch(input, init) {
+      const path = new URL(String(input)).pathname;
+      calls.push(path);
+      let data: unknown;
+      let status = 200;
+      if (path === '/oms/api/me') {
+        assert.equal(
+          new Headers(init?.headers).get('authorization'),
+          calls.length === 1 ? 'Bearer stored-token' : 'Bearer new-token',
+        );
+        status = calls.length === 1 ? meStatus : 200;
+        data = { user: { id: 'user-1', email: 'person@example.test' }, devices: [] };
+      } else if (path === '/oms/api/auth/device/code') {
+        data = {
+          device_code: 'device-code',
+          user_code: 'ABCD-EFGH',
+          verification_uri: origin + '/device',
+          expires_in: 60,
+          interval: 1,
+        };
+      } else if (path === '/oms/api/auth/device/token') {
+        data = { access_token: 'new-token', token_type: 'Bearer', expires_in: 3600 };
+      } else throw new Error(`Unexpected account request: ${path}`);
+      return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  assert.equal(controls.snapshot().state, 'signed-in');
+  assert.equal(controls.snapshot().email, undefined);
+  async function open(mode: 'login' | 'account') {
+    let pane: AccountPane;
+    const settled = new Promise<void>((resolve) => {
+      pane = new AccountPane(controls, {
+        mode,
+        theme: () => getTheme('gruvbox')!,
+        render() {
+          if (pane.input.render(120).join('\n').includes('Esc return')) resolve();
+        },
+        close() {},
+      });
+    });
+    t.after(() => pane.dispose());
+    await settled;
+    return pane!;
+  }
+  return { controls, calls, accountPath, open };
+}
+
+test('login verifies a stored credential without requesting a new device code', { timeout: 5000 }, async (t) => {
+  const f = storedAccount(t);
+  const before = readFileSync(f.accountPath, 'utf8');
+  const pane = await f.open('login');
+  assert.deepEqual(f.calls, ['/oms/api/me']);
+  const screen = pane.body.render(120).join('\n');
+  assert.match(screen, /already signed in/i);
+  assert.match(screen, /\/logout first.*switch accounts/i);
+  assert.match(screen, /person@example\.test/);
+  assert.doesNotMatch(screen, /Device code:/);
+  assert.equal(readFileSync(f.accountPath, 'utf8'), before);
+});
+
+for (const status of [401, 403]) {
+  test(
+    `login starts the device flow when stored credential verification returns ${status}`,
+    { timeout: 5000 },
+    async (t) => {
+      const f = storedAccount(t, status);
+      const pane = await f.open('login');
+      assert.deepEqual(f.calls, [
+        '/oms/api/me',
+        '/oms/api/auth/device/code',
+        '/oms/api/auth/device/token',
+        '/oms/api/me',
+      ]);
+      assert.equal(f.controls.snapshot().state, 'signed-in');
+      assert.match(pane.body.render(120).join('\n'), /person@example\.test/);
+      assert.doesNotMatch(pane.body.render(120).join('\n'), /already signed in/i);
+      assert.equal(JSON.parse(readFileSync(f.accountPath, 'utf8')).token, 'new-token');
+    },
+  );
+}
+
+test('login does not replace a stored credential when verification is unavailable', { timeout: 5000 }, async (t) => {
+  const f = storedAccount(t, 503);
+  const before = readFileSync(f.accountPath, 'utf8');
+  const pane = await f.open('login');
+  assert.deepEqual(f.calls, ['/oms/api/me']);
+  assert.match(pane.body.render(120).join('\n'), /Account operation did not complete/);
+  assert.doesNotMatch(pane.body.render(120).join('\n'), /already signed in/i);
+  assert.equal(readFileSync(f.accountPath, 'utf8'), before);
+});
+
+test('account refresh restores the email from a persisted credential after restart', { timeout: 5000 }, async (t) => {
+  const f = storedAccount(t);
+  const pane = await f.open('account');
+  assert.deepEqual(f.calls, ['/oms/api/me']);
+  assert.match(pane.body.render(120).join('\n'), /Email: person@example\.test/);
+});
 
 test('device login displays code/link and escape cancels its pending operation', async () => {
   let signal: AbortSignal | undefined;

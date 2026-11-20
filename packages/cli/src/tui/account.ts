@@ -39,7 +39,15 @@ export class AccountPane {
   }
   private async run(): Promise<void> {
     try {
-      if (this.options.mode === 'login')
+      if (this.options.mode === 'login') {
+        if (this.controls.snapshot().state !== 'signed-out') {
+          await this.controls.refresh(this.controller.signal);
+          if (this.disposed || this.controller.signal.aborted) return;
+          if (this.controls.snapshot().state === 'signed-in') {
+            this.message = 'Already signed in. Use /logout first to switch accounts.';
+            return;
+          }
+        }
         await this.controls.login(
           {
             signal: this.controller.signal,
@@ -54,7 +62,7 @@ export class AccountPane {
           },
           this.controller.signal,
         );
-      else if (this.options.mode === 'logout') {
+      } else if (this.options.mode === 'logout') {
         const result = await this.controls.logout(this.controller.signal);
         this.message = result.serverRevoked
           ? 'Signed out. Server session revocation confirmed.'
