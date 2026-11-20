@@ -115,19 +115,40 @@ quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 } > "$OMS_HOME/bin/oms"
 chmod +x "$OMS_HOME/bin/oms"
 
+add_path() {
+  if ! grep -Fqx "$line" "$1" 2>/dev/null; then
+    printf '\n%s\n' "$line" >> "$1"
+  fi
+  say "PATH configured in $1. Open a new shell to use oms."
+}
+
 if [ "${OMS_NO_MODIFY_PATH:-0}" != 1 ]; then
+  login_rc=
   case ${SHELL:-} in
     */zsh) rc=$HOME/.zshrc ; line="export PATH=$(quote "$OMS_HOME/bin"):\"\$PATH\"" ;;
     */fish)
       mkdir -p "$HOME/.config/fish"
       rc=$HOME/.config/fish/config.fish
       line="fish_add_path $(quote "$OMS_HOME/bin")" ;;
-    *) rc=$HOME/.bashrc ; line="export PATH=$(quote "$OMS_HOME/bin"):\"\$PATH\"" ;;
+    *)
+      rc=$HOME/.bashrc
+      line="export PATH=$(quote "$OMS_HOME/bin"):\"\$PATH\""
+      if [ "$os" = darwin ]; then
+        if [ -f "$HOME/.bash_profile" ]; then
+          login_rc=$HOME/.bash_profile
+        elif [ -f "$HOME/.bash_login" ]; then
+          login_rc=$HOME/.bash_login
+        elif [ -f "$HOME/.profile" ]; then
+          login_rc=$HOME/.profile
+        else
+          login_rc=$HOME/.bash_profile
+        fi
+      fi ;;
   esac
-  if ! grep -Fqx "$line" "$rc" 2>/dev/null; then
-    printf '\n%s\n' "$line" >> "$rc"
+  add_path "$rc"
+  if [ -n "$login_rc" ]; then
+    add_path "$login_rc"
   fi
-  say "PATH configured in $rc. Open a new shell to use oms."
 fi
 if [ "${OMS_SKIP_DOCTOR:-0}" != 1 ]; then
   "$OMS_HOME/bin/oms" doctor --install || say 'Doctor reported missing tools. Run oms doctor for details.'
