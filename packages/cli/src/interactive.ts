@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import type { HarnessSession, HarnessSessionOptions } from '@oms/engine';
+import { omsCommand, type HarnessSession, type HarnessSessionOptions } from '@oms/engine';
 import { openHarnessWithOwnership } from './ownership.ts';
 import { runOmsInterface } from './tui/interface.ts';
 import { DEFAULT_THEME_ID } from './tui/theme.ts';
@@ -19,8 +18,7 @@ export function resumeHarnessArguments(
 ): string[] {
   const model = harness.session.model;
   return [
-    process.execPath,
-    fileURLToPath(new URL('./bin.ts', import.meta.url)),
+    ...omsCommand().split(' '),
     'run',
     '--workspace',
     harness.workspace.root,
@@ -92,6 +90,6 @@ export async function runInteractiveHarness(
   const conversation = harness.session.sessionManager.getSessionFile();
   if (conversation && existsSync(conversation)) {
     const args = resumeHarnessArguments(options, harness, sessionId, capArgs);
-    process.stdout.write(`Resume this OMS session:\n${args.map(shellWord).join(' ')}\n`);
+    process.stdout.write(`Run this command to resume this OMS session.\n${args.map(shellWord).join(' ')}\n`);
   }
 }

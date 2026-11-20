@@ -12,7 +12,13 @@ import { headlessCaps, headlessInputTokens, parseLaunchOptions, runHarnessComman
 
 const bin = fileURLToPath(new URL('../src/bin.ts', import.meta.url));
 
-test('resume command binds the OMS session and current native model instead of the original launch selection', () => {
+test('resume command binds the OMS session and current native model instead of the original launch selection', (t) => {
+  const previous = process.env.npm_command;
+  process.env.npm_command = 'exec';
+  t.after(() => {
+    if (previous === undefined) delete process.env.npm_command;
+    else process.env.npm_command = previous;
+  });
   const options = {
     environment: { binary: '/trusted/surfpool' },
     modelSelection: { provider: 'openai', id: 'old-model' },
@@ -23,6 +29,7 @@ test('resume command binds the OMS session and current native model instead of t
     session: { model: { provider: 'claude-code', id: 'sonnet' } },
   } as HarnessSession;
   const args = resumeHarnessArguments(options, harness, 'oms-owner-id', ['--tokens', '123']);
+  assert.deepEqual(args.slice(0, 3), ['npx', '@barestate/oms', 'run']);
   const value = (flag: string) => args[args.indexOf(flag) + 1];
   assert.equal(value('--session'), 'oms-owner-id');
   assert.equal(value('--provider'), 'claude-code');

@@ -1,8 +1,15 @@
-import { readProject, checkToolchain, planToolchainFix, applyToolchainFix, verifyToolchainProject } from '@oms/engine';
+import {
+  readProject,
+  checkToolchain,
+  planToolchainFix,
+  applyToolchainFix,
+  verifyToolchainProject,
+  omsCommand,
+} from '@oms/engine';
 export async function toolchainCommand(args: string[]): Promise<number> {
   const [action, ...rest] = args;
   if (action !== 'check' && action !== 'fix')
-    throw new Error('usage: oms toolchain check|fix [--project <path>] [--apply] [--verify]');
+    throw new Error(`Usage: ${omsCommand()} toolchain check|fix [--project <path>] [--apply] [--verify]`);
   let project = process.cwd(),
     apply = false,
     verify = false;

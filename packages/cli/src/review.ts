@@ -19,9 +19,10 @@ import {
   type ProgramSelector,
 } from '@oms/review';
 import { captureSnapshot } from '@oms/review/snapshot';
+import { omsCommand } from '@oms/engine';
 
-const HELP = `oms review [path] --phase A [--program <name>] [--json] [--out <new-directory>] [--state-root <directory>] [--retention-days <n>]
-oms review [path] --purge <reviewId|all> [--state-root <directory>]
+const HELP = `${omsCommand()} review [path] --phase A [--program <name>] [--json] [--out <new-directory>] [--state-root <directory>] [--retention-days <n>]
+${omsCommand()} review [path] --purge <reviewId|all> [--state-root <directory>]
 
 Phase A reviews a local Cargo package using offline static tools and saves a private report.
 Select a package directory containing Cargo.toml, or use --program for a nested package.
@@ -75,7 +76,7 @@ function parse(args: readonly string[]): Options {
       continue;
     }
     if (!['--phase', '--purge', '--state-root', '--out', '--retention-days', '--program'].includes(arg))
-      throw new UsageError('Unsupported review option; see oms review --help');
+      throw new UsageError(`Unsupported review option. Run \`${omsCommand()} review --help\` for supported options.`);
     const value = args[++i];
     if (!value || value.startsWith('-')) throw new UsageError('Review option requires a value');
     values.set(arg, value);

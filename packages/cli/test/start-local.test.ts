@@ -30,6 +30,30 @@ test('the short help says oms works in any folder', () => {
   assert.match(help.stdout, /Start in the current folder \(any folder works\)/);
 });
 
+test('npx launches print runnable npx commands in help and recovery hints', () => {
+  for (const [args, command] of [
+    [['--help'], 'help advanced'],
+    [['help', 'advanced'], 'doctor'],
+    [['review', '--help'], 'review'],
+    [['review', '--unknown'], 'review --help'],
+    [['workspace', 'init'], 'workspace init'],
+    [['task'], 'task create'],
+    [['toolchain'], 'toolchain'],
+    [['not-a-command'], '--help'],
+    [[], ''],
+  ] as const) {
+    const result = spawnSync(process.execPath, [bin, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, npm_command: 'exec' },
+    });
+    assert.ifError(result.error);
+    assert.ok(
+      (result.stdout + result.stderr).includes(`npx @barestate/oms${command ? ` ${command}` : ''}`),
+      args.join(' '),
+    );
+  }
+});
+
 test('bare CLI follows local launch and refuses noninteractive use before preparing state', () => {
   const result = spawnSync(process.execPath, [bin], { encoding: 'utf8' });
   assert.equal(result.status, 1);
