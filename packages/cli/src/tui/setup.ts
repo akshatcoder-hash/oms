@@ -53,6 +53,8 @@ export class SetupPane {
   private readonly controller = new AbortController();
   private stage: 'providers' | 'models' | 'auth' | 'theme';
   private choices: Choice[] = [];
+  private shortlistProviders = false;
+  private expandedProviders = false;
   private readonly models = new Map<string, ProviderModelChoice>();
   private list: SelectList | undefined;
   private listItems: Choice[] = [];
@@ -138,6 +140,7 @@ export class SetupPane {
     this.selected = '';
     this.list = undefined;
     const providers = this.harness.listProviders();
+    this.shortlistProviders = this.options.mode === 'connect' || !providers.some((provider) => provider.configured);
     if (this.options.mode === 'model') {
       for (const provider of providers.filter((provider) => provider.configured)) {
         if (!this.harness.listModels().some((model) => model.provider === provider.id)) continue;
@@ -250,7 +253,18 @@ export class SetupPane {
     const query = this.search.getValue().toLowerCase().trim();
     const rows = Math.max(1, Math.min(8, this.bodyHeight() - 4));
     if (!this.list || query !== this.filter || rows !== this.listRows) {
-      const items = this.choices
+      const choices =
+        this.stage === 'providers' &&
+        this.shortlistProviders &&
+        !this.expandedProviders &&
+        !query &&
+        this.choices.length > 3
+          ? [
+              ...this.choices.slice(0, 3),
+              { value: 'other-providers', label: `Other providers (${this.choices.length - 3} more)`, description: '' },
+            ]
+          : this.choices;
+      const items = choices
         .filter((choice) =>
           `${choice.label} ${choice.description} ${choice.keywords ?? ''}`.toLowerCase().includes(query),
         )
@@ -298,6 +312,10 @@ export class SetupPane {
             ? 'Choose a model'
             : `Connect ${line(this.provider ?? '')}`;
     const lines = [colorText(palette, 'accent', truncateToWidth(title, width, ''))];
+    if (this.stage === 'providers' && this.options.mode === 'model' && this.shortlistProviders)
+      lines.push(
+        ...wrapTextWithAnsi(colorText(palette, 'muted', 'No provider is connected yet. Choose one to sign in.'), width),
+      );
     if (this.stage === 'providers')
       lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', 'Type a provider name to filter.'), width));
     if (this.note) lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', line(this.note)), Math.max(1, width)));
@@ -471,6 +489,12 @@ export class SetupPane {
       return;
     }
     if (this.stage === 'providers' && !this.models.has(value)) {
+      if (value === 'other-providers') {
+        this.expandedProviders = true;
+        this.setChoices(this.choices);
+        this.options.render();
+        return;
+      }
       const [provider, method] = JSON.parse(value) as [string, 'api_key' | 'oauth' | 'configured'];
       const entry = this.harness.listProviders().find((item) => item.id === provider);
       if (!entry) return;
@@ -604,6 +628,12 @@ export class SetupPane {
   handleInput(data: string): void {
     if (this.disposed) return;
     if (matchesKey(data, 'escape') || (this.stage !== 'auth' && matchesKey(data, 'left') && !this.search.getValue())) {
+      if (this.stage === 'providers' && this.expandedProviders) {
+        this.expandedProviders = false;
+        this.setChoices(this.choices);
+        this.options.render();
+        return;
+      }
       this.controller.abort();
       this.key = '';
       this.options.close();

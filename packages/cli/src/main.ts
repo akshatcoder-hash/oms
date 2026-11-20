@@ -76,7 +76,7 @@ async function doctor(args: string[]): Promise<number> {
   const environment = defaultHarnessEnvironment(binaryIdx >= 0 ? args[binaryIdx + 1] : undefined, backend);
   if (args.includes('--install')) {
     const version = await installPinnedSurfpool(environment.binary);
-    console.log(`Installed Surfpool ${version} at ${environment.binary} (SHA-256 verified)`);
+    console.log(`Surfpool ${version} is installed at ${environment.binary}. Its SHA-256 checksum is verified.`);
   }
   const env = nodeEnv();
   const results = await runChecks(env, {

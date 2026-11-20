@@ -197,9 +197,7 @@ export function prepareSession(harness: OmsSession): Prepared {
       return {
         title: 'session',
         clearNotice: true,
-        text:
-          `OMS session: ${id}\n${place}\nChanging focus does not dispatch work.` +
-          (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''),
+        text: `OMS session: ${id}\n${place}` + (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''),
       };
     },
   };
