@@ -66,7 +66,16 @@ test('missing surfpool is blocking and prints a fix', async () => {
   const env = fakeEnv({ tools: { solana: 'x', docker: '1' } });
   const results = await runChecks(env, DEFAULT_OPTIONS);
   assert.equal(summarize(results).exitCode, 1);
-  assert.match(renderText(results), /fix: Run: oms doctor --install .*surfpool 1\.7\.0.*--surfpool-binary/);
+  assert.match(renderText(results), /fix: Run `oms doctor --install` .*Surfpool 1\.7\.0.*--surfpool-binary/);
+});
+
+test('missing surfpool tells npx users how to install or select it', async () => {
+  const results = await runChecks(fakeEnv({ tools: {}, env: { npm_command: 'exec' } }), DEFAULT_OPTIONS);
+  const fix = results.find((result) => result.id === 'surfpool')?.fix;
+  assert.equal(
+    fix,
+    'Run `npx @barestate/oms doctor --install` to download Surfpool 1.7.0 and verify its SHA-256. Or install it yourself and run `npx @barestate/oms doctor --surfpool-binary /absolute/path/to/surfpool`.',
+  );
 });
 
 test('wrong surfpool version fails against the pin', async () => {

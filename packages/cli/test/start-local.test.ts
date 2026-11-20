@@ -22,12 +22,51 @@ test('run rejects presentation flags, and the advanced help documents in-app swi
   assert.match(help.stdout, /\/workbench/);
   assert.match(help.stdout, /--bounded/);
   assert.match(help.stdout, /idle time does not expire/);
+  assert.match(help.stdout, /run --provider claude-code --model sonnet/);
+});
+
+test('the native Claude help command accepts its provider and model options', () => {
+  const help = spawnSync(process.execPath, [bin, 'help', 'advanced'], { encoding: 'utf8' });
+  assert.equal(help.status, 0);
+  const command = /To use native Claude chat, run `oms ([^`]+)`/.exec(help.stdout);
+  assert.ok(command);
+  const result = spawnSync(process.execPath, [bin, ...command[1]!.split(' ')], {
+    encoding: 'utf8',
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /Unknown option --provider/);
+  assert.equal(result.stderr.trim(), 'oms: Run OMS in an interactive terminal');
 });
 
 test('the short help says oms works in any folder', () => {
   const help = spawnSync(process.execPath, [bin, '--help'], { encoding: 'utf8' });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /Start in the current folder \(any folder works\)/);
+});
+
+test('npx launches print runnable npx commands in help and recovery hints', () => {
+  for (const [args, command] of [
+    [['--help'], 'help advanced'],
+    [['help', 'advanced'], 'doctor'],
+    [['review', '--help'], 'review'],
+    [['review', '--unknown'], 'review --help'],
+    [['workspace', 'init'], 'workspace init'],
+    [['task'], 'task create'],
+    [['toolchain'], 'toolchain'],
+    [['not-a-command'], '--help'],
+    [[], ''],
+  ] as const) {
+    const result = spawnSync(process.execPath, [bin, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, npm_command: 'exec' },
+    });
+    assert.ifError(result.error);
+    assert.ok(
+      (result.stdout + result.stderr).includes(`npx @barestate/oms${command ? ` ${command}` : ''}`),
+      args.join(' '),
+    );
+  }
 });
 
 test('bare CLI follows local launch and refuses noninteractive use before preparing state', () => {

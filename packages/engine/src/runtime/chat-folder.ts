@@ -3,6 +3,7 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { contains, privateDirectory } from '../workspace/storage.ts';
+import { omsCommand } from './cli-command.ts';
 
 /** The folder a chat works in, and the key its state is stored under. */
 export interface ChatFolder {
@@ -23,7 +24,7 @@ export interface ChatFolderOptions {
 }
 
 export function scratchNotice(path: string): string {
-  return `No project here, so this chat uses a scratch folder (${path}). cd into a project folder and run oms to work on it.`;
+  return `No project here, so this chat uses a scratch folder (${path}). cd into a project folder and run ${omsCommand()} to work on it.`;
 }
 
 const real = (path: string): string[] => {

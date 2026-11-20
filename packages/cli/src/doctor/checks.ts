@@ -1,4 +1,4 @@
-import { executionBackend, type BackendName } from '@oms/engine';
+import { executionBackend, omsCommand, type BackendName } from '@oms/engine';
 /** `optional`: never blocks; listed apart from the install path (Docker in host mode). */
 export type Severity = 'blocking' | 'warning' | 'info' | 'optional';
 export type Status = 'ok' | 'fail';
@@ -79,7 +79,7 @@ export async function runChecks(env: Env, opts: DoctorOptions): Promise<CheckRes
     status: surfOk ? 'ok' : 'fail',
     severity: 'blocking',
     detail: surf.ok ? `${surf.out} (pinned ${opts.pinnedSurfpool})` : surf.out,
-    fix: `Run: oms doctor --install (downloads surfpool ${opts.pinnedSurfpool} and verifies its SHA-256). Or install it yourself and run: oms doctor --surfpool-binary /absolute/path/to/surfpool`,
+    fix: `Run \`${omsCommand(env.env)} doctor --install\` to download Surfpool ${opts.pinnedSurfpool} and verify its SHA-256. Or install it yourself and run \`${omsCommand(env.env)} doctor --surfpool-binary /absolute/path/to/surfpool\`.`,
   });
 
   const sol = await env.exec('solana', ['--version']);
