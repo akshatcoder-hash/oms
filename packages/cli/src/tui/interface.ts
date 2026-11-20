@@ -933,6 +933,7 @@ export async function runOmsInterface(
         setNotice('Unknown or invalid OMS command. Use /help; draft retained.');
         return;
       }
+      setNotice('');
       const prepared = command.run(commandContext, argument, composerDraft);
       if (!prepared) return;
       if (!prepared.ok) {
