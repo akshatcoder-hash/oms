@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,7 +10,8 @@ export function incompleteInstallMessage(error: unknown, installRoot: string): s
   if (!(error instanceof Error) || (error as NodeJS.ErrnoException).code !== 'ERR_MODULE_NOT_FOUND') return undefined;
   const url = (error as { url?: unknown }).url;
   if (typeof url !== 'string' || !url.startsWith('file:')) return undefined;
-  const missing = relative(installRoot, fileURLToPath(url));
+  // Node reports resolved paths, so compare against the resolved root (macOS temp dirs sit behind /var -> /private/var).
+  const missing = relative(resolvedPath(installRoot), fileURLToPath(url));
   if (!missing || missing.startsWith('..') || isAbsolute(missing)) return undefined;
   const release = publishedRelease(installRoot);
   const repair = release
@@ -27,5 +28,13 @@ function publishedRelease(installRoot: string): string | undefined {
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function resolvedPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
   }
 }
