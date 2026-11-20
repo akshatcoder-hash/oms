@@ -1,5 +1,8 @@
 export type Grant = { lease: string } | { retryAfterMs: number; reason: 'busy' | 'paused' };
 
+// Node timers are signed 32-bit; longer pauses re-arm instead of overflowing to about 1 ms.
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
 /**
  * At most `limit` leases out at once; callers wait up to `waitMs` in FIFO order, then get `busy`.
  * Leases expire after `leaseMs` so a caller that died without releasing cannot hold a slot forever.
@@ -56,7 +59,7 @@ export class Semaphore {
         }
         this.drain();
       },
-      Math.max(0, this.pauseWakeAt - Date.now()),
+      Math.min(Math.max(0, this.pauseWakeAt - Date.now()), MAX_TIMEOUT_MS),
     );
     this.pauseTimer = timer;
     if (!this.waiting.length) (timer as unknown as { unref?: () => void }).unref?.();
