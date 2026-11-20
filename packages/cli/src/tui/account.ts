@@ -15,7 +15,9 @@ export class AccountPane {
   readonly input: Component & Focusable;
   readonly label = 'OMS account';
   get hint(): string {
-    return this.device && this.pending ? 'ctrl+x copy code · pgup/pgdn scroll · esc cancel' : 'pgup/pgdn scroll · esc close';
+    return this.device && this.pending
+      ? 'ctrl+x copy code · pgup/pgdn scroll · esc cancel'
+      : 'pgup/pgdn scroll · esc close';
   }
   private readonly controls: Pick<OmsAccountControls, 'snapshot' | 'login' | 'logout' | 'refresh'>;
   private readonly options: AccountOptions;

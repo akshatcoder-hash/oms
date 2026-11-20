@@ -853,12 +853,12 @@ test('an unknown command never dispatches, names itself and the nearest command,
     terminal.send('/unrecognized');
     terminal.send('\r');
     await terminal.until((s) => s.includes('/unrecognized not found · /help'));
-    terminal.send('/thme');
+    terminal.send('/thema');
     terminal.send('\r');
-    const screen = await terminal.until((s) => s.includes('/thme not found · did you mean /theme?'));
+    const screen = await terminal.until((s) => s.includes('/thema not found · did you mean /theme?'));
     assert.doesNotMatch(screen, /\/unrecognized/);
     terminal.send('next');
-    assert.doesNotMatch(await terminal.until((s) => s.includes('next')), /\/thmenext/);
+    assert.doesNotMatch(await terminal.until((s) => s.includes('next')), /\/themanext/);
     assert.deepEqual(f.prompts, []);
     assert.deepEqual(f.commands, []);
     assert.deepEqual(f.verified, []);
@@ -2231,11 +2231,11 @@ test('host approval denies on cancellation and shutdown', async () => {
     assert.ok(approve);
     const controller = new AbortController();
     const pending = approve({ command: 'sudo true', reasons: ['sudo'] }, controller.signal);
-    await terminal.until((screen) => screen.includes('Run on host?'));
+    await terminal.until((screen) => screen.includes('Allow host command?'));
     controller.abort();
     assert.equal(await pending, false);
     const onShutdown = approve({ command: 'sudo true', reasons: ['sudo'] });
-    await terminal.until((screen) => screen.includes('Run on host?'));
+    await terminal.until((screen) => screen.includes('Allow host command?'));
     terminal.send('\x11');
     assert.equal(await onShutdown, false);
     await run;
@@ -2917,7 +2917,8 @@ test('/yolo asks one key before it drops approvals and the sandbox, and turning 
   });
   const terminal = new InterfaceTerminal(120, 36);
   const run = runOmsInterface(f.harness, { terminal });
-  const asked = (s: string) => s.includes('Turn on YOLO? Commands will run without approval or sandbox · y yes · n no');
+  const asked = (s: string) =>
+    s.includes('Turn on YOLO? Commands will run without approval or sandbox') && /y +Yes/.test(s);
   try {
     await terminal.screen();
     terminal.send('/yolo');

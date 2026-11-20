@@ -564,6 +564,15 @@ export async function runOmsInterface(
     requestRender();
   }
 
+  /** Take a toast away early, when the thing it announced is over. */
+  function dismissToast(text: string): void {
+    if (toastText !== text) return;
+    toastText = undefined;
+    clearTimeout(toastTimer);
+    toastTimer = undefined;
+    requestRender();
+  }
+
   /** What the spinner row and the terminal title say the agent is doing. */
   function busyVerb(): string {
     if (hostApproval) return 'Waiting for approval';
@@ -890,6 +899,7 @@ export async function runOmsInterface(
         })
         .finally(() => {
           externalCancellation = undefined;
+          dismissToast(CANCELLING);
           maybeFinish();
           requestRender();
         });
@@ -993,6 +1003,7 @@ export async function runOmsInterface(
         }
         if (!closing) refreshRequirements();
         if (active === action) active = undefined;
+        dismissToast(CANCELLING);
         requestRender();
         maybeFinish();
       }
@@ -1557,7 +1568,7 @@ export async function runOmsInterface(
           signal?.removeEventListener('abort', abort);
           hostApproval = undefined;
           const outcome = allowed === 'session' ? 'Allowed for this session' : allowed ? 'Allowed once' : 'Denied';
-          conversation.note('host command', `${outcome}: ${singleLine(request.command, 300)}`);
+          conversation.note('', `${outcome}: ${singleLine(request.command, 300)}`);
           requestRender();
           resolve(allowed);
         };

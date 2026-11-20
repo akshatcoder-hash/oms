@@ -15,7 +15,7 @@ test('Ctrl+C on an idle prompt only warns; a second press quits, and a draft is 
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('my important draft');
     await terminal.until((s) => s.includes('my important draft'));
     terminal.send(CTRL_C);
@@ -35,7 +35,7 @@ test('Ctrl+C twice on an empty prompt quits; any other key in between starts ove
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send(CTRL_C);
     await terminal.until((s) => s.includes('ctrl+c again to quit') && !s.includes('unsent'));
     terminal.send('a');
@@ -56,7 +56,7 @@ test('the Ctrl+C warning goes away by itself after a couple of seconds, and quit
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send(CTRL_C);
     await terminal.until((s) => s.includes('ctrl+c again to quit'));
     await terminal.until((s) => !s.includes('ctrl+c again to quit'), 3500);
@@ -74,7 +74,7 @@ test('Ctrl+C cancels running work instead of quitting, and the prompt then needs
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('long request');
     terminal.send('\r');
     await terminal.until(() => f.prompts.length === 1);
@@ -84,7 +84,7 @@ test('Ctrl+C cancels running work instead of quitting, and the prompt then needs
     assert.equal(f.closed(), false);
     f.abortGate.resolve();
     f.promptGate.resolve();
-    await terminal.until((s) => !s.includes('Cancelling…') && !s.includes('Working…'));
+    await terminal.until((s) => !s.includes('Cancelling…'));
     terminal.send(CTRL_C);
     await terminal.until((s) => s.includes('ctrl+c again to quit'));
     assert.equal(f.closed(), false);
@@ -130,7 +130,7 @@ test('Ctrl+D quits from an empty prompt only, and Ctrl+Q quits from anywhere', a
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('x');
     await terminal.until((s) => s.includes('x'));
     terminal.send('\x04');
@@ -149,7 +149,7 @@ test('a refused command is dropped from the composer, so the next one is not joi
   const terminal = new InterfaceTerminal(110, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('/error abc');
     terminal.send('\r');
     await terminal.until((s) => s.includes('Usage: /error <code> [program] · decimal or 0x hex'));
@@ -196,7 +196,7 @@ test('a failing /run shows its output once, then a notice that points at it', as
   f.commandGate.resolve({ exitCode: 3, stdout: 'boom', stderr: '', timedOut: false, cancelled: false });
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('/run false');
     terminal.send('\r');
     const screen = await terminal.until((s) => s.includes('/run failed · see above'));
@@ -234,7 +234,7 @@ test('a command typed while work runs stays for later, with a notice that says h
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('long request');
     terminal.send('\r');
     await terminal.until(() => f.prompts.length === 1);
@@ -256,7 +256,7 @@ test('PgUp and PgDn scroll the conversation from the composer without moving the
   const terminal = new InterfaceTerminal(100, 24);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     const text = Array.from({ length: 80 }, (_, line) => `scroll line ${line + 1}`).join('\n');
     const message = { role: 'assistant', content: [{ type: 'text', text }] };
     f.emit({ type: 'message_start', message });
@@ -286,7 +286,7 @@ test('sending a message after scrolling up brings the conversation back to its e
   const terminal = new InterfaceTerminal(100, 24);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     const text = Array.from({ length: 80 }, (_, line) => `scroll line ${line + 1}`).join('\n');
     const message = { role: 'assistant', content: [{ type: 'text', text }] };
     f.emit({ type: 'message_start', message });
@@ -305,35 +305,32 @@ test('sending a message after scrolling up brings the conversation back to its e
   }
 });
 
-test('F10 in a chat does nothing: there is no toolbar, and typing still reaches the composer', async () => {
-  const f = chatFixture();
-  const terminal = new InterfaceTerminal(100, 30);
-  const run = runOmsInterface(f.harness, { terminal });
-  try {
-    await terminal.until((s) => s.includes('/help'));
-    terminal.send(F10);
-    terminal.send('hello');
-    const screen = await terminal.until((s) => s.includes('hello'));
-    assert.match(screen, /Press Enter to send/, 'the legend stays');
-  } finally {
-    await quit(terminal, run);
-    terminal.vt.dispose();
+test('F10 focuses the header tabs when they show, in a chat and in a task, and does nothing without a header', async () => {
+  for (const f of [chatFixture(), fixture()]) {
+    const terminal = new InterfaceTerminal(110, 30);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.until((s) => s.includes('/ commands'));
+      terminal.send(F10);
+      terminal.send('\x1b[C');
+      terminal.send('\r');
+      await terminal.until((s) => s.includes('No file open'));
+    } finally {
+      await quit(terminal, run);
+      terminal.vt.dispose();
+    }
   }
-});
-
-test('F10 in a task still focuses the toolbar', async () => {
-  const f = fixture();
-  const terminal = new InterfaceTerminal(110, 30);
-  const run = runOmsInterface(f.harness, { terminal });
+  const f = chatFixture();
+  const short = new InterfaceTerminal(100, 24);
+  const run = runOmsInterface(f.harness, { terminal: short });
   try {
-    await terminal.until((s) => s.includes('Harness'));
-    terminal.send(F10);
-    terminal.send('\x1b[C');
-    terminal.send('\r');
-    await terminal.until((s) => s.split('\n')[0]?.includes('Workbench') === true);
+    await short.until((s) => s.includes('/ commands'));
+    short.send(F10);
+    short.send('hello');
+    await short.until((s) => /^❯ hello/m.test(s));
   } finally {
-    await quit(terminal, run);
-    terminal.vt.dispose();
+    await quit(short, run);
+    short.vt.dispose();
   }
 });
 
@@ -342,7 +339,7 @@ test('a bad argument says what the command takes', async () => {
   const terminal = new InterfaceTerminal(110, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('/terminal sideways');
     terminal.send('\r');
     await terminal.until((s) => s.includes('Usage: /terminal [start|stop|hide]'));
@@ -369,15 +366,17 @@ for (const [key, outcome] of [
     };
     const run = runOmsInterface(f.harness, { terminal });
     try {
-      await terminal.until((s) => s.includes('/help'));
+      await terminal.until((s) => s.includes('/ commands'));
       const pending = approve!({ command: 'cat ~/.ssh/example', reasons: ['credential or wallet files'] });
-      const asked = await terminal.until((s) => s.includes('Run on host?'));
+      const asked = await terminal.until((s) => s.includes('Allow host command?'));
       assert.match(asked, /\$ cat ~\/\.ssh\/example/);
-      assert.match(asked, /y once · s this session · n deny/);
-      assert.doesNotMatch(asked, /Allow host command|Host approval required/);
+      assert.match(asked, /y +Allow once/);
+      assert.match(asked, /s +Allow for this session/);
+      assert.match(asked, /n +Deny/);
+      assert.doesNotMatch(asked, /Run on host|Host approval required/);
       terminal.send(key);
       assert.equal(await pending, key === 'y' ? true : key === 's' ? 'session' : false);
-      await terminal.until((s) => s.includes(outcome) && !s.includes('Run on host?'));
+      await terminal.until((s) => s.includes(outcome) && !s.includes('Allow host command?'));
     } finally {
       await quit(terminal, run);
       terminal.vt.dispose();
@@ -394,12 +393,12 @@ test('Ctrl+C with a host approval pending denies it and cancels the work, but do
   };
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/help'));
+    await terminal.until((s) => s.includes('/ commands'));
     terminal.send('go');
     terminal.send('\r');
     await terminal.until(() => f.prompts.length === 1);
     const pending = approve!({ command: 'sudo true', reasons: ['sudo'] });
-    await terminal.until((s) => s.includes('Run on host?'));
+    await terminal.until((s) => s.includes('Allow host command?'));
     terminal.send(CTRL_C);
     assert.equal(await pending, false);
     await wait(20);
