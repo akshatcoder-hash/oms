@@ -86,6 +86,41 @@ function fixture(
 }
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+for (const mode of ['model', 'connect', 'theme'] as const) {
+  test(`${mode} picker goes back on Left with an empty filter`, () => {
+    const f = fixture(mode);
+    f.pane.handleInput('\x1b[D');
+    assert.equal(f.closed(), true);
+    assert.deepEqual(f.selected, []);
+    f.pane.dispose();
+  });
+
+  test(`${mode} picker preserves Left cursor movement in non-empty filter text`, () => {
+    const f = fixture(mode);
+    f.pane.handleInput('zz');
+    assert.match(f.screen(), /No matches/);
+    f.pane.handleInput('\x1b[D');
+    f.pane.handleInput('x');
+    assert.match(stripVTControlCharacters(f.screen()).replace(/\x1b_pi:[^\x07]*\x07/g, ''), /Filter: zxz/);
+    f.pane.handleInput('\x01');
+    f.pane.handleInput('\x1b[D');
+    f.pane.handleInput('y');
+    assert.match(stripVTControlCharacters(f.screen()).replace(/\x1b_pi:[^\x07]*\x07/g, ''), /Filter: yzxz/);
+    assert.equal(f.closed(), false);
+    f.pane.dispose();
+  });
+}
+
+test('model catalog goes back on Left like Escape without selecting a model', () => {
+  const f = fixture();
+  f.pane.handleInput('\r');
+  assert.match(f.screen(), /Choose a model/);
+  f.pane.handleInput('\x1b[D');
+  assert.equal(f.closed(), true);
+  assert.deepEqual(f.selected, []);
+  f.pane.dispose();
+});
+
 test('model setup starts with connected direct providers before showing their model catalog', async () => {
   const f = fixture();
   assert.match(f.screen(), /OpenAI models/);

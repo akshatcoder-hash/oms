@@ -601,7 +601,7 @@ export class SetupPane {
 
   handleInput(data: string): void {
     if (this.disposed) return;
-    if (matchesKey(data, 'escape')) {
+    if (matchesKey(data, 'escape') || (this.stage !== 'auth' && matchesKey(data, 'left') && !this.search.getValue())) {
       this.controller.abort();
       this.key = '';
       this.options.close();
