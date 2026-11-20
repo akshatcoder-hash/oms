@@ -42,10 +42,13 @@ interface SourceLine {
   breakEnd: number;
 }
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-/** Rows drawn beyond the viewport, so a scroll the layout applies after drawing still lands on drawn rows. */
-const OVERDRAW = 8;
+/**
+ * Rows drawn beyond the viewport, so a resize or scroll the layout applies after drawing still lands on drawn
+ * rows: no viewport can outgrow the host terminal.
+ */
 /** The viewport assumed before the first layout. */
 const FIRST_VIEWPORT = 64;
+const overdraw = (height: number) => Math.max(height, process.stdout.rows || FIRST_VIEWPORT);
 
 function displayText(text: string): string {
   return text.replace(/[\x00-\x1f\x7f-\x9f]/g, (character) => {
@@ -91,9 +94,8 @@ class FileEditor implements Component, Focusable {
   private readonly layouts = new Map<string, LineLayout>();
   /** The last drawing, returned unchanged while nothing it depends on changed. */
   private drawn: { text: string; key: string; lines: string[] } | undefined;
-  /** Rows [drawnFrom, drawnTo) of the last drawing hold text; the rest are blank. */
-  drawnFrom = 0;
-  drawnTo = 0;
+  /** Row ranges [from, to) of the last drawing that hold text; the rest are blank. */
+  drawnRanges: Array<[number, number]> = [];
   private width = 0;
   private left = 0;
   private goalColumn: number | undefined;
@@ -217,15 +219,25 @@ class FileEditor implements Component, Focusable {
     if (this.revealPending && row < top) top = row;
     else if (this.revealPending && row >= top + height) top = row - height + 1;
     top = Math.max(0, Math.min(top, lines.length - height));
-    this.drawnFrom = width > 0 ? Math.max(0, top - OVERDRAW) : 0;
-    this.drawnTo = width > 0 ? Math.min(lines.length, top + height + OVERDRAW) : lines.length;
-    const key = `${width}|${this.gutter}|${this.left}|${this.drawnFrom}|${this.drawnTo}|${cursor}|${this.document.anchor}|${this.focused}|${this.error}`;
+    // Around the cursor too: a resize the layout applies after drawing reveals it, wherever the view was.
+    const reach = overdraw(height);
+    const clamp = (index: number) => Math.max(0, Math.min(lines.length, index));
+    this.drawnRanges =
+      width > 0
+        ? [
+            [clamp(top - reach), clamp(top + height + reach)],
+            [clamp(row - reach), clamp(row + reach + 1)],
+          ]
+        : [[0, lines.length]];
+    const key = `${width}|${this.gutter}|${this.left}|${this.drawnRanges.join(';')}|${cursor}|${this.document.anchor}|${this.focused}|${this.error}`;
     if (this.drawn?.text === this.document.text && this.drawn.key === key) return this.drawn.lines;
     const selectionStart = Math.min(this.document.anchor, cursor);
     const selectionEnd = Math.max(this.document.anchor, cursor);
     const rendered = new Array<string>(lines.length).fill('');
-    for (let index = this.drawnFrom; index < this.drawnTo && width > 0; index++) {
-      rendered[index] = this.drawLine(lines[index]!, index === row, selectionStart, selectionEnd, width);
+    const drawn = new Set<number>();
+    for (const [from, to] of this.drawnRanges) for (let index = from; index < to; index++) drawn.add(index);
+    for (const index of drawn) {
+      if (width > 0) rendered[index] = this.drawLine(lines[index]!, index === row, selectionStart, selectionEnd, width);
     }
     if (this.error && width > 0) {
       rendered[row] =
@@ -233,7 +245,7 @@ class FileEditor implements Component, Focusable {
         sliceByColumn(`Edit refused: ${this.error}`, 0, width - (this.focused ? 1 : 0), true);
     }
     if (this.gutter > 0) {
-      for (let index = this.drawnFrom; index < this.drawnTo; index++) {
+      for (const index of drawn) {
         const label = String(index + 1).padStart(this.gutter - 2) + ' │';
         rendered[index] = '\x1b[2m' + sliceByColumn(label, 0, this.gutter, true) + '\x1b[22m' + rendered[index];
       }
@@ -430,7 +442,7 @@ class EditorScrollView extends ScrollView {
     this.editor.reveal();
     // A viewport that moved past the drawn rows (a resize, or the first layout) needs one more frame.
     const bottom = Math.min(this.scrollTop + this.viewportHeight, contentHeight);
-    if (this.scrollTop < this.editor.drawnFrom || bottom > this.editor.drawnTo) requestRender();
+    if (!this.editor.drawnRanges.some(([from, to]) => this.scrollTop >= from && bottom <= to)) requestRender();
   }
 }
 
