@@ -90,6 +90,8 @@ export interface Connectors {
   option(id: ConnectorId, key: string): string | undefined;
   rows(): ConnectorRow[];
   anyEnabled(): boolean;
+  /** A hosted connector that is on but was not on when OMS started: the agent reaches it after a restart. */
+  needsRestart(id: ConnectorId): boolean;
   /** Turn a connector on or off. `restart` means it is saved but needs a new OMS to reach the agent. */
   setEnabled(id: ConnectorId, on: boolean): { saved: boolean; restart: boolean };
   /** Step to the next access level the connector offers. */
@@ -191,6 +193,7 @@ export function createConnectors(options: ConnectorsOptions): Connectors {
         detection: detections[spec.id],
       })),
     anyEnabled: () => CATALOG.some((spec) => access(spec.id) !== 'off'),
+    needsRestart: (id) => !hostedLoaded && !!connectorSpec(id)?.mcp && access(id) !== 'off',
     setEnabled(id, on) {
       const spec = connectorSpec(id)!;
       const previous = config.connectors[id];
