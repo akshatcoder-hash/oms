@@ -298,6 +298,8 @@ export class SetupPane {
             ? 'Choose a model'
             : `Connect ${line(this.provider ?? '')}`;
     const lines = [colorText(palette, 'accent', truncateToWidth(title, width, ''))];
+    if (this.stage === 'providers')
+      lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', 'Type a provider name to filter.'), width));
     if (this.note) lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', line(this.note)), Math.max(1, width)));
     if (this.stage === 'auth' && this.authUrl) {
       lines.push(
