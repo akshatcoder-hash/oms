@@ -169,7 +169,7 @@ const ADAPTER_POLICY =
 const HOST_WARNING = {
   seatbelt:
     'OMS host mode runs commands under macOS Seatbelt: writes stay in the project folder and temp, ~/.ssh, ~/.config/solana, keypairs and other repos are unreadable, and network is limited to the Surfnet port. Seatbelt is not a VM; use --sandbox docker for untrusted repositories.\n',
-  none: 'OMS host mode has NO sandbox here (Linux in v0.1, or macOS without sandbox-exec). Commands can access your host files and unrestricted network. Environment scrubbing, approvals and file-tool protections reduce accidents; they do not isolate code. Use --sandbox docker for untrusted repositories.\n',
+  none: 'OMS host mode has NO sandbox here (Linux in v0.1, or macOS without sandbox-exec). Commands can access your host files and unrestricted network. Environment scrubbing, approvals and file-tool protections reduce accidents; they do not isolate code. Use --sandbox docker for untrusted repositories only with a pinned task. Docker mode does not support folder chat.\n',
 };
 
 const NO_IMAGES: BackendImages = { image: '', forwarderImage: '' };
