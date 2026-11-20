@@ -2807,7 +2807,7 @@ test('Solana commands use the local chain, and /airdrop refuses a chain that is 
 
 test('/help lists the new commands under Solana; a bare /account still opens the OMS account pane', async () => {
   const f = fixture();
-  const terminal = new InterfaceTerminal(120, 60);
+  const terminal = new InterfaceTerminal(120, 72);
   const run = runOmsInterface(f.harness, { terminal });
   try {
     await terminal.screen();

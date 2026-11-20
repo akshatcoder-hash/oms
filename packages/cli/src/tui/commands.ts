@@ -118,7 +118,11 @@ const KEYBOARD_HELP =
   'Terminal: Ctrl+C interrupts its process; /terminal stop releases it for independent verification.\n' +
   'Agent: Enter sends, Shift/Alt+Enter adds a newline. /cancel requests cancellation. Ctrl+Q quits after cleanup; dirty files need confirmation.\n' +
   'Transcript: Ctrl+O shows or collapses full tool output. Ctrl+T hides or shows thinking. Ctrl+D on an empty input leaves.\n' +
-  'Setup: ↑↓ chooses an authentication method; PgUp/PgDn scrolls disclosures without moving that choice. Ctrl+U clears masked entry. Ctrl+X copies the setup link. Keys and sign-in codes belong only in /connect.';
+  'Setup: ↑↓ chooses an authentication method; PgUp/PgDn scrolls disclosures without moving that choice. Ctrl+U clears masked entry. Ctrl+X copies the setup link. Keys and sign-in codes belong only in /connect.\n' +
+  '\nWorkbench\n' +
+  'Ctrl+P finds a file (name:line jumps to a line); in that box : and a number go to a line, # and text search the project, / opens commands.\n' +
+  'Ctrl+B shows or hides the file list, Alt+J the bottom panel, F6 moves between areas, F7 lists tasks and helper agents, Alt+A asks the agent about the selection.\n' +
+  'Tab and Shift+Tab indent, Ctrl+/ comments, Alt+arrows move by word, Ctrl+C/X/V copy, cut and paste, Ctrl+R reloads a file that changed on disk. A running shell gets every key: F6 leaves it, Shift+PgUp scrolls back.';
 
 /** The commands a chat lists in /help, in this order; the rest are still typed or found with /. */
 const CHAT_HELP = [
