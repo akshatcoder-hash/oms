@@ -25,7 +25,7 @@ test('folder, Docker and ownership hints use the launch command without changing
     assert.deepEqual(JSON.parse(output), [
       `No project here, so this chat uses a scratch folder (/a project). cd into a project folder and run ${command} to work on it.`,
       `OMS is already open in this folder (process 123). Close that window, or run ${command} in another folder.`,
-      `Docker chats need a pinned task: use ${command} task create and ${command} run.`,
+      `Run \`${command} help advanced\` for workspace and task setup instructions. Docker mode requires a pinned task and does not support folder chat.`,
     ]);
   }
 });
