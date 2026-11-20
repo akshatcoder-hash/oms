@@ -54,7 +54,7 @@ Commands:
 Use --state-root <directory> with workspace/task/run to choose trusted external user state.
 Harness is the default. /workbench or F3 switches views over the same session. Type / for commands.
 Provider setup is in /connect; model selection is in /model. Signing and workspace-secret access are unavailable.
-To use native Claude chat, run \`${omsCommand()} --provider claude-code --model sonnet\`. Claude Code owns its login and chat history.
+To use native Claude chat, run \`${omsCommand()} run --provider claude-code --model sonnet\`. Claude Code owns its login and chat history.
 --session resumes the OMS conversation and its bound native Claude chat, when selected.
 Normal launch uses interactive chat: idle time does not expire the conversation.
 --tokens and --minutes bound each active turn/tool operation; --spend-usd caps cumulative API spend.
