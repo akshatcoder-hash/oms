@@ -23,7 +23,7 @@ import { chatRoot, chatStateDir, type SessionRoot } from './session-root.ts';
 import type { ChatSession, ChatSessionOptions } from './session-types.ts';
 import { omsCommand } from './cli-command.ts';
 
-export const DOCKER_CHAT_REFUSAL = `Docker chats need a pinned task: use ${omsCommand()} task create and ${omsCommand()} run.`;
+export const DOCKER_CHAT_REFUSAL = `Run \`${omsCommand()} help advanced\` for workspace and task setup instructions. Docker mode requires a pinned task and does not support folder chat.`;
 
 /** Another window already has this folder open. */
 export class ChatBusyError extends Error {
