@@ -3171,7 +3171,7 @@ for (const [columns, rows] of [
     const terminal = new InterfaceTerminal(columns, rows);
     const run = runOmsInterface(f.harness, { terminal });
     try {
-      const initial = await terminal.until((s) => s.includes('Run /connect to sign in.'));
+      const initial = await terminal.until((s) => s.includes('/connect to sign in · /model to pick a model · /help'));
       assert.doesNotMatch(initial, /Your draft is kept|No model is available/);
       terminal.send('Explain this folder.');
       terminal.send('\r');
