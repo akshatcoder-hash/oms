@@ -3100,6 +3100,46 @@ test('the footer shows YOLO and the model even when the folder path is long', as
   }
 });
 
+for (const [columns, rows] of [
+  [80, 24],
+  [60, 18],
+] as const) {
+  test(`provider setup Back returns from the full list before closing at ${columns}x${rows}`, async () => {
+    const f = chatFixture();
+    f.model(false);
+    f.harness.listProviders = () =>
+      Array.from({ length: 5 }, (_, index) => ({
+        id: `provider-${index}`,
+        name: `Provider ${index}`,
+        configured: false,
+        apiKey: true,
+        oauth: false,
+      }));
+    f.harness.listModels = () => [];
+    const terminal = new InterfaceTerminal(columns, rows);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      await terminal.until((s) => s.includes('/connect to sign in'));
+      terminal.send('/connect');
+      terminal.send('\r');
+      await terminal.until((s) => s.includes('Other providers (2 more)'));
+      for (let i = 0; i < 3; i++) terminal.send('\x1b[B');
+      terminal.send('\r');
+      const full = await terminal.until((s) => s.includes('Provider 4 API key'));
+      clickText(terminal, full, 'Back');
+      const short = await terminal.until((s) => s.includes('Other providers (2 more)'));
+      assert.doesNotMatch(short, /Provider 4 API key/);
+      clickText(terminal, short, 'Back');
+      const home = await terminal.until((s) => s.includes('/connect to sign in'));
+      assert.doesNotMatch(home, /Choose how to sign in/);
+      assert.deepEqual(f.prompts, []);
+    } finally {
+      await quit(terminal, run);
+      terminal.vt.dispose();
+    }
+  });
+}
+
 test('with nothing connected the chat shows the full setup hint', async () => {
   const f = chatFixture();
   f.model(false);

@@ -112,6 +112,12 @@ test('/connect puts Claude Code between Codex and Grok', (t) => {
     },
   );
   t.after(() => setup.dispose());
+  const initial = stripVTControlCharacters(setup.body.render(120).join('\n'));
+  assert.match(initial, /Other providers \(2 more\)/);
+  assert.ok(initial.indexOf('Codex (ChatGPT') < initial.indexOf('Claude Code (Claude'));
+  assert.ok(initial.indexOf('Claude Code (Claude') < initial.indexOf('Grok (SuperGrok'));
+  for (let index = 0; index < 3; index++) setup.handleInput('\x1b[B');
+  setup.handleInput('\r');
   const screen = stripVTControlCharacters(setup.body.render(120).join('\n'));
   const order = ['Codex (ChatGPT', 'Claude Code (Claude', 'Grok (SuperGrok', 'Z AI subscription', 'Grok (xAI API'].map(
     (label) => screen.indexOf(label),
