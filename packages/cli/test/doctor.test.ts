@@ -29,7 +29,7 @@ test('all good: exit 0, no blocking', async () => {
   assert.equal(s.blocking, 0);
 });
 
-test('missing Solana CLI warns without blocking chat or program readiness checks', async () => {
+test('missing Solana CLI warns for chat and blocks program readiness checks', async () => {
   for (const platform of ['darwin', 'linux'] as const) {
     for (const needsPrograms of [false, true]) {
       const results = await runChecks(
@@ -38,7 +38,7 @@ test('missing Solana CLI warns without blocking chat or program readiness checks
       );
       const solana = results.find((check) => check.id === 'solana');
       assert.equal(solana?.status, 'fail');
-      assert.equal(solana?.severity, 'warning');
+      assert.equal(solana?.severity, needsPrograms ? 'blocking' : 'warning');
       assert.equal(solana?.detail, 'The Solana CLI is needed to build and deploy programs.');
       assert.equal(
         solana?.fix,
@@ -46,9 +46,12 @@ test('missing Solana CLI warns without blocking chat or program readiness checks
           ? 'Run `brew install solana`.'
           : 'See https://solana.com/docs/intro/installation for installation instructions.',
       );
-      assert.deepEqual(summarize(results), { blocking: 0, warnings: 1, exitCode: 0 });
-      assert.match(renderText(results), /Warnings\n {2}Solana CLI/);
-      assert.match(renderText(results), /oms doctor: ready$/);
+      assert.deepEqual(
+        summarize(results),
+        needsPrograms ? { blocking: 1, warnings: 0, exitCode: 1 } : { blocking: 0, warnings: 1, exitCode: 0 },
+      );
+      assert.match(renderText(results), needsPrograms ? /Blocking\n {2}Solana CLI/ : /Warnings\n {2}Solana CLI/);
+      assert.match(renderText(results), needsPrograms ? /oms doctor: 1 blocking issue\(s\)$/ : /oms doctor: ready$/);
     }
   }
 });

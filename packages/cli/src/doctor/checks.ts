@@ -87,7 +87,7 @@ export async function runChecks(env: Env, opts: DoctorOptions): Promise<CheckRes
     id: 'solana',
     title: 'Solana CLI',
     status: sol.ok ? 'ok' : 'fail',
-    severity: 'warning',
+    severity: opts.needsPrograms ? 'blocking' : 'warning',
     detail: sol.ok ? sol.out : 'The Solana CLI is needed to build and deploy programs.',
     fix: macFix(
       'Run `brew install solana`.',
