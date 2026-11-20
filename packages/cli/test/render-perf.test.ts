@@ -66,7 +66,9 @@ test('the editor draws only the rows around its viewport and the cursor', () => 
   pane.focus.focused = true;
   let lines = layout(pane, 30, 10);
   assert.equal(lines.length, 3000, 'content height stays the line count');
-  assert.ok(lines.filter(Boolean).length <= 40, 'rows far from the viewport are not drawn');
+  // The drawn window reaches one host-terminal height (64 rows without a TTY) past the viewport, so a resize never
+  // shows undrawn rows.
+  assert.ok(lines.filter(Boolean).length <= 10 + 2 * 64, 'rows far from the viewport are not drawn');
   assert.equal(plain(lines[0]!), '   1 │line 0');
   assert.equal(lines[2999], '');
   pane.focus.handleInput!('\x1b[1;5F');
