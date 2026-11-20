@@ -3034,8 +3034,8 @@ test('a chat opens to its conversation, the input and one footer line', async ()
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    const screen = await terminal.until((s) => s.includes('/connect to sign in'));
-    assert.match(screen, /\/connect to sign in · \/model to pick a model · \/help/);
+    const screen = await terminal.until((s) => s.includes('/help'));
+    assert.doesNotMatch(screen, /\/connect|\/model/);
     assert.match(screen, /\/fixtures\/rental-ledger +local\/test-model/);
     assert.doesNotMatch(screen, /Harness|Workbench|Commands \]|╭|╰|Conversation|Agent ·|Enter send|input ·/);
     const rows = screen.split('\n').filter((row) => row.trim());
@@ -3065,15 +3065,61 @@ test('the footer shows YOLO and the model even when the folder path is long', as
   }
 });
 
-test('with nothing connected the chat says only to run /connect', async () => {
+test('with nothing connected the chat shows the full setup hint', async () => {
   const f = chatFixture();
   f.model(false);
   (f.harness as unknown as { listModels(): unknown[] }).listModels = () => [];
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    const screen = await terminal.until((s) => s.includes('Run /connect to sign in.'));
-    assert.doesNotMatch(screen, /\/model to pick/);
+    const screen = await terminal.until((s) => s.includes('/connect to sign in'));
+    assert.match(screen, /\/connect to sign in · \/model to pick a model · \/help/);
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
+test('chat setup hint updates live after OAuth connection and model selection', async () => {
+  const f = chatFixture();
+  f.model(false);
+  let connected = false;
+  f.harness.listProviders = () => [
+    { id: 'openai-codex', name: 'Codex', configured: connected, apiKey: false, oauth: true },
+  ];
+  f.harness.listModels = () => [
+    { provider: 'openai-codex', id: 'gpt-6.1-sol', name: 'Codex model', configured: connected },
+  ];
+  f.harness.loginProvider = async (_provider, method) => {
+    assert.equal(method, 'oauth');
+    connected = true;
+  };
+  f.harness.selectModel = async (provider, id) => {
+    assert.equal(provider, 'openai-codex');
+    assert.equal(id, 'gpt-6.1-sol');
+    Object.defineProperty(f.harness.session, 'model', { get: () => ({ provider, id }) });
+  };
+  const terminal = new InterfaceTerminal(100, 30);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((s) => s.includes('/connect to sign in'));
+    terminal.send('/connect');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Codex'));
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Connected to openai-codex'));
+    terminal.send('\x1b');
+    const connectedScreen = await terminal.until((s) => s.includes('/model to pick a model'));
+    assert.doesNotMatch(connectedScreen, /\/connect to sign in/);
+    terminal.send('/model');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Codex'));
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('Codex model'));
+    terminal.send('\r');
+    const ready = await terminal.until((s) => s.includes('Model: openai-codex/gpt-6.1-sol'));
+    assert.match(ready, /\/help/);
+    assert.doesNotMatch(ready, /\/connect|\/model/);
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();
@@ -3085,7 +3131,7 @@ test('/exit leaves exactly as /quit does, cleanup included', async () => {
     const f = chatFixture();
     const terminal = new InterfaceTerminal(100, 30);
     const run = runOmsInterface(f.harness, { terminal });
-    await terminal.until((s) => s.includes('/connect to sign in'));
+    await terminal.until((s) => s.includes('/help'));
     terminal.send(command);
     terminal.send('\r');
     await run;
@@ -3099,7 +3145,7 @@ test('Ctrl+D leaves from an empty input and does nothing while there is a draft'
   const f = chatFixture();
   const terminal = new InterfaceTerminal(100, 30);
   const run = runOmsInterface(f.harness, { terminal });
-  await terminal.until((s) => s.includes('/connect to sign in'));
+  await terminal.until((s) => s.includes('/help'));
   terminal.send('draft text');
   await terminal.until((s) => s.includes('draft text'));
   terminal.send('\x04');
@@ -3118,7 +3164,7 @@ test('/help is a short list with one entry for leaving, and /help keys has the r
   const terminal = new InterfaceTerminal(110, 40);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/connect to sign in'));
+    await terminal.until((s) => s.includes('/help'));
     terminal.send('/help');
     terminal.send('\r');
     const help = await terminal.until((s) => s.includes('/exit (or /quit)'));
@@ -3200,7 +3246,7 @@ test('/agents lists the agents with their source, then the helpers of this sessi
   const terminal = new InterfaceTerminal(130, 40);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/connect to sign in'));
+    await terminal.until((s) => s.includes('/help'));
     terminal.send('/agents');
     terminal.send('\r');
     const screen = await terminal.until((s) => s.includes('This session'));
@@ -3222,7 +3268,7 @@ test('/agents new writes the file and says where; a bad name is refused in the n
   const terminal = new InterfaceTerminal(130, 40);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/connect to sign in'));
+    await terminal.until((s) => s.includes('/help'));
     terminal.send('/agents new scanner --project --edit Scan programs for missing checks');
     terminal.send('\r');
     await terminal.until((s) => s.includes('/home/dev/.oms/agents/scanner.md'));
@@ -3244,7 +3290,7 @@ test('/team hands the goal to the agent with the instruction to use helpers', as
   const terminal = new InterfaceTerminal(130, 40);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/connect to sign in'));
+    await terminal.until((s) => s.includes('/help'));
     terminal.send('/team add a header comment to each module');
     terminal.send('\r');
     await terminal.until(() => f.prompts.length === 1);
@@ -3267,7 +3313,7 @@ test('/team says plainly that helpers need a direct model when Claude Code is se
   const terminal = new InterfaceTerminal(130, 40);
   const run = runOmsInterface(f.harness, { terminal });
   try {
-    await terminal.until((s) => s.includes('/connect to sign in'));
+    await terminal.until((s) => s.includes('/help'));
     terminal.send('/team do something');
     terminal.send('\r');
     await terminal.until((s) => s.includes('Helpers need a direct model'));
