@@ -27,8 +27,11 @@ const CONTROL_PUNCTUATION: Readonly<Record<string, string>> = {
   '?': '\x7f',
 };
 
-/** Rows drawn beyond the viewport, so a scroll the layout applies after drawing still lands on drawn rows. */
-const OVERDRAW = 8;
+/**
+ * Rows drawn beyond the viewport, so a resize or scroll the layout applies after drawing still lands on drawn
+ * rows: no viewport can outgrow the host terminal.
+ */
+const overdraw = (height: number) => Math.max(height, process.stdout.rows || 64);
 
 /** Layout allocates the scroll viewport after rendering its child. */
 class TerminalScrollView extends ScrollView {
@@ -260,7 +263,10 @@ export class TerminalView implements Component, Focusable {
   }
 
   render(width: number): string[] {
-    if (this.disposed) return [];
+    if (this.disposed) {
+      this.drawnFrom = this.drawnTo = 0;
+      return [];
+    }
     const columns = Math.min(500, Math.max(1, Math.floor(width)));
     const rows = Math.min(500, Math.max(1, this.view.viewportHeight || this.terminal.rows));
     if (!this.inputClosed && (columns !== this.terminal.cols || rows !== this.terminal.rows)) {
@@ -273,8 +279,9 @@ export class TerminalView implements Component, Focusable {
     const height = this.view.viewportHeight || rows;
     const end = Math.max(0, buffer.length - height);
     const top = this.view.isFollowingEnd ? end : Math.min(this.view.scrollTop, end);
-    this.drawnFrom = Math.max(0, top - OVERDRAW);
-    this.drawnTo = Math.min(buffer.length, top + height + OVERDRAW);
+    const reach = overdraw(height);
+    this.drawnFrom = Math.max(0, top - reach);
+    this.drawnTo = Math.min(buffer.length, top + height + reach);
     const key = `${columns}|${buffer.length}|${this.drawnFrom}|${this.drawnTo}|${this.focused}`;
     if (!this.dirty && this.drawn?.key === key) return this.drawn.lines;
     this.dirty = false;
