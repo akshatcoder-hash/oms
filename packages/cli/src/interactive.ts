@@ -92,6 +92,6 @@ export async function runInteractiveHarness(
   const conversation = harness.session.sessionManager.getSessionFile();
   if (conversation && existsSync(conversation)) {
     const args = resumeHarnessArguments(options, harness, sessionId, capArgs);
-    process.stdout.write(`Resume this OMS session:\n${args.map(shellWord).join(' ')}\n`);
+    process.stdout.write(`Run this command to resume this OMS session.\n${args.map(shellWord).join(' ')}\n`);
   }
 }
