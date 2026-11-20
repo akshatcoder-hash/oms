@@ -83,7 +83,18 @@ test('a chat refuses Docker before it checks Docker or installs anything', async
     process.stdin.isTTY = tty.stdin;
     process.stdout.isTTY = tty.stdout;
   });
-  await assert.rejects(startLocal(['--sandbox', 'docker']), (error: Error) => error.message === DOCKER_CHAT_REFUSAL);
+  await assert.rejects(startLocal(['--sandbox', 'docker']), (error: Error) => {
+    assert.equal(error.message, DOCKER_CHAT_REFUSAL);
+    const command = /Run `(?:oms|npx @barestate\/oms) ([^`]+)`/.exec(error.message);
+    assert.ok(command, 'Docker refusal must provide an exact recovery command');
+    const recovery = spawnSync(process.execPath, [bin, ...command[1]!.split(' ')], { encoding: 'utf8' });
+    assert.ifError(recovery.error);
+    assert.equal(recovery.status, 0, recovery.stderr);
+    assert.match(recovery.stdout, /workspace init/);
+    assert.match(recovery.stdout, /task create/);
+    assert.match(recovery.stdout, /--sandbox host\|docker/);
+    return true;
+  });
 });
 
 test('prerequisites pass without output when Surfpool is already installed', async (t) => {
