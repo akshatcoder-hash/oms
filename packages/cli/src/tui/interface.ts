@@ -1063,6 +1063,11 @@ export async function runOmsInterface(
     return [truncateToWidth(colorText(theme!, risk ? 'warning' : 'muted', summary), width)];
   });
   const inputLabel = component((width) => {
+    if (minimal && !setup && !paletteInput)
+      return wrapTextWithAnsi(
+        colorText(theme!, 'muted', 'Enter send · Shift+Enter newline · / commands · /help keys · Ctrl+Q quit'),
+        width,
+      );
     const label = truncateToWidth(
       setup
         ? setup.label
@@ -1252,12 +1257,12 @@ export async function runOmsInterface(
     { component: commandMenu, basis: 'auto', shrink: 0, visible: () => currentCommands() !== undefined },
     {
       component: inputLabel,
-      basis: 1,
+      basis: 'auto',
       shrink: 0,
       visible: () =>
         !!paletteInput ||
         (!!setup && terminal.rows < 20) ||
-        (terminal.rows < 20 && (view === 'harness' || focus === 'input')),
+        ((minimal || terminal.rows < 20) && (view === 'harness' || focus === 'input')),
     },
     {
       component: composerFrame,
