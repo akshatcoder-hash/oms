@@ -27,6 +27,7 @@ export * from './runtime/provider-controls.ts';
 export { type HarnessSettingsControls, type HarnessSettingsSnapshot } from './runtime/settings-controls.ts';
 export type { OmsAccountControls, OmsAccountSnapshot, AccountInteraction } from './runtime/oms-account.ts';
 export { recoverHarnessWorkspace } from './runtime/recovery.ts';
+export { omsCommand } from './runtime/cli-command.ts';
 export { resolveChatFolder, scratchNotice, type ChatFolder } from './runtime/chat-folder.ts';
 export {
   ChatBusyError,

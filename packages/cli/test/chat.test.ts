@@ -136,6 +136,31 @@ test('the chat opens the given folder, names it in the header, and tells the use
   assert.equal(out, 'Run oms in this folder to continue.\n');
 });
 
+test('an npx chat prints an npx continuation command after closing', async (t) => {
+  const previous = process.env.npm_command;
+  process.env.npm_command = 'exec';
+  t.after(() => {
+    if (previous === undefined) delete process.env.npm_command;
+    else process.env.npm_command = previous;
+  });
+  const f = setup(t);
+  const log: string[] = [];
+  const out = await capture(() =>
+    runInteractiveChat({
+      folder: f.project,
+      stateRoot: f.stateRoot,
+      environment: defaultHarnessEnvironment(),
+      launch,
+      start: async (options) => fakeChat(options.folder, log),
+      run: async () => {
+        log.push('run');
+      },
+    }),
+  );
+  assert.deepEqual(log, ['run', 'close']);
+  assert.equal(out, 'Run npx @barestate/oms in this folder to continue.\n');
+});
+
 test('--yolo reaches the session, and without it YOLO is off', async (t) => {
   const f = setup(t);
   const opened: Array<Record<string, unknown>> = [];
