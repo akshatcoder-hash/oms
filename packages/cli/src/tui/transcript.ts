@@ -305,7 +305,7 @@ export class Conversation implements Component {
         for (const block of assistant.content ?? [])
           if (block.type === 'toolCall')
             this.tools.get(block.id)?.updateResult({
-              content: [{ type: 'text', text: displayText(assistant.errorMessage ?? 'Operation aborted', 400) }],
+              content: [{ type: 'text', text: displayText(assistant.errorMessage ?? 'Cancelled', 400) }],
               isError: true,
             });
       return;
@@ -361,7 +361,7 @@ export class Conversation implements Component {
               const tool = this.tools.get(block.id);
               if (done.stopReason === 'error' || done.stopReason === 'aborted')
                 tool?.updateResult({
-                  content: [{ type: 'text', text: displayText(done.errorMessage ?? 'Operation aborted', 400) }],
+                  content: [{ type: 'text', text: displayText(done.errorMessage ?? 'Cancelled', 400) }],
                   isError: true,
                 });
               else tool?.setArgsComplete();
@@ -400,7 +400,7 @@ export class Conversation implements Component {
 
   render(width: number): string[] {
     if (width <= 0) return [];
-    const lines: string[] = this.trimmed ? ['[earlier display history omitted; session history is retained]'] : [];
+    const lines: string[] = this.trimmed ? ['… earlier messages hidden'] : [];
     for (const item of this.items) lines.push(...item.component.render(width));
     return lines.slice(-6000);
   }
