@@ -169,4 +169,21 @@ const [packed] = JSON.parse(
   }),
 );
 if (packed.size > 25_000_000) throw new Error(`Archive exceeds 25 MB: ${packed.size} bytes`);
+verifyArchiveImports(packed.files.map((file) => file.path));
+// Every relative ESM import in the archive must name a file the archive ships, or `oms` fails to start once installed.
+function verifyArchiveImports(paths) {
+  const shipped = new Set(paths);
+  const missing = new Set();
+  for (const path of paths) {
+    if (!/\.m?js$/.test(path)) continue;
+    const text = readFileSync(join(stage, path), 'utf8').replace(/\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm, '');
+    for (const match of text.matchAll(
+      /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])(\.{1,2}\/[^'"\s]+\.(?:m?js|json))\1/g,
+    )) {
+      const target = join(dirname(path), match[2]).replaceAll('\\', '/');
+      if (!shipped.has(target)) missing.add(`${path} imports ${match[2]}`);
+    }
+  }
+  if (missing.size) throw new Error(`Archive is missing imported files:\n${[...missing].join('\n')}`);
+}
 console.log(`${join(output, packed.filename)}\n${packed.size} bytes compressed; ${packed.unpackedSize} bytes unpacked`);
