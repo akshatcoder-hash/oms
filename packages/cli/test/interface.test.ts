@@ -1483,6 +1483,38 @@ for (const identity of [
   });
 }
 
+test('an SDK missing-auth refusal keeps recovery instructions in the notice', async () => {
+  const f = chatFixture();
+  f.failPrompt(
+    new Error(
+      'No API key found for the selected model.\n\nUse /login to log into a provider via OAuth or API key. See:\n/internal/node_modules/pi-coding-agent/docs/providers.md',
+    ),
+  );
+  const terminal = new InterfaceTerminal(80, 24);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.screen();
+    terminal.send('auth draft');
+    terminal.send('\r');
+    const screen = await terminal.until((s) =>
+      s.split('\n').slice(-3, -1).join(' ').includes('Run /connect to sign in or /model to choose a model.'),
+    );
+    const notice = screen
+      .split('\n')
+      .slice(-3, -1)
+      .map((line) => line.trim())
+      .join(' ');
+    assert.match(notice, /Your draft is kept\. Authentication is unavailable for local\./);
+    assert.doesNotMatch(notice, /agent failed|\/login|\/internal\//);
+    assert.deepEqual(f.prompts, []);
+    terminal.send('!');
+    await terminal.until((s) => s.includes('auth draft!'));
+  } finally {
+    await quit(terminal, run);
+    terminal.vt.dispose();
+  }
+});
+
 for (const diagnostic of [
   'No API key found for the selected model.\n\nUse /login to log into a provider via OAuth or API key. See:\n  /internal/node_modules/pi-coding-agent/docs/providers.md\n  /internal/node_modules/pi-coding-agent/docs/models.md',
   'Authentication failed for "local". Credentials may have expired or network is unavailable. Run \'/login local\' to re-authenticate.',

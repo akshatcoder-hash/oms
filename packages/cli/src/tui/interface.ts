@@ -724,7 +724,7 @@ export async function runOmsInterface(
         // An SDK assistant error is already represented by its contextual message.
         if (!action.errorDisplayed) conversation.note(`${kind} failed`, message);
         setNotice(
-          message.endsWith(MODEL_CONFIGURATION)
+          message.startsWith(MODEL_CONFIGURATION)
             ? message
             : `${kind} failed; details in conversation.${action.accepted ? '' : ' Draft retained.'}`,
         );
