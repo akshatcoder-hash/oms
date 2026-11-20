@@ -6,6 +6,7 @@ import {
   type SettingItem,
 } from '@earendil-works/pi-tui';
 import type { HarnessSession, HarnessSettingsSnapshot } from '@oms/engine';
+import { glyphsFor } from './glyphs.ts';
 import { colorText, type OmsTheme } from './theme.ts';
 import { displayText } from './transcript.ts';
 
@@ -40,11 +41,7 @@ export class HarnessSettingsPane {
       handleInput: (data) => this.handleInput(data),
       render: (width) => [
         truncateToWidth(
-          colorText(
-            options.theme(),
-            'muted',
-            this.pending ? 'Saving preference…' : 'Type to filter settings · changes apply to this session',
-          ),
+          colorText(options.theme(), 'muted', this.pending ? 'Saving preference…' : 'Type to filter'),
           width,
           '',
         ),
@@ -53,10 +50,10 @@ export class HarnessSettingsPane {
   }
 
   get label(): string {
-    return 'SETTINGS · harness';
+    return 'Settings';
   }
   get hint(): string {
-    return '↑↓ Enter change · type filter · Ctrl+U clear · Esc close';
+    return '↑↓ choose · enter change · type to filter · esc close';
   }
 
   private items(state: HarnessSettingsSnapshot): SettingItem[] {
@@ -162,7 +159,7 @@ export class HarnessSettingsPane {
           label: (text, selected) => colorText(palette(), selected ? 'accent' : 'foreground', text),
           value: (text, selected) => colorText(palette(), selected ? 'accent' : 'muted', text),
           description: (text) => colorText(palette(), 'muted', text),
-          cursor: '› ',
+          cursor: `${glyphsFor().pointer} `,
           hint: (text) => colorText(palette(), 'muted', text),
         },
         (id, value) => {
@@ -179,7 +176,7 @@ export class HarnessSettingsPane {
   private renderBody(width: number): string[] {
     const palette = this.options.theme();
     const lines = [
-      colorText(palette, 'accent', 'Harness settings · private, saved preferences'),
+      colorText(palette, 'muted', 'Harness settings are private and saved on this device.'),
       ...(this.message ? [colorText(palette, 'warning', this.message)] : []),
       ...this.ensureList().render(Math.max(48, width)),
     ];
