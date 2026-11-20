@@ -230,7 +230,7 @@ export function summarize(results: CheckResult[]): Summary {
   return { blocking, warnings, exitCode: blocking > 0 ? 1 : 0 };
 }
 
-export function renderText(results: CheckResult[]): string {
+export function renderText(results: CheckResult[], environment: Env['env'] = process.env): string {
   const lines: string[] = [];
   const groups: Array<[string, (r: CheckResult) => boolean]> = [
     ['Blocking', (r) => r.status === 'fail' && r.severity === 'blocking'],
@@ -253,7 +253,7 @@ export function renderText(results: CheckResult[]): string {
   const s = summarize(results);
   lines.push(
     s.blocking === 0
-      ? 'oms doctor: ready'
+      ? `oms doctor: ready. Run \`${omsCommand(environment)}\` to launch OMS.`
       : `oms doctor: ${s.blocking} blocking ${s.blocking === 1 ? 'issue needs' : 'issues need'} attention.`,
   );
   return lines.join('\n');
