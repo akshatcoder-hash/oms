@@ -3211,7 +3211,7 @@ for (const [columns, rows] of [
     const legend = 'Enter send · Shift+Enter newline · / commands · /help keys · Ctrl+Q quit';
     const normalized = (screen: string) => screen.replace(/\s+/g, ' ');
     try {
-      const initial = await terminal.until((s) => s.includes('Run /connect to sign in.'));
+      const initial = await terminal.until((s) => s.includes('/connect to sign in'));
       assert.ok(normalized(initial).includes(legend), initial);
       terminal.send('Explain');
       terminal.send('\x1b[13;2u');
