@@ -42,8 +42,8 @@ import { AccountPane } from './account.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
-import { displayDefinition, type HelperDisplay } from './display-tools.ts';
-import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
+import type { HelperDisplay } from './display-tools.ts';
+import { Conversation, copyableText, describeValue, displayText, singleLine } from './transcript.ts';
 import { nativeChatDisplayHistory } from './claude-chat.ts';
 import type { CommandOutput, Prepared } from './prepared.ts';
 import { sessionLabel } from './inspect-commands.ts';
@@ -64,7 +64,7 @@ import {
 /** Clipboard writer for copy-on-select: true on success, otherwise the reason shown to the user. */
 async function copySelectionText(text: string): Promise<boolean | string> {
   try {
-    await copyToClipboard(text);
+    await copyToClipboard(copyableText(text));
     return true;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -317,7 +317,6 @@ export async function runOmsInterface(
             const known = helperViews.get(id);
             if (known && known.count === messages.length) return known.view;
             const view = new Conversation(messages, (message, provider) => actionError('agent', message, provider), {
-              toolDefinition: (name) => displayDefinition(name, harness.session.getToolDefinition?.(name)),
               cwd: harness.root,
               requestRender: () => requestRender(),
             });
@@ -330,7 +329,8 @@ export async function runOmsInterface(
     nativeChatDisplayHistory(harness),
     (message, provider) => actionError('agent', message, provider),
     {
-      toolDefinition: (name) => displayDefinition(name, harness.session.getToolDefinition?.(name), helperDisplay),
+      helpers: helperDisplay,
+      rows: () => terminal.rows,
       cwd: harness.root,
       requestRender: () => requestRender(),
     },
@@ -396,14 +396,16 @@ export async function runOmsInterface(
     artHidden = transcript.isFollowingEnd ? end : Math.min(transcript.scrollTop, end);
     return artHidden ? art.block(width, rows, artShown, muted, artHidden) : block;
   }
+  let artRows = 0;
   const transcript = new (class extends ScrollView {
     // The viewport and scroll position are known only after the content renders: render again when they differ from
     // the ones the art was drawn for (the size, and for the real picture which rows are scrolled away).
     override updateLayout(contentHeight: number, viewportHeight: number, render: () => void): void {
       super.updateLayout(contentHeight, viewportHeight, render);
       if (
-        artMode !== 'off' &&
-        (Math.floor(viewportHeight) !== artViewport || (artShown === 'image' && this.scrollTop !== artHidden))
+        (artMode !== 'off' &&
+          (Math.floor(viewportHeight) !== artViewport || (artShown === 'image' && this.scrollTop !== artHidden))) ||
+        conversation.newOutputStale(this, contentHeight)
       )
         render();
     }
@@ -412,13 +414,21 @@ export async function runOmsInterface(
       invalidate() {
         conversation.invalidate();
       },
-      render(width) {
+      render(width): string[] {
         const lines = conversation.render(width);
         // The placeholder only shows, or sizes the art, when there is no conversation yet or art is on.
         const hint = lines.length && artShown === 'off' ? [] : placeholder(width);
         const body = lines.length ? lines : hint;
         const block = artBlock(width, hint.length, body.length);
-        return block.length ? [...block, ...body] : body;
+        artRows = block.length;
+        return conversation.withNewOutput(block.length ? [...block, ...body] : body, transcript, width);
+      },
+      // A click opens or folds the entry under it, or takes the view to the end from the '▼ new output' chip.
+      handleMouse(event) {
+        if (event.type !== 'click' || event.button !== 'left') return undefined;
+        const hit = conversation.click(event.y, artRows);
+        if (hit === 'end') transcript.scrollToEnd();
+        return hit ? { handled: true } : undefined;
       },
     },
     { primary: true, follow: 'end', scrollbar: 'auto' },
