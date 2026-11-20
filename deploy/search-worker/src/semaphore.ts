@@ -11,6 +11,8 @@ export class Semaphore {
   private readonly active = new Map<string, number>();
   private readonly waiting: { grant: (lease: string) => void; timer: ReturnType<typeof setTimeout> }[] = [];
   private pausedUntil = 0;
+  private pauseWakeAt = 0;
+  private pauseTimer: ReturnType<typeof setTimeout> | undefined;
   private next = 0;
   peak = 0;
 
@@ -36,8 +38,27 @@ export class Semaphore {
 
   /** Pauses new grants for `ms` (Retry-After); only ever extends a pause. */
   pause(ms: number): void {
-    this.pausedUntil = Math.max(this.pausedUntil, this.now() + Math.max(0, ms));
-    const timer = setTimeout(() => this.drain(), this.pausedFor());
+    const duration = Math.max(0, ms);
+    this.pausedUntil = Math.max(this.pausedUntil, this.now() + duration);
+    this.pauseWakeAt = Math.max(this.pauseWakeAt, Date.now() + duration);
+    this.schedulePauseWake();
+  }
+
+  // setTimeout can fire just before Date.now() reaches the deadline, so re-arm until the wake time has passed.
+  private schedulePauseWake(): void {
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    const timer = setTimeout(
+      () => {
+        this.pauseTimer = undefined;
+        if (Date.now() < this.pauseWakeAt) {
+          this.schedulePauseWake();
+          return;
+        }
+        this.drain();
+      },
+      Math.max(0, this.pauseWakeAt - Date.now()),
+    );
+    this.pauseTimer = timer;
     if (!this.waiting.length) (timer as unknown as { unref?: () => void }).unref?.();
   }
 
