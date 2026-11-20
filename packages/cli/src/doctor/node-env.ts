@@ -19,10 +19,16 @@ export function nodeEnv(cwd: string = process.cwd()): Env {
         const { stdout, stderr } = await run(bin, args, { timeout: 5000 });
         return { ok: true, out: (stdout || stderr).trim() };
       } catch (e) {
-        const err = e as NodeJS.ErrnoException;
+        const err = e as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
         return {
           ok: false,
-          out: err.code === 'ENOENT' ? 'not installed' : (String(err.message).split('\n')[0] ?? 'failed'),
+          out:
+            err.code === 'ENOENT'
+              ? 'not installed'
+              : (err.stderr?.trim() || err.stdout?.trim() || err.message || 'failed')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                  .slice(0, 300),
         };
       }
     },
