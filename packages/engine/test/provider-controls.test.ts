@@ -122,6 +122,41 @@ test('catalog distinguishes API credentials, Codex subscription and unavailable 
   assert.ok(f.controls.listModels().some((model) => model.provider === 'openai-codex' && model.id === 'controlled'));
 });
 
+test('Groq picker defaults to GPT OSS 20B and rejects retired catalog models', async () => {
+  const f = await fixture();
+  const groq = f.controls.listModels().filter((model) => model.provider === 'groq');
+  assert.deepEqual(
+    groq.map((model) => model.id),
+    [
+      'openai/gpt-oss-20b',
+      'openai/gpt-oss-120b',
+      'openai/gpt-oss-safeguard-20b',
+      'qwen/qwen3.6-27b',
+      'qwen/qwen3.8-27b',
+    ],
+  );
+  f.stored.set('groq', { type: 'api_key', key: 'synthetic-key' });
+  await f.runtime.refresh({ allowNetwork: false });
+  await f.controls.selectModel('groq', groq[0]!.id);
+  assert.equal(f.selected(), 'openai/gpt-oss-20b');
+  for (const id of ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile']) {
+    await assert.rejects(f.controls.selectModel('groq', id), /Select a supported model/);
+  }
+});
+
+test('Groq picker handles an empty provider catalog', async () => {
+  const f = await fixture();
+  f.runtime.registerNativeProvider({ ...f.runtime.getProvider('groq')!, getModels: () => [], getAllModels: () => [] });
+  assert.deepEqual(
+    f.controls.listModels().filter((model) => model.provider === 'groq'),
+    [],
+  );
+  assert.equal(
+    f.controls.listProviders().some((provider) => provider.id === 'groq'),
+    false,
+  );
+});
+
 test('controlled OAuth persists locally and selects in the same session through the action gate', async () => {
   const f = await fixture();
   const urls: string[] = [];

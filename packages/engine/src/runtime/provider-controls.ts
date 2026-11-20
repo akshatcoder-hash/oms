@@ -104,8 +104,22 @@ export function createProviderControls(options: ProviderControlsOptions): Provid
   const claudeCode = options.claudeCodeAccess ?? { status: getClaudeCodeStatus, inspect: inspectClaudeCode };
   const configured = (provider: string) =>
     provider === CLAUDE_CODE_PROVIDER ? claudeCode.status().configured : modelRuntime.hasConfiguredAuth(provider);
-  const supportedModels = () =>
-    modelRuntime.getModels().filter((model) => modelReservationBound(model, maxOutputTokens) !== null);
+  const supportedModels = () => {
+    const models = modelRuntime
+      .getModels()
+      .filter(
+        (model) =>
+          !(model.provider === 'groq' && ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile'].includes(model.id)) &&
+          modelReservationBound(model, maxOutputTokens) !== null,
+      );
+    const preferred = models.findIndex((model) => model.provider === 'groq' && model.id === 'openai/gpt-oss-20b');
+    if (preferred !== -1) {
+      const first = models.findIndex((model) => model.provider === 'groq');
+      const [model] = models.splice(preferred, 1);
+      models.splice(first, 0, model!);
+    }
+    return models;
+  };
   const modelChoice = (model: Model<Api>): ProviderModelChoice => {
     const connected = configured(model.provider);
     const readiness = connected
