@@ -1063,15 +1063,22 @@ export async function runOmsInterface(
     return [truncateToWidth(colorText(theme!, risk ? 'warning' : 'muted', summary), width)];
   });
   const inputLabel = component((width) => {
-    if (minimal && !setup && !paletteInput)
+    if (minimal && !setup && !paletteInput) {
+      const scroll =
+        view !== 'harness'
+          ? ''
+          : focus === 'input'
+            ? ' Press Tab, then PgUp/PgDn to scroll.'
+            : ' Use PgUp/PgDn to scroll.';
       return wrapTextWithAnsi(
         colorText(
           theme!,
           'muted',
-          'Press Enter to send. Use Shift+Enter for a newline. Type / for commands. Run /help keys for help. Press Ctrl+Q to quit.',
+          `Press Enter to send. Use Shift+Enter for a newline. Type / for commands. Run /help keys for help. Press Ctrl+Q to quit.${scroll}`,
         ),
         width,
       );
+    }
     const label = truncateToWidth(
       setup
         ? setup.label
