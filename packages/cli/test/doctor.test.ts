@@ -29,6 +29,39 @@ test('all good: exit 0, no blocking', async () => {
   assert.equal(s.blocking, 0);
 });
 
+test('missing Solana CLI warns without blocking chat or program readiness checks', async () => {
+  for (const platform of ['darwin', 'linux'] as const) {
+    for (const needsPrograms of [false, true]) {
+      const results = await runChecks(
+        fakeEnv({ platform, tools: { surfpool: 'surfpool 1.7.0', docker: '1', anchor: 'anchor-cli 0.32.1' } }),
+        { ...DEFAULT_OPTIONS, needsPrograms },
+      );
+      const solana = results.find((check) => check.id === 'solana');
+      assert.equal(solana?.status, 'fail');
+      assert.equal(solana?.severity, 'warning');
+      assert.equal(solana?.detail, 'The Solana CLI is needed to build and deploy programs.');
+      assert.equal(
+        solana?.fix,
+        platform === 'darwin'
+          ? 'Run `brew install solana`.'
+          : 'See https://solana.com/docs/intro/installation for installation instructions.',
+      );
+      assert.deepEqual(summarize(results), { blocking: 0, warnings: 1, exitCode: 0 });
+      assert.match(renderText(results), /Warnings\n {2}Solana CLI/);
+      assert.match(renderText(results), /oms doctor: ready$/);
+    }
+  }
+});
+
+test('a missing Solana CLI does not downgrade other blocking failures', async () => {
+  const results = await runChecks(
+    fakeEnv({ nodeVersion: '20.1.0', tools: { surfpool: 'surfpool 1.7.0', docker: '1' } }),
+    DEFAULT_OPTIONS,
+  );
+  assert.deepEqual(summarize(results), { blocking: 1, warnings: 1, exitCode: 1 });
+  assert.equal(results.find((check) => check.id === 'node')?.severity, 'blocking');
+});
+
 test('missing surfpool is blocking and prints a fix', async () => {
   const env = fakeEnv({ tools: { solana: 'x', docker: '1' } });
   const results = await runChecks(env, DEFAULT_OPTIONS);
