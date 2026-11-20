@@ -37,3 +37,5 @@ On a prepared offline task, run `/verify` and confirm a pinned failure leaves th
 ## Publication
 
 Review the exact commit and the staged archive before publishing. Verify the published archive's checksum against the local file before announcing availability.
+
+After publishing, bump the npm tarball URL and SHA-256 in `Formula/oms.rb` in [barestate-ai/homebrew-tap](https://github.com/barestate-ai/homebrew-tap) for every release. Download the published tarball and calculate its checksum with `shasum -a 256` (or `sha256sum`), then run `brew style barestate-ai/tap/oms` and `brew audit --strict barestate-ai/tap/oms` from the tap. Smoke-test `curl -fsSL https://barestate.xyz/oms/install | sh` with `OMS_VERSION` set to the new version.

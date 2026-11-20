@@ -23,9 +23,9 @@ export function sessionLabel(harness: OmsSession): string {
 export function budgetLine(harness: OmsSession): string {
   const budget = harness.budget.snapshot();
   const microUsd = budget.remaining.spendMicroUsd;
-  const dollars = `${Math.trunc(microUsd / 1_000_000)}.${String(microUsd % 1_000_000).padStart(6, '0')}`;
+  const dollars = formatMicroUsd(microUsd);
   const scope = budget.executionMode === 'interactive' ? 'this turn' : 'run';
-  return `${scope}: ${budget.remaining.tokens}t · ${Math.ceil(budget.remaining.wallClockMs / 1000)}s · API $${dollars} left · ${singleLine(budget.accounting, 80)}${budget.exhausted ? ' EXHAUSTED' : ''}`;
+  return `${scope}: ${budget.remaining.tokens}t · ${Math.ceil(budget.remaining.wallClockMs / 1000)}s · API ${dollars} left · ${singleLine(budget.accounting, 80)}${budget.exhausted ? ' EXHAUSTED' : ''}`;
 }
 
 /** Calls, tokens and spend recorded against the worker role. */
@@ -197,9 +197,7 @@ export function prepareSession(harness: OmsSession): Prepared {
       return {
         title: 'session',
         clearNotice: true,
-        text:
-          `OMS session: ${id}\n${place}\nChanging focus does not dispatch work.` +
-          (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''),
+        text: `OMS session: ${id}\n${place}` + (harness.nativeChat ? `\n${claudeChatStatus(harness)}` : ''),
       };
     },
   };

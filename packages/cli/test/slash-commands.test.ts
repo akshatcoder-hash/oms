@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChatSession, HarnessSession, OmsSession } from '@oms/engine';
-import { OMS_COMMANDS, commandHelp, commandMatches } from '../src/tui/commands.ts';
+import { OMS_COMMANDS, chatHelp, commandHelp, commandMatches } from '../src/tui/commands.ts';
 import {
   acceptsArgument,
   canRunWhileBusy,
@@ -14,6 +14,7 @@ import {
   type CommandContext,
 } from '../src/tui/commands.ts';
 import { budgetLine } from '../src/tui/inspect-commands.ts';
+import { claudeChatStatus } from '../src/tui/claude-chat.ts';
 import type { CommandOutput, Prepared } from '../src/tui/prepared.ts';
 import {
   base58Decode,
@@ -115,6 +116,19 @@ const refusal = (prepared: Prepared | undefined): string => {
 };
 
 // ------------------------------------------------------------------ the command list
+
+test('folder chat help explains every summary binding in complete sentences', () => {
+  const summary = chatHelp().split('\n\n').at(-1)!;
+  assert.equal(
+    summary,
+    'Press Enter to send. Use Shift+Enter to add a line. Press Esc to cancel.\n' +
+      'Press Ctrl+O to show full tool output. Press Ctrl+T to hide thinking.\n' +
+      'Press Ctrl+D to leave. Run /help keys to list every key.',
+  );
+  assert.doesNotMatch(summary, /[·—–]/);
+  assert.match(chatHelp(), /\/connect +Sign in or add an API key/);
+  assert.match(chatHelp(), /\/model +Pick a model/);
+});
 
 test('the menu and help list every new command, with Solana after Work, and no planned ones', () => {
   const names: string[] = OMS_COMMANDS.map((command) => command.name);
@@ -650,6 +664,30 @@ test('/diff shows staged, unstaged and untracked changes against the base, scope
   }
 });
 
+test('/usage displays dollars consistently without changing micro-USD values', async () => {
+  for (const [used, cap, left, dollars] of [
+    [0, 0, 0, ['$0', '$0', '$0']],
+    [0, 5_000_000, 5_000_000, ['$0', '$5', '$5']],
+    [2500, 5_000_000, 4_997_500, ['$0.0025', '$5', '$4.9975']],
+    [0, 1, 1, ['$0', '$0.000001', '$0.000001']],
+    [0, 1_234_567_890, 1_234_567_890, ['$0', '$1,234.56789', '$1,234.56789']],
+  ] as const) {
+    const base = harnessFake().budget.snapshot();
+    const snapshot = {
+      ...base,
+      used: { ...base.used, spendMicroUsd: used },
+      caps: { ...base.caps, spendMicroUsd: cap },
+      remaining: { ...base.remaining, spendMicroUsd: left },
+    };
+    const original = structuredClone(snapshot);
+    const harness = harnessFake({ budget: { snapshot: () => snapshot, receipts: () => [] } });
+    const out = await run(prepareSlash('usage', '', harness));
+    assert.deepEqual(out.text.match(/\$[\d,.]+/g), dollars);
+    assert.match(out.text, /no model calls yet/);
+    assert.deepEqual(snapshot, original);
+  }
+});
+
 test('/usage reports token breakdown, spend, time, caps and the remaining line', async () => {
   const usageHarness = harnessFake();
   const out = await run(prepareSlash('usage', '', usageHarness));
@@ -820,6 +858,38 @@ test('/session in a chat shows the folder and its git state, never a task or wor
     assert.doesNotMatch(inRepo + plain, /Task:|Worktree:|Repository:/);
   } finally {
     rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test('/session retains session facts and native status without the internal design note', async () => {
+  const chat = chatFake('/requested', false);
+  const scratch = {
+    ...chat,
+    folder: { ...chat.folder, scratch: true, path: '/scratch' },
+  };
+  const task = harnessFake({
+    workspace: { root: '/repository' },
+    session: chat.session,
+  });
+  for (const [harness, place] of [
+    [chat, 'Folder: /requested\nGit: not a git repository'],
+    [scratch, 'Folder: /requested (this chat works in the scratch folder /scratch)\nGit: not a git repository'],
+    [task, 'Repository: /repository\nTask: t\nWorktree: /nonexistent\nBranch: oms/t'],
+  ] as const) {
+    for (const nativeChat of [
+      undefined,
+      { status: () => ({ state: 'idle', sessionId: undefined }) },
+      { status: () => ({ state: 'error', sessionId: 'native-id', detail: 'Transport failed.' }) },
+    ]) {
+      const session = { ...harness, nativeChat } as OmsSession;
+      const output = await run(prepareSlash('session', '', session));
+      assert.deepEqual(output, {
+        title: 'session',
+        clearNotice: true,
+        text: `OMS session: chat-session-id\n${place}` + (nativeChat ? `\n${claudeChatStatus(session)}` : ''),
+      });
+      assert.doesNotMatch(output.text, /Changing focus does not dispatch work\./);
+    }
   }
 });
 
