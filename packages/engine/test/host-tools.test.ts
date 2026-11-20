@@ -6,6 +6,23 @@ import { join } from 'node:path';
 import { hostBackend } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 
+test('unsandboxed host advice preserves the risks and qualifies Docker for folder chat', () => {
+  const backend = hostBackend();
+  const notice = backend.notice();
+  if (notice?.key === 'seatbelt') return;
+  assert.equal(notice?.key, 'none');
+  assert.equal(backend.requiresDocker, false);
+  assert.equal(backend.approvesCommands, true);
+  assert.ok(notice.text.startsWith('OMS host mode has NO sandbox here'));
+  assert.match(notice.text, /Commands can access your host files and unrestricted network\./);
+  assert.match(
+    notice.text,
+    /Environment scrubbing, approvals and file-tool protections reduce accidents; they do not isolate code\./,
+  );
+  assert.match(notice.text, /Use --sandbox docker for untrusted repositories only with a pinned task\./);
+  assert.match(notice.text, /Docker mode does not support folder chat\./);
+});
+
 test('real host tools use task paths, protect verifier/.git and gate shell commands', async () => {
   const fixtureRoot = realpathSync(mkdtempSync(join(tmpdir(), 'oms-host-tools-')));
   const root = join(fixtureRoot, '.oms/worktrees/task');
