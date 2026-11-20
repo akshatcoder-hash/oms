@@ -1,4 +1,4 @@
-import type { OmsSession } from '@oms/engine';
+import { omsCommand, type OmsSession } from '@oms/engine';
 import type { runReviewCommand } from '../review.ts';
 import {
   prepareAccount,
@@ -343,7 +343,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     whileBusy: 'accepted',
     run: (ctx, argument, draft) =>
       ctx.harness.kind === 'chat'
-        ? refuseWith('Requirements come with a task made by oms task create.')
+        ? refuseWith(`Requirements come with a task made by ${omsCommand()} task create.`)
         : uiCommands.requirements(ctx, argument, draft),
   },
   {

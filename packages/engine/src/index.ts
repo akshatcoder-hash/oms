@@ -5,6 +5,7 @@ export * from './settle.ts';
 export * from './trace-extension.ts';
 export * from './verifier.ts';
 export * from './workspace/index.ts';
+export { privateDirectory } from './workspace/storage.ts';
 export * from './runtime/session.ts';
 export * from './runtime/verifier-backend.ts';
 export * from './runtime/usage.ts';
@@ -26,6 +27,7 @@ export * from './runtime/provider-controls.ts';
 export { type HarnessSettingsControls, type HarnessSettingsSnapshot } from './runtime/settings-controls.ts';
 export type { OmsAccountControls, OmsAccountSnapshot, AccountInteraction } from './runtime/oms-account.ts';
 export { recoverHarnessWorkspace } from './runtime/recovery.ts';
+export { omsCommand } from './runtime/cli-command.ts';
 export { resolveChatFolder, scratchNotice, type ChatFolder } from './runtime/chat-folder.ts';
 export {
   ChatBusyError,

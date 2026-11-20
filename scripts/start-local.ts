@@ -6,6 +6,7 @@ import {
   configuredBackend,
   defaultHarnessEnvironment,
   DOCKER_CHAT_REFUSAL,
+  omsCommand,
   type HarnessEnvironment,
 } from '@oms/engine';
 import { runInteractiveChat } from '../packages/cli/src/chat.ts';
@@ -28,7 +29,7 @@ export async function checkLocalPrerequisites(environment: HarnessEnvironment): 
       await installPinnedSurfpool(environment.binary);
     } catch (error) {
       throw new Error(
-        `Could not install Surfpool: ${error instanceof Error ? error.message : 'unknown error'}. Check your connection and run oms again, or run \`oms doctor\`.`,
+        `Could not install Surfpool: ${error instanceof Error ? error.message : 'unknown error'}. Check your connection and run \`${omsCommand()}\` again. Run \`${omsCommand()} doctor\` to check your setup.`,
       );
     }
   }
@@ -38,7 +39,7 @@ export async function checkLocalPrerequisites(environment: HarnessEnvironment): 
 export async function startLocal(args: string[] = []): Promise<void> {
   const launch = parseLaunchOptions(args, ['--yolo'], ['--yolo']);
   if (!process.stdin.isTTY || !process.stdout.isTTY)
-    throw new Error('Run oms in an interactive terminal such as Ghostty');
+    throw new Error(`Run ${omsCommand()} in an interactive terminal such as Ghostty.`);
   const environment = defaultHarnessEnvironment(undefined, configuredBackend(launch.values.get('--sandbox')));
   if (backendFor(environment).requiresDocker) throw new Error(DOCKER_CHAT_REFUSAL);
   await checkLocalPrerequisites(environment);

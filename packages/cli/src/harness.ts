@@ -5,6 +5,7 @@ import {
   createTask,
   defaultHarnessEnvironment,
   openWorkspace,
+  omsCommand,
   parseHarnessTaskDefinition,
   prepareHarnessTask,
   readTask,
@@ -127,7 +128,7 @@ function selectedTask(workspace: Workspace, taskId: string | undefined) {
     throw new Error(
       ids.length
         ? `Choose --task from: ${ids.join(', ')}`
-        : "No task exists. Create one with 'oms task create' and explicit requirements first.",
+        : `No task exists. Create one with \`${omsCommand()} task create\` and explicit requirements first.`,
     );
   return readTask(workspace, ids[0]!);
 }
@@ -142,7 +143,7 @@ export async function runHarnessCommand(
     const parsed = flags(args, ['--ignore', '--state-root']);
     if (parsed.positional.length !== 2 || parsed.positional[0] !== 'init') {
       throw new Error(
-        'Usage: oms workspace init <repository> --ignore gitignore|exclude|require-existing [--state-root <directory>]',
+        `Usage: ${omsCommand()} workspace init <repository> --ignore gitignore|exclude|require-existing [--state-root <directory>]`,
       );
     }
     const ignore = parsed.values.get('--ignore');
@@ -168,7 +169,7 @@ export async function runHarnessCommand(
     ]);
     if (parsed.positional.length !== 1 || parsed.positional[0] !== 'create') {
       throw new Error(
-        'Usage: oms task create --workspace <repository> [--base <revision>] --requirements <file> [--id <task-id>]',
+        `Usage: ${omsCommand()} task create --workspace <repository> [--base <revision>] --requirements <file> [--id <task-id>]`,
       );
     }
     const requirementsFile = parsed.values.get('--requirements');
