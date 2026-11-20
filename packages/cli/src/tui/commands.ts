@@ -13,15 +13,17 @@ import { prepareDiff, prepareSession, prepareStatus, prepareUsage } from './insp
 import { prepareReview, prepareRun, prepareTest, prepareVerify } from './work-commands.ts';
 import { agentsCommand, teamCommand } from './agent-commands.ts';
 import { clearConversation, goalCommand } from './conversation-commands.ts';
-import { acceptsArt, acceptsLayout, acceptsWeb, uiCommands } from './ui-commands.ts';
+import { acceptsArt, acceptsLayout, acceptsPanel, acceptsWeb, uiCommands } from './ui-commands.ts';
 import { refuseWith, type Prepared } from './prepared.ts';
 import type { Goal } from './goal.ts';
 import type { StartupArtMode } from './startup-art.ts';
 import type { Conversation } from './transcript.ts';
 import type { WorkbenchPane } from './workbench.ts';
 import type { TerminalPane } from './terminal-pane.ts';
+import type { WorkbenchIde } from './ide.ts';
 
-export type FocusTarget = 'input' | 'requirements' | 'conversation' | 'editor' | 'terminal' | 'actions';
+export type FocusTarget =
+  'input' | 'requirements' | 'conversation' | 'editor' | 'terminal' | 'actions' | 'explorer' | 'panel';
 export type ViewName = 'harness' | 'workbench';
 export interface Requirement {
   id: string;
@@ -34,6 +36,8 @@ export interface CommandContext {
   readonly harness: OmsSession;
   readonly workbench: WorkbenchPane;
   readonly shell: TerminalPane;
+  /** The workbench screen: explorer, panel, quick open, tasks. */
+  readonly ide: WorkbenchIde;
   readonly conversation: Conversation;
   readonly review: typeof runReviewCommand;
   columns(): number;
@@ -189,7 +193,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'files',
     group: 'Navigate',
-    description: 'Browse files',
+    description: 'Find and open a file · Ctrl+P',
     whileBusy: 'accepted',
     run: uiCommands.files,
   },
@@ -348,6 +352,13 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
         : uiCommands.requirements(ctx, argument, draft),
   },
   {
+    name: 'changes',
+    group: 'Inspect',
+    description: 'Changed files, diffs and reverting',
+    whileBusy: 'accepted',
+    run: uiCommands.changes,
+  },
+  {
     name: 'open',
     group: 'Edit',
     description: 'Open a file',
@@ -370,6 +381,8 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     name: 'save',
     group: 'Edit',
     description: 'Save active file · Ctrl+S',
+    argument: '[all]',
+    accepts: (argument) => argument === '' || argument === 'all',
     whileBusy: 'accepted',
     run: uiCommands.save,
   },
@@ -403,6 +416,25 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     run: uiCommands.split,
   },
   {
+    name: 'search',
+    group: 'Edit',
+    description: 'Search the project',
+    argument: '[text]',
+    accepts: any,
+    whileBusy: 'accepted',
+    run: uiCommands.search,
+  },
+  {
+    name: 'goto',
+    group: 'Edit',
+    description: 'Go to a line · Ctrl+G',
+    argument: '<line>',
+    needsArgument: true,
+    accepts: present,
+    whileBusy: 'accepted',
+    run: uiCommands.goto,
+  },
+  {
     name: 'layout',
     group: 'Navigate',
     description: 'Workbench conversation panel',
@@ -410,6 +442,29 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     accepts: acceptsLayout,
     whileBusy: 'accepted',
     run: uiCommands.layout,
+  },
+  {
+    name: 'tasks',
+    group: 'Navigate',
+    description: 'Tasks and helper agents · F7',
+    whileBusy: 'accepted',
+    run: uiCommands.tasks,
+  },
+  {
+    name: 'panel',
+    group: 'Navigate',
+    description: 'Terminal, problems, output and changes · Alt+J',
+    argument: '[terminal|problems|output|changes|hide]',
+    accepts: acceptsPanel,
+    whileBusy: 'accepted',
+    run: uiCommands.panel,
+  },
+  {
+    name: 'sidebar',
+    group: 'Navigate',
+    description: 'Show or hide the file list · Ctrl+B',
+    whileBusy: 'accepted',
+    run: uiCommands.sidebar,
   },
   {
     name: 'verify',

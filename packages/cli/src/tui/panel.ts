@@ -76,6 +76,8 @@ function clock(time: Date): string {
 export class Panel {
   readonly body = new VStack();
   readonly focus: Component & Focusable;
+  /** Just the row of tabs: what shows while the panel is closed. */
+  readonly header: Component;
   tab: PanelTab = 'terminal';
   private focused = false;
   private problemList: Problem[] = [];
@@ -153,6 +155,7 @@ export class Panel {
       render: (width) => this.renderHeader(width),
       handleMouse: (event) => this.headerMouse(event),
     };
+    this.header = header;
     this.body.addChild(header, { basis: 1, shrink: 0 });
     this.body.addChild(options.terminal.body, {
       basis: 0,
@@ -323,22 +326,36 @@ export class Panel {
       line += colored;
       column += visibleWidth(text);
     };
-    put('─ ', colorText(theme, 'border', '─ '));
-    for (const tab of PANEL_TABS) {
-      const count = tab === 'problems' ? this.problemList.length : tab === 'changes' ? this.options.changes.count : 0;
-      const active = this.tab === tab;
-      const label = LABELS[tab];
-      const role: ThemeRole = active ? (this.focused ? 'accent' : 'foreground') : 'muted';
-      put(label, colorText(theme, role, active ? `\x1b[1m${label}\x1b[22m` : label), { tab });
-      if (count) {
-        const text = ` ${count}`;
-        put(text, colorText(theme, tab === 'problems' ? 'warning' : 'muted', text));
-      }
-      put('   ', '   ');
-    }
     const right = this.tab === 'terminal' ? (this.options.terminal.running ? '■ stop' : '▸ start') : '';
     const hide = '▾ hide';
     const tail = (right ? right + '  ' : '') + hide + ' ─';
+    // On a narrow terminal the tabs that are not showing give way first.
+    const tabs = PANEL_TABS.map((tab) => {
+      const count = tab === 'problems' ? this.problemList.length : tab === 'changes' ? this.options.changes.count : 0;
+      return { tab, count, size: LABELS[tab].length + (count ? String(count).length + 1 : 0) + 3 };
+    });
+    let room = width - 2 - visibleWidth(tail) - 1;
+    const shown = tabs.filter((candidate) => candidate.tab === this.tab);
+    room -= shown[0]!.size;
+    for (const candidate of tabs) {
+      if (candidate.tab === this.tab) continue;
+      if (candidate.size <= room) {
+        shown.push(candidate);
+        room -= candidate.size;
+      }
+    }
+    put('─ ', colorText(theme, 'border', '─ '));
+    for (const candidate of tabs.filter((item) => shown.includes(item))) {
+      const active = this.tab === candidate.tab;
+      const label = LABELS[candidate.tab];
+      const role: ThemeRole = active ? (this.focused ? 'accent' : 'foreground') : 'muted';
+      put(label, colorText(theme, role, active ? `\x1b[1m${label}\x1b[22m` : label), { tab: candidate.tab });
+      if (candidate.count) {
+        const text = ` ${candidate.count}`;
+        put(text, colorText(theme, candidate.tab === 'problems' ? 'warning' : 'muted', text));
+      }
+      put('   ', '   ');
+    }
     const fill = Math.max(1, width - column - visibleWidth(tail));
     put('─'.repeat(fill), colorText(theme, this.focused ? 'accent' : 'border', '─'.repeat(fill)));
     if (right)

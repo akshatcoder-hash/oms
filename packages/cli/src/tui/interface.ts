@@ -40,8 +40,7 @@ import { copyToClipboard } from '@earendil-works/pi-coding-agent';
 import { HarnessSettingsPane } from './harness-settings.ts';
 import { AccountPane } from './account.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
-import { WorkbenchPane } from './workbench.ts';
-import { TerminalPane } from './terminal-pane.ts';
+import { WorkbenchIde } from './ide.ts';
 import { displayDefinition, type HelperDisplay } from './display-tools.ts';
 import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
 import { nativeChatDisplayHistory } from './claude-chat.ts';
@@ -187,8 +186,6 @@ export async function runOmsInterface(
   const minimal = harness.kind === 'chat';
   let requirementsVisible = false;
   let view = options.view ?? 'harness';
-  let terminalVisible = false;
-  let agentPanelVisible = false;
   let discardConfirmed = false;
   const previousKeybindings = getKeybindings();
   const ownedBindings: KeybindingsConfig = { ...previousKeybindings.getResolvedBindings() };
@@ -245,6 +242,7 @@ export async function runOmsInterface(
         frameModels = undefined;
       });
       repairHiddenFocus();
+      ide.prepare();
       composerLayoutEntry.basis = terminal.rows >= 24 ? 7 : terminal.rows >= 20 ? 6 : 3;
       chatComposerEntry.basis = 2 + Math.max(1, Math.min(6, input.document.text.split('\n').length));
     },
@@ -255,14 +253,10 @@ export async function runOmsInterface(
         focus = 'input';
         return input.focus;
       }
-      const editorFocus = workbench.resolveMouseFocus(component);
-      if (editorFocus) {
-        focus = 'editor';
-        return editorFocus;
-      }
-      if (shell.resolveMouseFocus(component)) {
-        focus = 'terminal';
-        return shell.focus;
+      const area = ide.areaOf(component);
+      if (area) {
+        focus = area;
+        return ide.focusTarget(area);
       }
       return component;
     },
@@ -282,31 +276,33 @@ export async function runOmsInterface(
     if (input.document.text !== dismissedCommands) dismissedCommands = undefined;
     requestRender();
   });
-  const workbench = new WorkbenchPane(harness, {
+  const ide = new WorkbenchIde(harness, {
     theme: () => theme!,
     render: requestRender,
-    rows: () => terminal.rows,
+    viewport: () => ({ columns: terminal.columns, rows: terminal.rows }),
+    focus: (target) => {
+      if (!setup && !paletteInput) setFocus(target);
+    },
+    focused: () => focus,
+    visible: () => view === 'workbench',
+    composerVisible: () => focus === 'input',
     notice: (message) => {
       if (view === 'harness') setNotice(message);
     },
-    requestFocus: () => {
-      if (!setup && !paletteInput) setFocus('editor');
-    },
+    ask: (text) => ask(text, undefined),
+    draft: setDraft,
+    commands: openPalette,
+    run: (text) => submit(text, true),
+    busy,
+    awaiting: () => !!hostApproval,
+    startedAt: Date.now(),
+    copy: (text) => void copySelectionText(text),
     focusChanged: () => {
       if (view === 'workbench' && focus === 'editor') setFocus('editor');
     },
   });
-  const shell = new TerminalPane(harness, {
-    theme: () => theme!,
-    render: requestRender,
-    notice: setNotice,
-    requestFocus: () => {
-      if (!setup && !paletteInput) setFocus('terminal');
-    },
-    hostRows: () => terminal.rows,
-    columns: () => terminal.columns,
-    rows: () => Math.max(3, Math.floor(terminal.rows / 3)),
-  });
+  const workbench = ide.workbench;
+  const shell = ide.shell;
   /** A helper's conversation drawn like this one, rebuilt only when it has grown. */
   const helperViews = new Map<string, { count: number; view: Conversation }>();
   const helperDisplay: HelperDisplay | undefined =
@@ -506,10 +502,14 @@ export async function runOmsInterface(
     renderer.setFocus(setup.input);
     requestRender();
   }
-  function openPalette(): void {
+  function openPalette(prefill?: string): void {
     if (setup) closeSetup();
-    paletteInput = paletteInput ? undefined : new Input();
+    paletteInput = paletteInput && prefill === undefined ? undefined : new Input();
     paletteInput?.handleInput('/');
+    if (prefill !== undefined && paletteInput) {
+      paletteInput.setValue(prefill.startsWith('/') ? prefill : `/${prefill}`);
+      paletteInput.handleInput('\x05');
+    }
     notice = '';
     setFocus(focus);
   }
@@ -551,13 +551,11 @@ export async function runOmsInterface(
         : (paletteInput ??
             (next === 'input'
               ? input.focus
-              : next === 'editor'
-                ? workbench.focus
-                : next === 'terminal'
-                  ? shell.focus
-                  : next === 'actions'
-                    ? appActions
-                    : null)),
+              : next === 'editor' || next === 'explorer' || next === 'terminal' || next === 'panel'
+                ? ide.focusTarget(next)
+                : next === 'actions'
+                  ? appActions
+                  : null)),
     );
     requestRender();
   }
@@ -581,19 +579,16 @@ export async function runOmsInterface(
   function terminalAction(action: string): void {
     switchView('workbench');
     if (action === 'hide') {
-      terminalVisible = false;
-      if (focus === 'terminal') setFocus('editor');
+      ide.hidePanel();
     } else if (action === 'stop') {
-      terminalVisible = true;
-      setFocus('terminal');
+      ide.showPanel('terminal');
       void shell
         .stop()
         .catch((error) =>
           setNotice(error instanceof Error ? error.message : 'Terminal cleanup failed; use /terminal stop to retry.'),
         );
     } else if (!action || action === 'start') {
-      terminalVisible = true;
-      setFocus('terminal');
+      ide.showPanel('terminal');
       void shell.start();
     } else setNotice('Use /terminal, /terminal stop or /terminal hide.');
     requestRender();
@@ -604,10 +599,12 @@ export async function runOmsInterface(
   function repairHiddenFocus(): void {
     if (setup) return;
     if (focus === 'requirements' && !requirementsShown()) setFocus('input');
-    if (view === 'harness' && (focus === 'editor' || focus === 'terminal')) setFocus('input');
-    if (view === 'workbench' && focus === 'terminal' && !terminalVisible) setFocus('editor');
-    if (view === 'workbench' && focus === 'conversation' && (!agentPanelVisible || terminal.columns < 118))
-      setFocus('input');
+    if (view === 'harness' && ['editor', 'terminal', 'explorer', 'panel'].includes(focus)) setFocus('input');
+    if (view === 'workbench') {
+      const repaired = ide.repairFocus(focus);
+      if (repaired !== focus) setFocus(repaired);
+      if (focus === 'conversation' && !ide.agentDrawer) setFocus('input');
+    }
   }
   function toggleRequirements(): void {
     requirementsVisible = !requirementsVisible;
@@ -623,6 +620,13 @@ export async function runOmsInterface(
     input.document.select(0, snapshot.length);
     input.document.insert('');
     input.focus.invalidate();
+  }
+  /** Replace the composer's text and focus it, for "ask about this" from the workbench. */
+  function setDraft(text: string): void {
+    input.document.select(0, input.document.text.length);
+    input.document.insert(text);
+    input.focus.invalidate();
+    setFocus('input');
   }
   function maybeFinish(): void {
     if (closing && shutdownComplete && !busy()) {
@@ -703,7 +707,10 @@ export async function runOmsInterface(
     if (closing) return;
     if (!force && workbench.dirty && !discardConfirmed) {
       discardConfirmed = true;
-      setNotice('Ctrl+Q again: discard unsaved files. Any other key keeps them; Ctrl+S saves the active file.');
+      const names = workbench.dirtyNames;
+      setNotice(
+        `Unsaved: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ` and ${names.length - 4} more` : ''}. Ctrl+Q again discards them; Ctrl+S saves the active file.`,
+      );
       return;
     }
     closing = true;
@@ -757,6 +764,7 @@ export async function runOmsInterface(
         // too, so the input stays empty and the next message starts clean.
         // An SDK assistant error is already represented by its contextual message.
         if (!action.errorDisplayed) conversation.note(`${kind} failed`, message);
+        if (view === 'workbench' && kind !== 'agent') ide.recordFailure(kind, message);
         setNotice(
           message.startsWith(MODEL_CONFIGURATION)
             ? message
@@ -783,11 +791,13 @@ export async function runOmsInterface(
   function showOutput(command: string, output: CommandOutput): void {
     if (closing) return;
     conversation.note(output.title, output.text);
+    // Results stay in the workbench's panel when that is where the user is; they are kept there for later either way.
+    const stay = ide.recordOutput(command, output);
     if (output.report) {
       workbench.openReport(output.report.id, output.report.text, command);
       switchView('workbench');
       setFocus('editor');
-    } else if (!output.inPlace) {
+    } else if (!output.inPlace && !stay) {
       switchView('harness');
       setFocus('input');
       transcript.scrollToEnd();
@@ -874,6 +884,7 @@ export async function runOmsInterface(
     harness,
     workbench,
     shell,
+    ide,
     conversation,
     review: options.review ?? runReviewCommand,
     columns: () => terminal.columns,
@@ -896,7 +907,7 @@ export async function runOmsInterface(
     editorAction,
     terminalAction,
     setAgentPanel(visible) {
-      agentPanelVisible = visible ?? !agentPanelVisible;
+      ide.setAgentDrawer(visible);
       switchView('workbench');
       repairHiddenFocus();
       requestRender();
@@ -1240,34 +1251,9 @@ export async function runOmsInterface(
     ],
     { gap: 2 },
   );
-  const workbenchBody = new HStack(
-    [
-      { component: workbench.body, basis: 0, grow: 1, minSize: 1 },
-      {
-        component: conversationFrame,
-        basis: 36,
-        shrink: 0,
-        visible: (viewport) => agentPanelVisible && viewport.width >= 118,
-      },
-    ],
-    { gap: 2 },
-  );
-  const workbenchLayout = new VStack([
-    {
-      component: workbenchBody,
-      basis: 0,
-      grow: 1,
-      minSize: 1,
-      visible: () => terminal.rows >= 20 || focus !== 'terminal' || !terminalVisible,
-    },
-    {
-      component: shell.body,
-      basis: 10,
-      shrink: 1,
-      minSize: 3,
-      visible: () => terminalVisible && (terminal.rows >= 20 || focus === 'terminal'),
-    },
-  ]);
+  // The agent beside the editor, from 140 columns, when /layout balanced is on.
+  ide.attachDrawer(conversationFrame);
+  const workbenchLayout = ide.body;
   const approvalRow = component((width) =>
     hostApproval ? wrapTextWithAnsi(displayText(hostApproval.text, 4096), width) : [],
   );
@@ -1330,7 +1316,13 @@ export async function runOmsInterface(
     { component: setupActions, basis: 1, shrink: 0, visible: () => !!setup },
     { component: noticeRow, basis: 'auto', shrink: 0, visible: () => !!notice },
     { component: status, basis: 1, shrink: 0, visible: () => !minimal },
-    { component: footer, basis: 1, shrink: 0, visible: () => !minimal || !!setup || !!paletteInput },
+    {
+      component: footer,
+      basis: 1,
+      shrink: 0,
+      // The workbench has its own hint row.
+      visible: () => (!minimal || !!setup || !!paletteInput) && (view !== 'workbench' || !!setup || !!paletteInput),
+    },
     { component: chatFooter, basis: 1, shrink: 0, visible: () => minimal && !setup && !paletteInput },
   ]);
   const composerLayoutEntry = layoutRoot[LAYOUT_NODE]().entries.find((entry) => entry.component === composerFrame)!;
@@ -1343,12 +1335,7 @@ export async function runOmsInterface(
         ? requirementsShown()
           ? ['input', 'requirements', 'conversation']
           : ['input', 'conversation']
-        : [
-            'editor',
-            ...(terminalVisible ? ['terminal' as const] : []),
-            'input',
-            ...(agentPanelVisible && terminal.columns >= 118 ? ['conversation' as const] : []),
-          ];
+        : [...ide.areas(), 'input', ...(ide.agentDrawer ? ['conversation' as const] : [])];
     setFocus(order[(order.indexOf(focus) + (backward ? order.length - 1 : 1)) % order.length]!);
   }
   harness.setHostApproval?.(
@@ -1397,11 +1384,26 @@ export async function runOmsInterface(
       if (discardConfirmed) notice = '';
       discardConfirmed = false;
       if (closing) return { consume: true };
+      // A running shell owns every key; F6 is the way out (Ctrl+Q above still quits).
+      if (view === 'workbench' && !setup && !paletteInput && focus === 'terminal' && shell.running) {
+        if (!matchesKey(data, 'f6')) {
+          shell.focus.handleInput?.(data);
+          return { consume: true };
+        }
+      }
+      // Quick open, the ask menu and confirmations take every key while they are open.
+      if (view === 'workbench' && !setup && !paletteInput && ide.capturing) {
+        ide.handleCaptured(data);
+        return { consume: true };
+      }
       const slashNavigation =
         data === '/' &&
         !setup &&
         !paletteInput &&
-        ((focus === 'editor' && !workbench.acceptsText) || (focus === 'terminal' && !shell.running));
+        ((focus === 'editor' && (!workbench.acceptsText || ide.dashboardVisible)) ||
+          focus === 'explorer' ||
+          focus === 'panel' ||
+          (focus === 'terminal' && !shell.running));
       if (matchesKey(data, 'ctrl+d') && focus === 'input' && !setup && !paletteInput && !input.document.text) {
         quit();
         return { consume: true };
@@ -1463,7 +1465,7 @@ export async function runOmsInterface(
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+p')) {
-        editorAction(() => workbench.open());
+        editorAction(() => ide.openFinder());
         return { consume: true };
       }
       if (matchesKey(data, 'f4')) {
@@ -1474,14 +1476,18 @@ export async function runOmsInterface(
         changeTheme(THEME_IDS[(THEME_IDS.indexOf(theme!.id) + 1) % THEME_IDS.length]!);
         return { consume: true };
       }
+      if (
+        view === 'workbench' &&
+        ['editor', 'explorer', 'panel', 'terminal'].includes(focus) &&
+        ide.handleGlobalKey(data)
+      )
+        return { consume: true };
       if (focus === 'terminal') {
         shell.focus.handleInput?.(data);
         return { consume: true };
       }
-      if (focus === 'editor') {
-        workbench.handleInput(data);
+      if ((focus === 'editor' || focus === 'explorer' || focus === 'panel') && ide.routeKey(focus, data))
         return { consume: true };
-      }
       if (matchesKey(data, 'ctrl+o')) {
         setNotice(conversation.toggleToolOutput() ? 'Tool output expanded. Ctrl+O to collapse.' : '');
         requestRender();
@@ -1587,6 +1593,7 @@ export async function runOmsInterface(
     unsubscribe = harness.session.subscribe((event) => {
       try {
         conversation.accept(event);
+        ide.onSessionEvent(event);
         if (
           event.type === 'message_end' &&
           active?.kind === 'agent' &&
@@ -1672,7 +1679,7 @@ export async function runOmsInterface(
       if (externalCancellation) await externalCancellation;
       if (shutdown) await shutdown;
     } finally {
-      workbench.dispose();
+      ide.dispose();
       await shell.dispose();
       unsubscribe?.();
       disposed = true;

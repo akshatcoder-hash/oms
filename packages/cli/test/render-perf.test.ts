@@ -267,7 +267,7 @@ test('quitting with the workbench terminal running stops the shell before closin
     await terminal.until((screen) => screen.includes('/help'));
     terminal.send('/terminal');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('Terminal · running'));
+    await terminal.until((screen) => screen.includes('■ stop'));
     terminal.send('\x0c');
     terminal.send('\x11');
     await run;

@@ -728,7 +728,7 @@ test('errors read as product wording, with no host path and a next step', async 
   for (const [path, pattern] of [
     ['logo.png', /logo\.png is a binary file/],
     ['big.ts', /big\.ts is larger than 64 KiB/],
-    ['busy.ts', /while the terminal is running.*\/terminal stop/],
+    ['busy.ts', /terminal is running.*\/terminal stop/],
     ['programs/lib.rs', /lib\.rs doesn't exist/],
   ] as const) {
     await pane.open(path);

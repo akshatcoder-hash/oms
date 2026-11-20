@@ -52,6 +52,8 @@ export interface WorkbenchOptions {
   clipboard?: EditorClipboard;
   /** Gutter marks for a file's changed lines, by 0-based row. */
   marks?: (path: string) => ReadonlyMap<number, ChangeMark> | undefined;
+  /** A file became the active one in its tab (not for reports). */
+  opened?: (path: string) => void;
   /** A file was written: the change list and file index are stale. */
   saved?: (path: string) => void;
   /** Names that match a path the user typed (`/open lib.rs`), best first. */
@@ -156,9 +158,12 @@ export class WorkbenchPane {
       return 'Enter replace and find next · Alt+Enter replace all · Esc back to the file';
     const buffer = this.slots[this.side];
     if (buffer?.conflict) return 'Ctrl+R reload from disk · Ctrl+S twice overwrites it with yours';
-    if (!buffer) return 'Ctrl+P open a file · Ctrl+N new file · Ctrl+K commands';
-    if (buffer.readOnly) return 'Read-only · Ctrl+F find · Ctrl+C copy · Ctrl+W close';
-    return 'Ctrl+P open · Ctrl+S save · Ctrl+F find · Ctrl+/ comment' + (this.divided ? ' · Ctrl+\\ other side' : '');
+    if (!buffer) return 'Ctrl+K commands · Ctrl+P open a file · Ctrl+N new file';
+    if (buffer.readOnly) return 'Ctrl+K commands · Read-only · Ctrl+F find · Ctrl+C copy · Ctrl+W close';
+    return (
+      'Ctrl+K commands · Ctrl+P open · Ctrl+S save · Ctrl+F find · Ctrl+/ comment' +
+      (this.divided ? ' · Ctrl+\\ other side' : '')
+    );
   }
 
   /** The active file, for the status row. */
@@ -197,7 +202,7 @@ export class WorkbenchPane {
     const labels = tabLabels([...this.buffers.keys()]);
     return [...this.buffers.values()].map((buffer) => ({
       path: buffer.path,
-      label: buffer.title ?? labels.get(buffer.path) ?? buffer.path,
+      label: (buffer.language === 'diff' ? '± ' : '') + (buffer.title ?? labels.get(buffer.path) ?? buffer.path),
       dirty: bufferDirty(buffer),
       active: this.slots[this.side] === buffer,
       readOnly: !!buffer.readOnly,
@@ -205,7 +210,16 @@ export class WorkbenchPane {
   }
   /** Where the user is, as a short reference the agent can follow: a path and the lines in view or selected. */
   askContext():
-    | { path: string; from: number; to: number; selected: boolean; text: string; dirty: boolean; readOnly: boolean }
+    | {
+        path: string;
+        label: string;
+        from: number;
+        to: number;
+        selected: boolean;
+        text: string;
+        dirty: boolean;
+        readOnly: boolean;
+      }
     | undefined {
     const buffer = this.slots[this.side];
     if (!buffer) return undefined;
@@ -215,13 +229,20 @@ export class WorkbenchPane {
     const lines = editor.document.text.split(/\r\n|\r|\n/);
     return {
       path: buffer.path,
+      label: buffer.title ?? posix.basename(buffer.path),
       from,
       to,
       selected,
-      text: selected ? lines.slice(from - 1, to).join('\n') : '',
+      // A report is not on disk, so the agent can only read it from here.
+      text: selected ? lines.slice(from - 1, to).join('\n') : buffer.readOnly ? editor.document.text : '',
       dirty: bufferDirty(buffer),
       readOnly: !!buffer.readOnly,
     };
+  }
+  /** Lines in the active file. */
+  get lineCount(): number | undefined {
+    const text = this.slots[this.side]?.editors[this.side].document.text;
+    return text === undefined ? undefined : text.split(/\r\n|\r|\n/).length;
   }
   /** The text of the selection (or the whole file's text for a report), for copying or asking. */
   get selectionText(): string {
@@ -313,7 +334,7 @@ export class WorkbenchPane {
     return [...this.buffers.values()].map((buffer) => ({
       id: buffer.path,
       label: buffer.title ?? labels.get(buffer.path) ?? buffer.path,
-      glyph: buffer.readOnly ? '±' : undefined,
+      glyph: buffer.language === 'diff' ? '±' : undefined,
       active: this.slots[this.side] === buffer,
       dirty: bufferDirty(buffer) || !!buffer.saving,
       onClose: () => {
@@ -441,13 +462,14 @@ export class WorkbenchPane {
     this.options.render();
   }
 
-  newFile(path?: string): void {
+  /** Create a new unsaved file; with no path, ask for one (starting from `prefix`, such as a folder). */
+  newFile(path?: string, prefix = ''): void {
     if (this.disposed || (this.modal && this.mode !== 'new')) return;
     ++this.openGeneration;
     this.loading = false;
     if (path === undefined) {
       this.mode = 'new';
-      this.setPrompt('');
+      this.setPrompt(prefix);
       this.clearMessage();
       this.rebuild();
       return;
@@ -805,6 +827,7 @@ export class WorkbenchPane {
 
   private activate(buffer: OpenBuffer): void {
     this.slots[this.side] = buffer;
+    if (!buffer.readOnly) this.options.opened?.(buffer.path);
     this.mode = 'editor';
     this.loading = false;
     this.clearMessage();
@@ -1153,6 +1176,10 @@ export class WorkbenchPane {
   }
 
   /** Show a message; success and info fade after a few seconds, warnings and errors stay until the next key. */
+  say(message: string, kind: MessageKind = 'info'): void {
+    this.tell(message, kind);
+  }
+
   private tell(message: string, kind: MessageKind = 'info'): void {
     if (this.disposed) return;
     clearTimeout(this.messageTimer);

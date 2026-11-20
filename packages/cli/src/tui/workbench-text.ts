@@ -41,7 +41,7 @@ export function friendlyError(error: unknown, context: { path?: string; root?: s
   if (/64 KiB output limit|exceeds its output limit/i.test(text))
     return 'This folder is too large to list. Open a file in it by name with Ctrl+P.';
   if (/Stop the host terminal/i.test(text))
-    return "Files can't be opened or saved while the terminal is running. Stop it (■ stop in the panel, or /terminal stop), then try again.";
+    return 'The terminal is running, so commands and file saves are paused. Stop it (■ stop in the panel, or /terminal stop), then try again.';
   if (/file changed (after|before|during)|file disappeared/i.test(text))
     return `${file} changed on disk. Reload it with Ctrl+R, or keep your version.`;
   if (/already exists/i.test(text)) return `${file} already exists. Open it, or choose a different name.`;
