@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { createMcpExtension, type ExtensionFactory, type McpExtensionOptions } from '@earendil-works/pi-coding-agent';
-import { CATALOG, connectorSpec, type ConnectorSpec } from './catalog.ts';
+import { CATALOG, CONNECTOR_TOOLS, connectorSpec, type ConnectorSpec } from './catalog.ts';
 import {
   effectiveAccess,
   readConnectorsConfig,
@@ -12,7 +12,7 @@ import {
 import { detectAll, verifyAws, type Detection, type DetectDeps } from './detect.ts';
 import { createConnectorExtension, type Approver, type ConnectorExtension } from './extension.ts';
 import { hostRun, type HostRun } from './host.ts';
-import { credentialsFile, McpCredentials, signInMcp } from './mcp.ts';
+import { credentialsFile, mcpToolPrefix, McpCredentials, signInMcp } from './mcp.ts';
 import { signInWithCli, type DeviceInfo, type SignInOutcome, type SpawnLike } from './signin.ts';
 import { afterShown, LOGIN_TIP, remoteKind, shouldShowTip, tipLine, type RemoteKind } from './tips.ts';
 
@@ -54,6 +54,14 @@ const SHORT: Record<ConnectorId, string> = {
   'solana-rpc': 'rpc',
 };
 
+/** The marks for a status row, one per connector that is on; none when nothing is on or there are no connectors. */
+export const statusChips = (connectors: Pick<Connectors, 'chips'> | undefined): ConnectorChip[] =>
+  connectors?.chips() ?? [];
+
+/** `gh ● linear ◐ docker ○`: ● working, ◐ needs a sign-in, ✕ not working, ○ not checked yet. */
+export const chipsText = (chips: readonly ConnectorChip[]): string =>
+  chips.map((chip) => `${chip.short} ${{ ok: '●', signin: '◐', error: '✕', unknown: '○' }[chip.state]}`).join(' ');
+
 export const accessLabel = (spec: ConnectorSpec, access: Access): string =>
   access === 'off'
     ? 'off'
@@ -77,8 +85,10 @@ export interface SignInResult {
 }
 
 export interface Connectors {
-  /** What to hand the engine's `extensions` option. Empty entries are never returned. */
+  /** What to hand the engine's `extensions` option. */
   readonly extensions: ExtensionFactory[];
+  /** What to hand its `extensionTools` option: the connector tools' names, and a pattern for each hosted server's tools. */
+  readonly extensionTools: readonly string[];
   /** Plain sentences about a connectors file that could not be used, shown once. */
   readonly problems: readonly string[];
   readonly credentials: McpCredentials;
@@ -177,6 +187,10 @@ export function createConnectors(options: ConnectorsOptions): Connectors {
 
   const self: Connectors = {
     extensions,
+    extensionTools: [
+      ...Object.values(CONNECTOR_TOOLS),
+      ...CATALOG.flatMap((spec) => (spec.mcp ? [`${mcpToolPrefix(spec.mcp.server)}*`] : [])),
+    ],
     problems: loaded.problems,
     credentials,
     folder: options.folder,

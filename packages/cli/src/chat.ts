@@ -70,8 +70,8 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
     executionMode: o.launch.executionMode,
     web: { enabled: o.web !== false && webSetting(o.stateRoot) === 'on' },
     ...(o.yolo ? { yolo: true } : {}),
-    // The engine's `extensions` option (branch tui/engine-extensions); a spread keeps this compiling until it lands.
-    ...({ extensions: connectors.extensions } as object),
+    extensions: connectors.extensions,
+    extensionTools: connectors.extensionTools,
     ...selected,
   });
   try {
@@ -79,9 +79,14 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
       ...interfacePreferences(o.stateRoot),
       connectors,
       view: 'harness',
-      ...(folder.scratch || o.yolo
+      ...(folder.scratch || o.yolo || connectors.problems.length
         ? {
-            startNote: [folder.scratch ? scratchNotice(folder.path) : '', o.yolo ? YOLO_NOTICE : '']
+            // A connectors.json that could not be used is said once, here, so connectors that look off are not a mystery.
+            startNote: [
+              folder.scratch ? scratchNotice(folder.path) : '',
+              o.yolo ? YOLO_NOTICE : '',
+              ...connectors.problems,
+            ]
               .filter(Boolean)
               .join('\n'),
           }

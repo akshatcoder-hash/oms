@@ -131,18 +131,7 @@ async function rig(
     noPromptTemplates: true,
     noThemes: true,
     appendSystemPrompt: [],
-    extensionFactories: [
-      (api) => {
-        console.error('FACTORY', connectors.access('github'));
-        try {
-          return connectors.extensions[0]!(api);
-        } catch (e) {
-          console.error('FACTORYERR', e);
-          throw e;
-        }
-      },
-      hosted,
-    ],
+    extensionFactories: [connectors.extensions[0]!, hosted],
     systemPrompt: 'Base prompt.',
   });
   await loader.reload();
@@ -155,7 +144,7 @@ async function rig(
     resourceLoader: loader,
     sessionManager: SessionManager.inMemory(cwd),
     noTools: 'builtin',
-    tools: ['placeholder_only'],
+    tools: [...connectors.extensionTools],
   });
   await session.bindExtensions({});
   const shown: string[][] = [];
@@ -197,7 +186,6 @@ test('in a real session only the connectors that are on are declared, and their 
   const r = await rig({ github: { enabled: true, access: 'read' }, docker: { enabled: true, access: 'ask' } });
   try {
     await r.turn();
-    console.error('DBG', r.shown, r.session.getAllTools().map((t) => t.name), r.session.getActiveToolNames());
     const tools = r.shown[0]!;
     assert.ok(tools.includes('github') && tools.includes('docker'), tools.join());
     assert.ok(!tools.includes('aws') && !tools.includes('gitlab') && !tools.includes('solana_rpc'));

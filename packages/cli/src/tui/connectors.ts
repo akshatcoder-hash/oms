@@ -476,3 +476,28 @@ function builtinMark(row: BuiltinRow): { glyph: string; role: ThemeRole } {
         ? { glyph: '✕', role: 'error' }
         : { glyph: '◐', role: 'warning' };
 }
+
+/** A row for the workbench explorer's "connectors" section: its mark and the theme role to paint it with. */
+export interface ExplorerRow {
+  id: ConnectorId;
+  label: string;
+  glyph: string;
+  role: ThemeRole;
+  /** The same short summary the list shows. */
+  detail: string;
+}
+/** The data for a "connectors" section in the workbench explorer. Opening one is `/connectors`. */
+export function explorerSection(connectors: Pick<Connectors, 'rows'> | undefined): {
+  title: string;
+  rows: ExplorerRow[];
+} {
+  return {
+    title: 'connectors',
+    rows: (connectors?.rows() ?? []).map((row) => ({
+      id: row.spec.id,
+      label: row.spec.label,
+      ...mark(row),
+      detail: rowSummary(row),
+    })),
+  };
+}

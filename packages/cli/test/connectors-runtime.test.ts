@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createConnectors } from '../src/connectors/runtime.ts';
+import { chipsText, createConnectors, statusChips } from '../src/connectors/runtime.ts';
+import { explorerSection } from '../src/tui/connectors.ts';
 import { readConnectorsConfig } from '../src/connectors/config.ts';
 import type { HostRun } from '../src/connectors/host.ts';
 
@@ -171,5 +172,31 @@ test('signing in to a command-line connector runs its own login on the host and 
   const aws = await connectors.signIn('aws', { signal: new AbortController().signal, show: () => {} });
   assert.match(aws.message, /aws configure sso/);
   assert.equal(events.length, 0);
+  rmSync(dir, { recursive: true });
+});
+
+test('status chips and the explorer section are plain data for the status row and the workbench', async () => {
+  const dir = root();
+  const connectors = make(dir);
+  assert.deepEqual(statusChips(connectors), []);
+  assert.deepEqual(statusChips(undefined), []);
+  assert.equal(chipsText([]), '');
+  connectors.setEnabled('github', true);
+  connectors.setEnabled('docker', true);
+  await connectors.detect();
+  assert.equal(chipsText(statusChips(connectors)), 'gh ● docker ●');
+  assert.equal(
+    chipsText([
+      { id: 'linear', short: 'linear', state: 'signin' },
+      { id: 'aws', short: 'aws', state: 'error' },
+    ]),
+    'linear ◐ aws ✕',
+  );
+  const section = explorerSection(connectors);
+  assert.equal(section.title, 'connectors');
+  assert.equal(section.rows.length, 8);
+  const github = section.rows.find((row) => row.id === 'github')!;
+  assert.deepEqual([github.glyph, github.role, github.detail], ['●', 'success', 'vivek · asks before changes']);
+  assert.deepEqual(explorerSection(undefined).rows, []);
   rmSync(dir, { recursive: true });
 });

@@ -1629,6 +1629,7 @@ export async function runOmsInterface(
     }
   });
   let unsubscribe: (() => void) | undefined;
+  let offConnectors: (() => void) | undefined;
   let clock: NodeJS.Timeout | undefined;
   const onSignal = () => quit(true);
   try {
@@ -1677,6 +1678,8 @@ export async function runOmsInterface(
         fail(error);
       }
     });
+    // The folder's remote becomes known a moment after the first frame; the tip's wording waits for it.
+    offConnectors = options.connectors?.onChange(requestRender);
     void options.connectors?.prime();
     process.on('SIGINT', onSignal);
     process.on('SIGTERM', onSignal);
@@ -1704,6 +1707,7 @@ export async function runOmsInterface(
     approvals.denyAll();
     harness.setHostApproval?.(undefined);
     options.connectors?.setApprover(undefined);
+    offConnectors?.();
     clearInterval(clock);
     process.off('SIGINT', onSignal);
     setup?.dispose();

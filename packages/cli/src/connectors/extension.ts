@@ -305,6 +305,8 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
   /** What is registered now, so an unchanged connector is not registered again. */
   const registered = new Map<string, string>();
   const hostedServers = new Set<string>();
+  /** The last definition registered for each tool, to register it again as hidden when its connector is turned off. */
+  const definitions = new Map<ConnectorId, ReturnType<typeof definition>>();
   /** Actions the user approved for the rest of the session. */
   const allowed = new Set<string>();
 
@@ -500,14 +502,17 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
       }
       const name = CONNECTOR_TOOLS[spec.id as keyof typeof CONNECTOR_TOOLS];
       if (level === 'off') {
-        registered.delete(spec.id);
+        // A tool cannot be unregistered, and a session that names it in its tool list would bring it back at the next
+        // change: it is registered again as hidden, which nothing activates.
+        const last = definitions.get(spec.id);
+        if (registered.delete(spec.id) && last) pi.registerTool({ ...last, exposure: 'hidden' } as ToolDefinition);
         hide.add(name);
       } else {
         const tool = definition(spec, level);
         if (tool && registered.get(spec.id) !== level) {
-          console.error('REGISTER', tool.name);
           pi.registerTool(tool as ToolDefinition);
           registered.set(spec.id, level);
+          definitions.set(spec.id, tool);
         }
         show.add(name);
       }

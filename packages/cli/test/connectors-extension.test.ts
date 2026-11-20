@@ -30,8 +30,14 @@ function fakePi() {
     },
     registerTool(tool: never) {
       const definition = tool as typeof tools extends Map<string, infer T> ? T : never;
-      // pi activates a direct tool the first time it is registered, and leaves later changes of the active set alone.
-      if (!tools.has(definition.name) && !active.includes(definition.name)) active.push(definition.name);
+      // pi activates a direct tool when it is registered; a hidden one is never active.
+      const hidden = (definition as { exposure?: string }).exposure === 'hidden';
+      if (hidden) active = active.filter((name) => name !== definition.name);
+      else if (
+        !active.includes(definition.name) &&
+        (!tools.has(definition.name) || (tools.get(definition.name) as { exposure?: string }).exposure === 'hidden')
+      )
+        active.push(definition.name);
       tools.set(definition.name, definition);
     },
     getActiveTools() {
