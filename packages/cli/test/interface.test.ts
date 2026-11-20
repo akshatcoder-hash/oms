@@ -3074,7 +3074,10 @@ test('a chat opens to its conversation, keyboard legend, input and one footer li
     assert.match(screen, /Enter send.*Ctrl\+Q quit/);
     assert.doesNotMatch(screen, /Harness|Workbench|Commands \]|╭|╰|Conversation|Agent ·|input ·/);
     const rows = screen.split('\n').filter((row) => row.trim());
-    assert.ok(rows.length <= 5, `only the hint, legend, two rules and the footer are drawn, got ${rows.length}`);
+    assert.ok(
+      rows.length <= 6,
+      `only the hint, wrapped legend, two rules and the footer are drawn, got ${rows.length}`,
+    );
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();
@@ -3319,6 +3322,49 @@ test('Ctrl+D leaves from an empty input and does nothing while there is a draft'
   assert.equal(f.closed(), true);
   terminal.vt.dispose();
 });
+
+for (const [columns, rows] of [
+  [80, 24],
+  [60, 18],
+] as const) {
+  test(`folder chat explains existing transcript scrolling at ${columns}x${rows}`, async () => {
+    const f = chatFixture();
+    f.model(false);
+    f.harness.listModels = () => [];
+    const terminal = new InterfaceTerminal(columns, rows);
+    const run = runOmsInterface(f.harness, { terminal });
+    const normalized = (screen: string) => screen.replace(/\s+/g, ' ');
+    const hint = 'Press Tab, then PgUp/PgDn to scroll.';
+    try {
+      const initial = await terminal.until((s) => s.includes('/connect to sign in'));
+      assert.ok(normalized(initial).includes(hint), initial);
+      terminal.send('/help');
+      terminal.send('\r');
+      const help = await terminal.until((s) => s.includes('Look and account'));
+      assert.ok(normalized(help).includes(hint), help);
+      terminal.send('\t');
+      await terminal.until((s) => normalized(s).includes('Use PgUp/PgDn to scroll.'));
+      for (let i = 0; i < 4; i++) {
+        terminal.send('\x1b[5~');
+        await terminal.screen();
+      }
+      const scrolled = await terminal.until((s) => /\/connect +Sign in/.test(s));
+      assert.match(scrolled, /\/model +Pick a model/);
+      terminal.send('\x1b');
+      await terminal.until((s) => normalized(s).includes(hint));
+      terminal.send('Explain this folder.');
+      terminal.send('\r');
+      const refused = await terminal.until((s) => normalized(s).includes('Your draft is kept. No model is available.'));
+      assert.ok(normalized(refused).includes(hint), refused);
+      assert.match(refused, /Explain this folder\./);
+      assert.ok(refused.includes('/fixtures/rental-ledger'), refused);
+      assert.deepEqual(f.prompts, []);
+    } finally {
+      await quit(terminal, run);
+      terminal.vt.dispose();
+    }
+  });
+}
 
 test('/help is a short list with one entry for leaving, and /help keys has the rest', async () => {
   const f = chatFixture();
