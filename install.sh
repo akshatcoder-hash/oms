@@ -52,7 +52,7 @@ fi
 for tool in curl tar; do
   command -v "$tool" >/dev/null 2>&1 || die "Install $tool, then rerun this installer."
 done
-mkdir -p "$OMS_HOME/bin"
+(umask 077; mkdir -p "$OMS_HOME/bin")
 node_ok() {
   "$1" -e 'const [a,b,c]=process.versions.node.split(".").map(Number); process.exit(a>22 || (a===22 && (b>19 || (b===19 && c>=0))) ? 0 : 1)' >/dev/null 2>&1
 }
