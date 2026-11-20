@@ -29,6 +29,20 @@ test('all good: exit 0, no blocking', async () => {
   assert.equal(s.blocking, 0);
 });
 
+test('ready doctor prints the launch command for its invocation environment', async () => {
+  for (const [environment, command] of [
+    [{}, 'oms'],
+    [{ npm_command: 'exec' }, 'npx @barestate/oms'],
+  ] as const) {
+    const results = await runChecks(fakeEnv({ env: environment }), DEFAULT_OPTIONS);
+    assert.ok(renderText(results, environment).endsWith(`oms doctor: ready. Run \`${command}\` to launch OMS.`));
+    assert.ok(renderText([], environment).endsWith(`oms doctor: ready. Run \`${command}\` to launch OMS.`));
+    const blocked = await runChecks(fakeEnv({ env: environment, nodeVersion: '20.1.0' }), DEFAULT_OPTIONS);
+    assert.doesNotMatch(renderText(blocked, environment), /to launch OMS/);
+    assert.equal(summarize(blocked).exitCode, 1);
+  }
+});
+
 test('missing Solana CLI warns for chat and blocks program readiness checks', async () => {
   for (const platform of ['darwin', 'linux'] as const) {
     for (const needsPrograms of [false, true]) {
@@ -51,7 +65,10 @@ test('missing Solana CLI warns for chat and blocks program readiness checks', as
         needsPrograms ? { blocking: 1, warnings: 0, exitCode: 1 } : { blocking: 0, warnings: 1, exitCode: 0 },
       );
       assert.match(renderText(results), needsPrograms ? /Blocking\n {2}Solana CLI/ : /Warnings\n {2}Solana CLI/);
-      assert.match(renderText(results), needsPrograms ? /oms doctor: 1 blocking issue\(s\)$/ : /oms doctor: ready$/);
+      assert.match(
+        renderText(results),
+        needsPrograms ? /oms doctor: 1 blocking issue\(s\)$/ : /oms doctor: ready\. Run `oms` to launch OMS\.$/,
+      );
     }
   }
 });
