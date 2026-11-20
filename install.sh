@@ -27,6 +27,7 @@ if ! git --version >/dev/null 2>&1; then
   fi
   if command -v apt-get >/dev/null 2>&1; then
     git_install='apt-get update && sudo -n apt-get install -y git'
+    git_hint='sudo apt-get update && sudo apt-get install -y git'
   elif command -v dnf >/dev/null 2>&1; then
     git_install='dnf install -y git'
   elif command -v yum >/dev/null 2>&1; then
@@ -44,7 +45,7 @@ if ! git --version >/dev/null 2>&1; then
     say 'Installing Git with the system package manager.'
     sh -c "sudo -n $git_install"
   else
-    die "Git is required. Run: sudo $git_install"
+    die "Git is required. Run: ${git_hint:-sudo $git_install}"
   fi
 fi
 
@@ -88,6 +89,19 @@ else
 fi
 PATH="$(dirname "$node_bin"):$PATH"
 export PATH
+
+solana_bin=$HOME/.local/share/solana/install/active_release/bin
+if ! command -v solana >/dev/null 2>&1; then
+  if [ ! -x "$solana_bin/solana" ] && [ "${OMS_SKIP_SOLANA:-0}" != 1 ]; then
+    say 'Installing Solana CLI with the official Anza installer.'
+    solana_installer=$(curl -fsSL https://release.anza.xyz/stable/install)
+    sh -c "$solana_installer" -- stable --no-modify-path
+    [ -x "$solana_bin/solana" ] || die "Solana CLI installation did not create $solana_bin/solana."
+  fi
+fi
+PATH="$solana_bin:$PATH"
+export PATH
+
 say "Installing @barestate/oms@${OMS_VERSION:-latest}."
 npm install -g --prefix "$OMS_HOME/cli" --ignore-scripts --no-audit --no-fund "@barestate/oms@${OMS_VERSION:-latest}"
 
@@ -96,7 +110,7 @@ quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 {
   printf '#!/bin/sh\n'
   # shellcheck disable=SC2016
-  printf 'PATH=%s:"$PATH"\nexport PATH\n' "$(quote "$(dirname "$node_bin")")"
+  printf 'PATH=%s:%s:"$PATH"\nexport PATH\n' "$(quote "$(dirname "$node_bin")")" "$(quote "$solana_bin")"
   printf 'exec %s %s "$@"\n' "$(quote "$node_bin")" "$(quote "$OMS_HOME/cli/bin/oms")"
 } > "$OMS_HOME/bin/oms"
 chmod +x "$OMS_HOME/bin/oms"

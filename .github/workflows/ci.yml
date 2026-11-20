@@ -50,7 +50,7 @@ jobs:
             done
             # tar invokes gzip; npm invokes node from the private Node directory.
             ln -s "$(command -v gzip)" "$RUNNER_TEMP/no-node/gzip"
-            PATH="$RUNNER_TEMP/no-node" /bin/sh install.sh
+            OMS_SKIP_SOLANA=1 PATH="$RUNNER_TEMP/no-node" /bin/sh install.sh
           else
             sh install.sh
           fi

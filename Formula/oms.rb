@@ -7,6 +7,7 @@ class Oms < Formula
 
   depends_on "git"
   depends_on "node"
+  depends_on "solana"
 
   def install
     system "npm", "install", *std_npm_args, "--ignore-scripts", "--no-audit", "--no-fund"
