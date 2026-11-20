@@ -166,7 +166,7 @@ test('Docker is refused for a chat and names the pinned-task path', async (t) =>
   const f = await open(t);
   await assert.rejects(
     f.start({ environment: { ...f.options.environment, backend: 'docker' } }),
-    /Docker chats need a pinned task: use oms task create and oms run\./,
+    /Run `oms help advanced` for workspace and task setup instructions\. Docker mode requires a pinned task and does not support folder chat\./,
   );
 });
 
