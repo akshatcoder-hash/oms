@@ -11,7 +11,7 @@ import {
   type CliConnector,
   type Params,
 } from './argv.ts';
-import { CATALOG, connectorSpec, type ConnectorSpec } from './catalog.ts';
+import { CATALOG, CONNECTOR_TOOLS, connectorSpec, type ConnectorSpec } from './catalog.ts';
 import type { Access, ConnectorId } from './config.ts';
 import { tailLines, type HostResult, type HostRun } from './host.ts';
 import { classifyMcpTool, mcpServerConfig, mcpToolPrefix } from './mcp.ts';
@@ -376,6 +376,11 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
     pi = api;
     api.on('session_start', () => {
       bound = true;
+      try {
+        apply(true);
+      } catch {
+        // The tools are registered; they are made active at the next change.
+      }
     });
     api.on('tool_call', async (event, ctx) => {
       const id = TOOL_TO_ID[event.toolName];
@@ -466,11 +471,15 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
     apply(false);
   };
 
-  /** Register what is on. Before the session binds, only registration is allowed; afterwards tools can be shown and hidden. */
+  /**
+   * Register what is on. Before the session binds only registration is allowed. Once it has, the agent's active tools are set
+   * to match: a connector's tool is made active when it is on (a session may hold an allowlist that does not name it) and
+   * removed when it is off.
+   */
   function apply(live: boolean): void {
     if (!pi) return;
-    const active = live ? pi.getActiveTools() : [];
-    let next = active;
+    const show = new Set<string>();
+    const hide = new Set<string>();
     for (const spec of CATALOG) {
       const level = host.access(spec.id);
       if (spec.mcp) {
@@ -489,21 +498,25 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
         }
         continue;
       }
-      const tool = definition(spec, level);
-      const name = tool?.name ?? '';
-      if (!tool) continue;
+      const name = CONNECTOR_TOOLS[spec.id as keyof typeof CONNECTOR_TOOLS];
       if (level === 'off') {
-        if (registered.has(spec.id)) {
-          registered.delete(spec.id);
-          next = next.filter((existing) => existing !== name);
+        registered.delete(spec.id);
+        hide.add(name);
+      } else {
+        const tool = definition(spec, level);
+        if (tool && registered.get(spec.id) !== level) {
+          console.error('REGISTER', tool.name);
+          pi.registerTool(tool as ToolDefinition);
+          registered.set(spec.id, level);
         }
-      } else if (registered.get(spec.id) !== level) {
-        pi.registerTool(tool as ToolDefinition);
-        registered.set(spec.id, level);
-        if (live && !next.includes(name)) next = [...next, name];
+        show.add(name);
       }
     }
-    if (live && next !== active) pi.setActiveTools(next);
+    if (!live) return;
+    const active = pi.getActiveTools();
+    const next = active.filter((name) => !hide.has(name));
+    for (const name of show) if (!next.includes(name)) next.push(name);
+    if (next.length !== active.length || next.some((name, index) => name !== active[index])) pi.setActiveTools(next);
   }
 
   return {

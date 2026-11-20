@@ -51,6 +51,14 @@ export function rowSummary(row: ConnectorRow): string {
   return `off · ${detection.detail ?? 'could not check'}`;
 }
 
+/** Who or what the connector runs as, in a sentence: an account, a Docker version, an AWS profile, an RPC. */
+function statusSentence(spec: ConnectorSpec, account: string | undefined): string {
+  if (spec.id === 'docker') return account ? `Docker ${account} is running.` : 'Docker is running.';
+  if (spec.id === 'aws') return account ? `Using ${account}.` : 'Ready.';
+  if (spec.id === 'solana-rpc') return account ? `Using ${account}.` : 'Ready.';
+  return account ? `Signed in as ${account}.` : 'Signed in.';
+}
+
 /** What the selected connector gives the agent, where it stands, and what to do next. Plain sentences. */
 export function connectorDetail(row: ConnectorRow, restart: boolean): string[] {
   const { spec, detection } = row;
@@ -60,7 +68,7 @@ export function connectorDetail(row: ConnectorRow, restart: boolean): string[] {
   else if (detection.state === 'ready')
     lines.push(
       row.enabled
-        ? `${detection.account ? `Signed in as ${detection.account}. ` : ''}${spec.levels.length > 1 ? 'A changes how much the agent may do.' : ''}`.trim()
+        ? `${statusSentence(spec, detection.account)} ${spec.levels.length > 1 ? 'A changes how much the agent may do.' : ''}`.trim()
         : 'Ready. Press Space to turn it on.',
     );
   else if (detection.state === 'signin')
@@ -83,6 +91,8 @@ export function connectorDetail(row: ConnectorRow, restart: boolean): string[] {
   return lines.filter(Boolean);
 }
 
+/** Wide enough for the longest name, with a space after it. */
+const LABEL_WIDTH = 18;
 const ORDER: ConnectorGroup[] = ['code', 'team', 'cloud', 'solana'];
 
 /** The /connectors screen: every integration in one list, what the agent may do with each, and how to connect it. */
@@ -386,7 +396,7 @@ export class ConnectorsPane {
         const isSelected = row.spec.id === this.selected;
         const { glyph, role } = mark(row);
         const left = `${isSelected ? '›' : ' '} `;
-        const label = row.spec.label.padEnd(16);
+        const label = row.spec.label.padEnd(LABEL_WIDTH);
         const text =
           paint(isSelected ? 'accent' : 'foreground', left) +
           paint(role, glyph) +
@@ -402,7 +412,7 @@ export class ConnectorsPane {
         const { glyph, role } = builtinMark(builtin);
         lines.push(
           truncateToWidth(
-            `  ${paint(role, glyph)} ${paint('foreground', builtin.label.padEnd(16))}${paint('muted', builtin.detail + (builtin.manage ? ` · ${builtin.manage}` : ''))}`,
+            `  ${paint(role, glyph)} ${paint('foreground', builtin.label.padEnd(LABEL_WIDTH))}${paint('muted', builtin.detail + (builtin.manage ? ` · ${builtin.manage}` : ''))}`,
             w,
             paint('muted', '…'),
           ),
