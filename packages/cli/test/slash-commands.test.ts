@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChatSession, HarnessSession, OmsSession } from '@oms/engine';
-import { OMS_COMMANDS, commandHelp, commandMatches } from '../src/tui/commands.ts';
+import { OMS_COMMANDS, chatHelp, commandHelp, commandMatches } from '../src/tui/commands.ts';
 import {
   acceptsArgument,
   canRunWhileBusy,
@@ -116,6 +116,19 @@ const refusal = (prepared: Prepared | undefined): string => {
 };
 
 // ------------------------------------------------------------------ the command list
+
+test('folder chat help explains every summary binding in complete sentences', () => {
+  const summary = chatHelp().split('\n\n').at(-1)!;
+  assert.equal(
+    summary,
+    'Press Enter to send. Use Shift+Enter to add a line. Press Esc to cancel.\n' +
+      'Press Ctrl+O to show full tool output. Press Ctrl+T to hide thinking.\n' +
+      'Press Ctrl+D to leave. Run /help keys to list every key.',
+  );
+  assert.doesNotMatch(summary, /[·—–]/);
+  assert.match(chatHelp(), /\/connect +Sign in or add an API key/);
+  assert.match(chatHelp(), /\/model +Pick a model/);
+});
 
 test('the menu and help list every new command, with Solana after Work, and no planned ones', () => {
   const names: string[] = OMS_COMMANDS.map((command) => command.name);
