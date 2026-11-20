@@ -2650,7 +2650,7 @@ test('while work is running only the read-only commands run; every other new com
 
 for (const model of ['sonnet', 'opus', 'haiku'])
   test(`/model groups Claude Code separately and selects ${model} without sending a model request`, async () => {
-    const f = fixture();
+    const f = chatFixture();
     const terminal = new InterfaceTerminal(120, 36);
     const selections: string[] = [];
     f.harness.listProviders = () => [
@@ -2683,7 +2683,9 @@ for (const model of ['sonnet', 'opus', 'haiku'])
       assert.equal(screen.includes('anthropic/api-sonnet'), false);
       terminal.send(model);
       terminal.send('\r');
-      await terminal.until((s) => s.includes(`Native Claude chat selected: claude-code/${model}`));
+      const ready = await terminal.until((s) => s.includes(`Native Claude chat selected: claude-code/${model}`));
+      assert.match(ready, /\/help/);
+      assert.doesNotMatch(ready, /\/connect|\/model/);
       assert.deepEqual(selections, [`claude-code/${model}`]);
       assert.deepEqual(f.prompts, []);
     } finally {
