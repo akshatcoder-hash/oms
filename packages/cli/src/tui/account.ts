@@ -32,7 +32,7 @@ export class AccountPane {
     this.input = {
       focused: false,
       invalidate() {},
-      render: (width) => [truncateToWidth(this.pending ? 'Waiting… · esc cancel' : 'esc close', width, '')],
+      render: (width) => [truncateToWidth(this.pending ? 'Waiting…' : '', width, '')],
       handleInput: (data) => this.handleInput(data),
     };
     queueMicrotask(() => {

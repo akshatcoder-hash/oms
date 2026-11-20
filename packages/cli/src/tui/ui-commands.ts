@@ -104,7 +104,7 @@ export const uiCommands = {
     if (argument) web.set(argument === 'on');
     const used = web.usage();
     ctx.setNotice(
-      `Web ${web.enabled() ? 'on' : 'off'} · ${plural(used.webSearch, 'search', 'searches')} · ${plural(used.webFetch, 'fetch')} · ${plural(used.solanaMcp, 'docs lookup')} · /web ${web.enabled() ? 'off' : 'on'}`,
+      `Web ${web.enabled() ? 'on' : 'off'} · ${plural(used.webSearch, 'search', 'searches')} · ${plural(used.webFetch, 'fetch', 'fetches')} · ${plural(used.solanaMcp, 'docs lookup')} · /web ${web.enabled() ? 'off' : 'on'}`,
     );
   },
   yolo(ctx: CommandContext, _argument: string, draft: Draft): void {

@@ -313,7 +313,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'web',
     group: 'Setup',
-    description: 'Web search on or off',
+    description: 'Show or switch web search',
     argument: '[on|off]',
     accepts: acceptsWeb,
     whileBusy: 'accepted',

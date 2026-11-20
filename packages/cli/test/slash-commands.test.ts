@@ -597,6 +597,28 @@ test('/program prints the program reference text without a network or chain', as
   assert.match(refusal(prepareSlash('program', '  ', harnessFake())), /Usage/);
 });
 
+test('/web counts read as plain English at every number', () => {
+  const notices: string[] = [];
+  const say = (searches: number, fetches: number, lookups: number) => {
+    const ctx = {
+      harness: {
+        web: {
+          enabled: () => true,
+          set() {},
+          usage: () => ({ webSearch: searches, webFetch: fetches, solanaMcp: lookups }),
+        },
+      },
+      clearDraft() {},
+      setNotice: (text: string) => notices.push(text),
+    } as unknown as CommandContext;
+    findCommand('web')!.run(ctx, '', undefined);
+    return notices.at(-1);
+  };
+  assert.equal(say(0, 0, 0), 'Web on · 0 searches · 0 fetches · 0 docs lookups · /web off');
+  assert.equal(say(1, 1, 1), 'Web on · 1 search · 1 fetch · 1 docs lookup · /web off');
+  assert.equal(say(2, 12, 3), 'Web on · 2 searches · 12 fetches · 3 docs lookups · /web off');
+});
+
 test('/program reads for a person: no tool-call syntax, a table of instructions, correct plurals', async () => {
   const list = (await run(prepareSlash('program', 'token', harnessFake()))).text;
   assert.doesNotMatch(list, /source_fetch|ask for one instruction for accounts/);
@@ -958,6 +980,18 @@ test('/status says when no model is selected, and flags unconfirmed or used-up b
     )
   ).text;
   assert.match(text, /^Model {3}none selected · \/model\n/);
+  // The session's placeholder model is not a pick the user made.
+  (noModel.session as unknown as { model: unknown }).model = { provider: 'unknown', id: 'unknown' };
+  const placeholder = (
+    await run(
+      findCommand('status')?.run(
+        { harness: noModel, modelDetail: () => undefined } as unknown as CommandContext,
+        '',
+        undefined,
+      ) as Prepared,
+    )
+  ).text;
+  assert.match(placeholder, /^Model {3}none selected · \/model\n/);
   assert.match(text, /\$4\.9975 left · exhausted · usage unconfirmed$/);
 });
 

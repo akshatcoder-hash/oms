@@ -195,8 +195,9 @@ export function prepareStatus(ctx: CommandContext): Prepared {
       const rows: (readonly [string, string])[] = [
         [
           'Model',
-          (model ? `${singleLine(model.provider, 80)}/${singleLine(model.id, 120)}` : 'none selected · /model') +
-            (detail ? `\n${singleLine(detail, 200)}` : ''),
+          (model && model.provider.trim() && model.id.trim() && model.provider !== 'unknown' && model.id !== 'unknown'
+            ? `${singleLine(model.provider, 80)}/${singleLine(model.id, 120)}`
+            : 'none selected · /model') + (detail ? `\n${singleLine(detail, 200)}` : ''),
         ],
         ...(context == null ? [] : [['Context', `${Math.round(context)}% full`] as const]),
         ['Budget', budgetLine(harness)],

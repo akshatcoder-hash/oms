@@ -66,7 +66,7 @@ function storedAccount(t: TestContext, meStatus = 200) {
         mode,
         theme: () => getTheme('gruvbox')!,
         render() {
-          if (pane.input.render(120).join('\n').includes('esc close')) resolve();
+          if (!pane.input.render(120).join('\n').includes('Waiting')) resolve();
         },
         close() {},
       });
