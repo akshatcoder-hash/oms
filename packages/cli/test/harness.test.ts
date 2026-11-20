@@ -40,10 +40,11 @@ test('resume command binds the OMS session and current native model instead of t
   assert.equal(value('--tokens'), '123');
   assert.equal(args.includes('old-model'), false);
   delete process.env.npm_command;
-  assert.deepEqual(
-    resumeHarnessArguments(options, harness, 'oms-owner-id', ['--tokens', '123']).slice(0, 3),
-    [process.execPath, bin, 'run'],
-  );
+  assert.deepEqual(resumeHarnessArguments(options, harness, 'oms-owner-id', ['--tokens', '123']).slice(0, 3), [
+    process.execPath,
+    bin,
+    'run',
+  ]);
 });
 
 test('local workspace initialization records an ignored repository and external state without a model request', (t) => {
