@@ -5,6 +5,7 @@ export * from './settle.ts';
 export * from './trace-extension.ts';
 export * from './verifier.ts';
 export * from './workspace/index.ts';
+export { privateDirectory } from './workspace/storage.ts';
 export * from './runtime/session.ts';
 export * from './runtime/verifier-backend.ts';
 export * from './runtime/usage.ts';
