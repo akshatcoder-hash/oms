@@ -3080,6 +3080,43 @@ test('with nothing connected the chat says only to run /connect', async () => {
   }
 });
 
+for (const [columns, rows] of [
+  [80, 24],
+  [60, 18],
+] as const) {
+  test(`the missing-model notice keeps recovery and draft status visible at ${columns}x${rows}`, async () => {
+    const f = chatFixture();
+    f.model(false);
+    (f.harness as unknown as { listModels(): unknown[] }).listModels = () => [];
+    const terminal = new InterfaceTerminal(columns, rows);
+    const run = runOmsInterface(f.harness, { terminal });
+    try {
+      const initial = await terminal.until((s) => s.includes('Run /connect to sign in.'));
+      assert.doesNotMatch(initial, /Your draft is kept|No model is available/);
+      terminal.send('Explain this folder.');
+      terminal.send('\r');
+      const screen = await terminal.until((s) => s.replace(/\s+/g, ' ').includes('Your draft is kept.'));
+      const notice = 'Run /connect to sign in or /model to choose a model. Your draft is kept. No model is available.';
+      assert.ok(
+        screen
+          .split('\n')
+          .map((line) => line.trim())
+          .join(' ')
+          .includes(notice),
+        screen,
+      );
+      assert.match(screen, /^Run \/connect to sign in or \/model/m);
+      assert.doesNotMatch(screen, /\.\.\.|…/);
+      assert.deepEqual(f.prompts, []);
+      terminal.send('!');
+      await terminal.until((s) => s.includes('Explain this folder.!'));
+    } finally {
+      await quit(terminal, run);
+      terminal.vt.dispose();
+    }
+  });
+}
+
 test('/exit leaves exactly as /quit does, cleanup included', async () => {
   for (const command of ['/exit', '/quit']) {
     const f = chatFixture();

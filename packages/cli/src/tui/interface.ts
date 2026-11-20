@@ -83,7 +83,7 @@ interface Action {
   errorDisplayed?: boolean;
 }
 
-const MODEL_CONFIGURATION = 'Use /model to choose a model or /connect to add an API key; draft retained.';
+const MODEL_CONFIGURATION = 'Run /connect to sign in or /model to choose a model. Your draft is kept.';
 
 function hasModelConfiguration(model: { provider: string; id: string } | undefined): boolean {
   const provider = model?.provider.trim();
@@ -629,12 +629,12 @@ export async function runOmsInterface(
       message ===
         `Authentication failed for "${provider}". Credentials may have expired or network is unavailable. Run '/login ${provider}' to re-authenticate.`;
     if (missingAuth || expiredAuth)
-      return `Authentication unavailable${provider ? ` for ${singleLine(provider, 80)}` : ''}. ${MODEL_CONFIGURATION}`;
+      return `${MODEL_CONFIGURATION} Authentication is unavailable${provider ? ` for ${singleLine(provider, 80)}` : ''}.`;
     if (
       message.startsWith(`No model selected.\n\n${loginHelp}`) ||
       message.startsWith(`No models available. ${loginHelp}`)
     ) {
-      return `Model unavailable. ${MODEL_CONFIGURATION}`;
+      return `${MODEL_CONFIGURATION} No model is available.`;
     }
     return message;
   }
@@ -800,7 +800,7 @@ export async function runOmsInterface(
   /** /goal <text>: the agent works until the check passes; settle-gate rules (retry cap, budget, repeated failure) end the loop. */
   function startGoal(text: string, check: string | undefined, draft: string | undefined): void {
     if (!hasModelConfiguration(harness.session.model)) {
-      setNotice(`Model unavailable. ${MODEL_CONFIGURATION}`);
+      setNotice(`${MODEL_CONFIGURATION} No model is available.`);
       return;
     }
     const choice = selectedModelChoice();
@@ -947,7 +947,7 @@ export async function runOmsInterface(
   /** The user's next message to the agent, from the composer or a command such as /team. */
   function ask(text: string, composerDraft: string | undefined): void {
     if (!hasModelConfiguration(harness.session.model)) {
-      setNotice(`Model unavailable. ${MODEL_CONFIGURATION}`);
+      setNotice(`${MODEL_CONFIGURATION} No model is available.`);
       return;
     }
     const choice = selectedModelChoice();
@@ -1077,7 +1077,7 @@ export async function runOmsInterface(
         colorText(theme!, 'muted', '─'.repeat(Math.max(0, width - visibleWidth(label)))),
     ];
   });
-  const noticeRow = component((width) => [truncateToWidth(colorText(theme!, 'warning', notice), width)]);
+  const noticeRow = component((width) => wrapTextWithAnsi(colorText(theme!, 'warning', notice), width));
   const workingRow = component((width) => [
     truncateToWidth(colorText(theme!, 'muted', ` ${active?.cancellation ? 'Cancelling...' : 'Working...'}`), width),
   ]);
@@ -1277,7 +1277,7 @@ export async function runOmsInterface(
     { component: paletteField, basis: 1, shrink: 0, visible: () => !!paletteInput },
     { component: setupInput, basis: 1, shrink: 0, visible: () => !!setup },
     { component: setupActions, basis: 1, shrink: 0, visible: () => !!setup },
-    { component: noticeRow, basis: 1, shrink: 0, visible: () => !!notice },
+    { component: noticeRow, basis: 'auto', shrink: 0, visible: () => !!notice },
     { component: status, basis: 1, shrink: 0, visible: () => !minimal },
     { component: footer, basis: 1, shrink: 0, visible: () => !minimal || !!setup || !!paletteInput },
     { component: chatFooter, basis: 1, shrink: 0, visible: () => minimal && !setup && !paletteInput },
