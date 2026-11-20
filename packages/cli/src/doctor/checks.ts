@@ -210,8 +210,8 @@ export async function runChecks(env: Env, opts: DoctorOptions): Promise<CheckRes
     status: hasKey ? 'ok' : 'fail',
     severity: 'warning',
     detail: hasKey
-      ? 'provider environment configured; login not validated'
-      : 'no provider environment configured; saved subscription login not checked',
+      ? 'A provider environment is configured. Login has not been validated.'
+      : 'No provider environment is configured. Saved subscription login has not been checked.',
     fix: 'In OMS, run /connect, then /model. Subscription access does not require a provider API key.',
   });
 
@@ -251,6 +251,10 @@ export function renderText(results: CheckResult[]): string {
     lines.push('');
   }
   const s = summarize(results);
-  lines.push(s.blocking === 0 ? 'oms doctor: ready' : `oms doctor: ${s.blocking} blocking issue(s)`);
+  lines.push(
+    s.blocking === 0
+      ? 'oms doctor: ready'
+      : `oms doctor: ${s.blocking} blocking ${s.blocking === 1 ? 'issue needs' : 'issues need'} attention.`,
+  );
   return lines.join('\n');
 }

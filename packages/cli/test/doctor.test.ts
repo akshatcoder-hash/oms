@@ -29,6 +29,34 @@ test('all good: exit 0, no blocking', async () => {
   assert.equal(s.blocking, 0);
 });
 
+test('model access status uses complete sentences without claiming login was checked', async () => {
+  for (const [environment, detail, status] of [
+    [{}, 'No provider environment is configured. Saved subscription login has not been checked.', 'fail'],
+    [{ OPENAI_API_KEY: 'fixture' }, 'A provider environment is configured. Login has not been validated.', 'ok'],
+  ] as const) {
+    const results = await runChecks(fakeEnv({ env: environment }), DEFAULT_OPTIONS);
+    const model = results.find((result) => result.id === 'model-key');
+    assert.equal(model?.detail, detail);
+    assert.equal(model?.status, status);
+    assert.equal(model?.severity, 'warning');
+    assert.equal(summarize(results).exitCode, 0);
+    assert.ok(renderText(results).includes(detail));
+  }
+});
+
+test('blocking summaries use complete sentences with the exact issue count', async () => {
+  for (const [tools, count, sentence] of [
+    [{ surfpool: 'surfpool 1.7.0' }, 1, '1 blocking issue needs attention.'],
+    [{}, 2, '2 blocking issues need attention.'],
+  ] as const) {
+    const results = await runChecks(fakeEnv({ nodeVersion: '20.1.0', tools }), DEFAULT_OPTIONS);
+    assert.equal(summarize(results).blocking, count);
+    assert.equal(summarize(results).exitCode, 1);
+    assert.ok(renderText(results).endsWith(`oms doctor: ${sentence}`));
+  }
+  assert.equal(renderText([]), 'oms doctor: ready');
+});
+
 test('missing Solana CLI warns for chat and blocks program readiness checks', async () => {
   for (const platform of ['darwin', 'linux'] as const) {
     for (const needsPrograms of [false, true]) {
@@ -51,7 +79,10 @@ test('missing Solana CLI warns for chat and blocks program readiness checks', as
         needsPrograms ? { blocking: 1, warnings: 0, exitCode: 1 } : { blocking: 0, warnings: 1, exitCode: 0 },
       );
       assert.match(renderText(results), needsPrograms ? /Blocking\n {2}Solana CLI/ : /Warnings\n {2}Solana CLI/);
-      assert.match(renderText(results), needsPrograms ? /oms doctor: 1 blocking issue\(s\)$/ : /oms doctor: ready$/);
+      assert.match(
+        renderText(results),
+        needsPrograms ? /oms doctor: 1 blocking issue needs attention\.$/ : /oms doctor: ready$/,
+      );
     }
   }
 });
