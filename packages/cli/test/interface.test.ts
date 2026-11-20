@@ -3197,6 +3197,54 @@ for (const [columns, rows] of [
   });
 }
 
+for (const [columns, rows] of [
+  [80, 24],
+  [60, 18],
+] as const) {
+  test(`successful commands replace stale notices without hiding new errors at ${columns}x${rows}`, async () => {
+    const f = chatFixture();
+    f.model(false);
+    (f.harness as unknown as { listModels(): unknown[] }).listModels = () => [];
+    const terminal = new InterfaceTerminal(columns, rows);
+    const run = runOmsInterface(f.harness, { terminal });
+    const missingModel = (screen: string) =>
+      screen.replace(/\s+/g, ' ').includes('Your draft is kept. No model is available.');
+    try {
+      await terminal.until((s) => s.includes('Run /connect to sign in.'));
+      for (const command of ['/usage', '/harness', '/theme nord']) {
+        terminal.send('Explain this folder.');
+        terminal.send('\r');
+        await terminal.until(missingModel);
+        terminal.send('\x01');
+        terminal.send('\x7f');
+        terminal.send(command);
+        terminal.send('\r');
+        const screen = await terminal.until((s) => !missingModel(s));
+        if (command === '/usage') {
+          assert.match(screen, /Spend:/);
+          assert.match(screen.replace(/\s+/g, ' '), /no model calls yet/);
+        }
+        if (command === '/theme nord') assert.match(screen, /Theme:/);
+        assert.deepEqual(f.prompts, []);
+      }
+      terminal.send('/usage');
+      terminal.send('\r');
+      terminal.send('Explain this folder.');
+      terminal.send('\r');
+      await terminal.until(missingModel);
+      terminal.send('\x01');
+      terminal.send('\x7f');
+      terminal.send('/not-a-command');
+      terminal.send('\r');
+      await terminal.until((s) => s.includes('Unknown or invalid OMS command.'));
+      assert.deepEqual(f.prompts, []);
+    } finally {
+      await quit(terminal, run);
+      terminal.vt.dispose();
+    }
+  });
+}
+
 test('/exit leaves exactly as /quit does, cleanup included', async () => {
   for (const command of ['/exit', '/quit']) {
     const f = chatFixture();
