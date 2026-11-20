@@ -14,7 +14,7 @@ import {
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { privateDirectory } from '../../../engine/src/workspace/storage.ts';
+import { privateDirectory } from '@oms/engine';
 
 const run = promisify(execFile);
 
