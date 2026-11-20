@@ -1,6 +1,7 @@
 import {
   createChatSession,
   latestChatSession,
+  omsCommand,
   resolveChatFolder,
   savedBudgetUsable,
   scratchNotice,
@@ -82,5 +83,5 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
   } finally {
     await chat.close();
   }
-  process.stdout.write('Run oms in this folder to continue.\n');
+  process.stdout.write(`Run ${omsCommand()} in this folder to continue.\n`);
 }

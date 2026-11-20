@@ -3,7 +3,7 @@ import { DEFAULT_OPTIONS, renderText, runChecks, summarize } from './doctor/chec
 import { nodeEnv } from './doctor/node-env.ts';
 import { installPinnedSurfpool } from './doctor/install.ts';
 import { readFileSync } from 'node:fs';
-import { configuredBackend, defaultHarnessEnvironment } from '@oms/engine';
+import { configuredBackend, defaultHarnessEnvironment, omsCommand } from '@oms/engine';
 import { runHarnessCommand } from './harness.ts';
 import { toolchainCommand } from './toolchain.ts';
 import { runReviewCommand } from './review.ts';
@@ -11,35 +11,35 @@ import { startLocal } from '../../../scripts/start-local.ts';
 
 const HELP = `oms: the Solana coding agent
 
-  oms                 Start in the current folder (any folder works)
-  oms doctor          Check your setup
-  oms review [path]   Offline security review of a Solana program
-  oms --version       Show the version
+  ${omsCommand()}                 Start in the current folder (any folder works).
+  ${omsCommand()} doctor          Check your setup.
+  ${omsCommand()} review [path]   Review a Solana program offline.
+  ${omsCommand()} --version       Show the version.
 
 Inside OMS:
-  /connect   Sign in (ChatGPT, Claude Code, or an API key)
-  /model     Pick a model
-  /help      Every command and key
+  /connect   Sign in (ChatGPT, Claude Code, or an API key).
+  /model     Pick a model.
+  /help      Show every command and key.
 
 Options:
-  --spend-usd <n>     Cap API spend for the session (default $5)
-  --sandbox docker    Run commands in Docker instead of on this machine
+  --spend-usd <n>     Cap API spend for the session (default $5).
+  --sandbox docker    Run commands in Docker instead of on this machine.
 
-More: oms help advanced
+Run \`${omsCommand()} help advanced\` for more commands.
 `;
 
 const ADVANCED_HELP = `oms advanced commands
 
 Usage:
-  oms [--bounded] [--tokens <cap>] [--spend-usd <cap>] [--minutes <cap>] [--output-tokens <cap>]
-              Start OMS in the current folder
-  oms toolchain check|fix [--project <path>] [--apply] [--verify]
-  oms review [path] --phase A [--program <name>] [--json] [--out <new-directory>] [--state-root <directory>]
-  oms review [path] --purge <reviewId|all> [--state-root <directory>]
-  oms doctor [--json] [--programs] [--rpc <url>] [--surfpool-binary <path>] [--install]
-  oms workspace init <repository> --ignore gitignore|exclude|require-existing
-  oms task create --workspace <repository> [--base <revision>] --requirements <file> [--id <task-id>]
-  oms run [--workspace <repository>] [--task <task-id>] [--session <session-id>]
+  ${omsCommand()} [--bounded] [--tokens <cap>] [--spend-usd <cap>] [--minutes <cap>] [--output-tokens <cap>]
+              Start OMS in the current folder.
+  ${omsCommand()} toolchain check|fix [--project <path>] [--apply] [--verify]
+  ${omsCommand()} review [path] --phase A [--program <name>] [--json] [--out <new-directory>] [--state-root <directory>]
+  ${omsCommand()} review [path] --purge <reviewId|all> [--state-root <directory>]
+  ${omsCommand()} doctor [--json] [--programs] [--rpc <url>] [--surfpool-binary <path>] [--install]
+  ${omsCommand()} workspace init <repository> --ignore gitignore|exclude|require-existing
+  ${omsCommand()} task create --workspace <repository> [--base <revision>] --requirements <file> [--id <task-id>]
+  ${omsCommand()} run [--workspace <repository>] [--task <task-id>] [--session <session-id>]
           [--provider <provider> --model <model>] [--bounded] [--tokens <cap>] [--spend-usd <cap>]
           [--minutes <cap>] [--output-tokens <cap>] [--surfpool-binary <path>]
           [--sandbox host|docker] [--host-approval deny|allow]
@@ -54,7 +54,7 @@ Commands:
 Use --state-root <directory> with workspace/task/run to choose trusted external user state.
 Harness is the default. /workbench or F3 switches views over the same session. Type / for commands.
 Provider setup is in /connect; model selection is in /model. Signing and workspace-secret access are unavailable.
-Native Claude chat: run --provider claude-code --model sonnet; Claude Code owns its login and chat history.
+To use native Claude chat, run \`${omsCommand()} run --provider claude-code --model sonnet\`. Claude Code owns its login and chat history.
 --session resumes the OMS conversation and its bound native Claude chat, when selected.
 Normal launch uses interactive chat: idle time does not expire the conversation.
 --tokens and --minutes bound each active turn/tool operation; --spend-usd caps cumulative API spend.
@@ -112,7 +112,9 @@ try {
   } else if (cmd === '--help' || cmd === '-h' || cmd === 'help') {
     console.log(HELP);
   } else {
-    console.error(`oms: unknown command "${cmd}". Run oms to start, or oms --help.`);
+    console.error(
+      `oms: unknown command "${cmd}". Run \`${omsCommand()}\` to start. Run \`${omsCommand()} --help\` for help.`,
+    );
     process.exitCode = 2;
   }
 } catch (error) {

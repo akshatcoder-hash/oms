@@ -21,14 +21,17 @@ import {
 } from './session-environment.ts';
 import { chatRoot, chatStateDir, type SessionRoot } from './session-root.ts';
 import type { ChatSession, ChatSessionOptions } from './session-types.ts';
+import { omsCommand } from './cli-command.ts';
 
-export const DOCKER_CHAT_REFUSAL = 'Docker chats need a pinned task: use oms task create and oms run.';
+export const DOCKER_CHAT_REFUSAL = `Docker chats need a pinned task: use ${omsCommand()} task create and ${omsCommand()} run.`;
 
 /** Another window already has this folder open. */
 export class ChatBusyError extends Error {
   readonly pid: number;
   constructor(pid: number) {
-    super(`OMS is already open in this folder (process ${pid}). Close that window, or run oms in another folder.`);
+    super(
+      `OMS is already open in this folder (process ${pid}). Close that window, or run ${omsCommand()} in another folder.`,
+    );
     this.name = 'ChatBusyError';
     this.pid = pid;
   }

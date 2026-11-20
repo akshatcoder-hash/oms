@@ -17,6 +17,7 @@ import {
   WEB_PROMPT_NO_KNOWLEDGE,
 } from './system-prompt.ts';
 import { elideOldFetches } from './web.ts';
+import { omsCommand } from './cli-command.ts';
 
 /** The prompt text and the per-turn context hooks of one session. */
 export interface SessionHooks {
@@ -69,7 +70,7 @@ export function createSessionHooks(
       ctx.ui.notify(
         env.contract
           ? 'Use the OMS launcher to select/resume a task session; this preview keeps its task owner fixed.'
-          : 'Run oms again in this folder to resume a conversation; this chat keeps its folder fixed.',
+          : `Run ${omsCommand()} again in this folder to resume a conversation. This chat keeps its folder fixed.`,
         'warning',
       );
       return { cancel: true };
