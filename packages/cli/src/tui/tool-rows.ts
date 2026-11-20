@@ -294,10 +294,11 @@ function agent(ctx: RowContext, call: ToolCall): Rendered {
   );
   let status: string;
   if (failed) status = `failed · ${first}`;
-  else if (details?.status === 'waiting') status = `waiting${details.waitingFor ? ` for ${details.waitingFor}` : ''}`;
+  else if (details?.status === 'waiting')
+    status = `waiting${details.waitingFor ? ` for ${flat(details.waitingFor, 60)}` : ''}`;
   else if (details?.status === 'running' || !details?.status) status = 'running';
   else
-    status = `${details.status} · ${compact(details.tokens ?? 0)} tokens${details.summary ? ` · ${flat(details.summary, 60)}` : ''}`;
+    status = `${flat(details.status, 20)} · ${compact(Number(details.tokens) || 0)} tokens${details.summary ? ` · ${flat(details.summary, 60)}` : ''}`;
   const state: ToolState = failed ? 'error' : call.state;
   const head = header(
     ctx,

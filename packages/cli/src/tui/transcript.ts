@@ -141,13 +141,18 @@ function textOf(content: unknown): string {
   return displayText(text.trimEnd());
 }
 
+const contentOf = (message: AssistantMessage): AssistantMessage['content'] =>
+  Array.isArray(message.content) ? message.content.filter((block) => block && typeof block === 'object') : [];
+
 /** Every provider string crosses displayText before it is drawn. */
 function assistantForDisplay(message: AssistantMessage, diagnostic: string): AssistantMessage {
-  const content = (message.content ?? []).slice(0, 128).map((block) => {
-    if (block.type === 'text') return { ...block, text: displayText(block.text) };
-    if (block.type === 'thinking') return { ...block, thinking: displayText(block.thinking) };
-    return block;
-  });
+  const content = contentOf(message)
+    .slice(0, 128)
+    .map((block) => {
+      if (block.type === 'text') return { ...block, text: displayText(block.text) };
+      if (block.type === 'thinking') return { ...block, thinking: displayText(block.thinking) };
+      return block;
+    });
   const budget = ENTRY_CHARS - diagnostic.length - 1 - '\n[display truncated]'.length;
   let used = 0;
   const bounded = content.map((block) => {
@@ -322,7 +327,7 @@ export class Conversation {
 
   note(label: string, text: string): void {
     const key = `notice-${this.sequence++}`;
-    this.put({ kind: 'note', key, rev: 0, label: displayText(label, 80), text: displayText(text) });
+    this.put({ kind: 'note', key, rev: 0, label: singleLine(label, 80), text: displayText(text) });
   }
 
   private touch(entry: Entry): void {
@@ -350,7 +355,7 @@ export class Conversation {
       kind: 'tool',
       key: `tool-${id}`,
       rev: 0,
-      call: { id, name: displayText(name, 80), args: argsForDisplay(args), state: 'pending', text: '' },
+      call: { id, name: singleLine(name, 80), args: argsForDisplay(args), state: 'pending', text: '' },
     };
     this.tools.set(id, entry);
     this.put(entry);
@@ -461,7 +466,7 @@ export class Conversation {
       const assistant = message as unknown as AssistantMessage;
       this.assistant(assistant, key, false);
       if (assistant.stopReason === 'error' || assistant.stopReason === 'aborted')
-        for (const block of assistant.content ?? [])
+        for (const block of contentOf(assistant))
           if (block.type === 'toolCall') this.failCall(block.id, assistant.errorMessage);
       return;
     }
@@ -553,7 +558,7 @@ export class Conversation {
           const done = event.message as AssistantMessage;
           if (this.turn) this.turn.tokens += Number(done.usage?.output) || 0;
           if (done.stopReason === 'error' || done.stopReason === 'aborted')
-            for (const block of done.content ?? [])
+            for (const block of contentOf(done))
               if (block.type === 'toolCall') this.failCall(block.id, done.errorMessage);
           this.streaming = undefined;
           this.currentMessage = undefined;
@@ -569,7 +574,7 @@ export class Conversation {
       }
       case 'tool_execution_update': {
         const entry = this.tool(event.toolCallId, event.toolName, event.args);
-        const partial = event.partialResult as { content?: unknown; details?: unknown };
+        const partial = (event.partialResult ?? {}) as { content?: unknown; details?: unknown };
         entry.call.state = 'running';
         entry.call.startedAt ??= this.now();
         entry.call.text = resultText(partial.content, this.mask(event.toolCallId));
