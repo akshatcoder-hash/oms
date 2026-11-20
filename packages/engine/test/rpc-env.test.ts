@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { pinContract, readPin, verifyPin } from '@oms/contract';
 import { buildMounts, SURFPOOL_LIBS, type RunInSandboxOptions } from '@oms/sandbox';
 import type { Surfnet } from '@oms/surfnet';
+import { defaultHarnessEnvironment } from '../src/runtime/environment.ts';
 import { dockerBackend, hostBackend } from '../src/runtime/execution-backend.ts';
 import { createSandboxTools } from '../src/runtime/sandbox-tools.ts';
 import { createVerifierBackend, trustedSurfpoolMounts } from '../src/runtime/verifier-backend.ts';
@@ -174,6 +175,10 @@ test(
   'the agent runs commands where the trusted Surfpool exists, as the verifier does',
   { timeout: 120_000 },
   async (t) => {
+    if (!defaultHarnessEnvironment(BINARY, 'docker').dependencies) {
+      t.skip('Default Docker environment supplies trusted Surfpool only on Linux x64 or with OMS_BENCH_DEPENDENCIES');
+      return;
+    }
     if ((await skipUnavailable(t, { docker: [IMAGE, FORWARDER], surfpool: BINARY })) || !BINARY || !IMAGE || !FORWARDER)
       return;
     const f = await createHarnessFixture({ binary: BINARY, image: IMAGE, forwarderImage: FORWARDER });
