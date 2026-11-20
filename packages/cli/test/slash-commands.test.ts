@@ -14,6 +14,7 @@ import {
   type CommandContext,
 } from '../src/tui/commands.ts';
 import { budgetLine } from '../src/tui/inspect-commands.ts';
+import { claudeChatStatus } from '../src/tui/claude-chat.ts';
 import type { CommandOutput, Prepared } from '../src/tui/prepared.ts';
 import {
   base58Decode,
@@ -844,6 +845,38 @@ test('/session in a chat shows the folder and its git state, never a task or wor
     assert.doesNotMatch(inRepo + plain, /Task:|Worktree:|Repository:/);
   } finally {
     rmSync(repo.root, { recursive: true, force: true });
+  }
+});
+
+test('/session retains session facts and native status without the internal design note', async () => {
+  const chat = chatFake('/requested', false);
+  const scratch = {
+    ...chat,
+    folder: { ...chat.folder, scratch: true, path: '/scratch' },
+  };
+  const task = harnessFake({
+    workspace: { root: '/repository' },
+    session: chat.session,
+  });
+  for (const [harness, place] of [
+    [chat, 'Folder: /requested\nGit: not a git repository'],
+    [scratch, 'Folder: /requested (this chat works in the scratch folder /scratch)\nGit: not a git repository'],
+    [task, 'Repository: /repository\nTask: t\nWorktree: /nonexistent\nBranch: oms/t'],
+  ] as const) {
+    for (const nativeChat of [
+      undefined,
+      { status: () => ({ state: 'idle', sessionId: undefined }) },
+      { status: () => ({ state: 'error', sessionId: 'native-id', detail: 'Transport failed.' }) },
+    ]) {
+      const session = { ...harness, nativeChat } as OmsSession;
+      const output = await run(prepareSlash('session', '', session));
+      assert.deepEqual(output, {
+        title: 'session',
+        clearNotice: true,
+        text: `OMS session: chat-session-id\n${place}` + (nativeChat ? `\n${claudeChatStatus(session)}` : ''),
+      });
+      assert.doesNotMatch(output.text, /Changing focus does not dispatch work\./);
+    }
   }
 });
 
