@@ -27,6 +27,7 @@ import {
   acceptsArgument,
   canRunWhileBusy,
   commandMatches,
+  commandProblem,
   findCommand,
   parseCommand,
   type CommandContext,
@@ -85,7 +86,21 @@ interface Action {
   errorDisplayed?: boolean;
 }
 
-const MODEL_CONFIGURATION = 'Run /connect to sign in or /model to choose a model. Your draft is kept.';
+const NO_MODEL = 'No model selected · /connect to sign in, /model to pick one';
+const MODEL_UNAVAILABLE = 'Model unavailable · /model';
+const notSignedIn = (provider?: string): string =>
+  `Not signed in${provider ? ` to ${singleLine(provider, 80)}` : ''} · /connect`;
+/** A notice that already says what to do next; it replaces the generic "failed" line. */
+const isSetupNotice = (message: string): boolean => /^(No model selected|Not signed in)/.test(message);
+const FAILED_WHAT: Record<ActionKind, string> = {
+  agent: 'Request',
+  command: 'Command',
+  verification: 'Verification',
+  review: 'Review',
+};
+const CANCELLING = 'Cancelling…';
+/** One press of Ctrl+C on an idle prompt arms quitting for this long. */
+const QUIT_ARMED_MS = 2000;
 
 function hasModelConfiguration(model: { provider: string; id: string } | undefined): boolean {
   const provider = model?.provider.trim();
@@ -218,6 +233,10 @@ export async function runOmsInterface(
   let selectedId: string | undefined;
   let notice = '';
   let hostApproval: { text: string; answer(allowed: boolean | 'session'): void } | undefined;
+  /** A yes/no question a command asked (/yolo): shown in the approval row, answered on one key. */
+  let confirmation: { text: string; yes: () => void } | undefined;
+  /** Ctrl+C was pressed once on an idle prompt: a second press within QUIT_ARMED_MS quits. */
+  let quitArmed: { timer: NodeJS.Timeout; notice: string } | undefined;
   let checkedItems: Requirement[] = [];
   let setup: SetupPane | HarnessSettingsPane | AccountPane | undefined;
   let commandIndex = 0;
@@ -364,23 +383,23 @@ export async function runOmsInterface(
       ? [
           colorText(theme!, 'accent', 'What are we building?'),
           '',
-          'Describe a change below. Your agent works in this task.',
+          'Describe what to build or fix.',
           '',
-          '/workbench  Files and terminal',
-          '/help       Commands and keyboard controls',
+          '/workbench  files and terminal',
+          '/help       commands and keys',
         ]
       : [
-          colorText(theme!, 'accent', 'Start with your workspace'),
+          colorText(theme!, 'accent', 'Get started'),
           '',
-          '/connect    Connect a provider privately',
-          '/model      Choose a model',
+          '/connect    sign in to a model provider',
+          '/model      pick a model',
+          '/workbench  edit files',
           '',
-          '/workbench  Edit files without a model',
-          'Never paste keys or sign-in codes into chat.',
+          'Paste keys only in /connect, never in chat.',
         ];
     if (terminal.rows < 18)
       return wrapTextWithAnsi(
-        configured ? '/workbench files · /help controls' : '/connect to begin · /workbench to edit',
+        configured ? '/workbench files · /help commands' : '/connect sign in · /workbench edit',
         width,
       );
     return ['', ...content.flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width - 2)))].map((line) => ' ' + line);
@@ -449,7 +468,7 @@ export async function runOmsInterface(
   function changeTheme(id: string): boolean {
     const next = getTheme(id, display);
     if (!next) {
-      setNotice(`Unknown theme. Choose: ${THEME_IDS.join(', ')}; draft retained.`);
+      setNotice(`Unknown theme · ${THEME_IDS.join(', ')}`);
       return false;
     }
     theme = next;
@@ -467,7 +486,8 @@ export async function runOmsInterface(
   function openSetup(mode: 'model' | 'connect' | 'theme' | 'settings', query = '', draft?: string): void {
     if (closing) return;
     if ((mode === 'model' || mode === 'connect') && busy()) {
-      setNotice('Wait for current work to finish before changing model credentials; draft retained.');
+      setNotice('Wait for the current turn to finish');
+      clearDraft(draft);
       return;
     }
     setup?.dispose();
@@ -491,7 +511,8 @@ export async function runOmsInterface(
   function openAccount(mode: 'login' | 'logout' | 'account', draft?: string): void {
     if (closing) return;
     if (mode === 'login' && busy()) {
-      setNotice('Wait for current work before signing in; draft retained.');
+      setNotice('Wait for the current turn to finish');
+      clearDraft(draft);
       return;
     }
     setup?.dispose();
@@ -576,7 +597,7 @@ export async function runOmsInterface(
     setFocus('editor');
     Promise.resolve()
       .then(action)
-      .catch((error) => setNotice(error instanceof Error ? error.message : 'Editor action failed.'));
+      .catch((error) => setNotice(error instanceof Error ? error.message : 'Editor action failed'));
   }
   function terminalAction(action: string): void {
     switchView('workbench');
@@ -588,14 +609,12 @@ export async function runOmsInterface(
       setFocus('terminal');
       void shell
         .stop()
-        .catch((error) =>
-          setNotice(error instanceof Error ? error.message : 'Terminal cleanup failed; use /terminal stop to retry.'),
-        );
+        .catch((error) => setNotice(error instanceof Error ? error.message : "Shell didn't stop · restart oms"));
     } else if (!action || action === 'start') {
       terminalVisible = true;
       setFocus('terminal');
       void shell.start();
-    } else setNotice('Use /terminal, /terminal stop or /terminal hide.');
+    } else setNotice('Usage: /terminal [start|stop|hide]');
     requestRender();
   }
   function requirementsShown(width = terminal.columns): boolean {
@@ -644,7 +663,7 @@ export async function runOmsInterface(
     })();
     // Observe immediately, while retaining rejection for the operation's finalizer.
     void action.cancellation.catch((error) => {
-      setNotice(`Cancellation failed: ${describeValue(error instanceof Error ? error.message : error)}`);
+      setNotice(`Cancel failed · ${describeValue(error instanceof Error ? error.message : error)}`);
     });
   }
 
@@ -660,13 +679,12 @@ export async function runOmsInterface(
       !!provider &&
       message ===
         `Authentication failed for "${provider}". Credentials may have expired or network is unavailable. Run '/login ${provider}' to re-authenticate.`;
-    if (missingAuth || expiredAuth)
-      return `${MODEL_CONFIGURATION} Authentication is unavailable${provider ? ` for ${singleLine(provider, 80)}` : ''}.`;
+    if (missingAuth || expiredAuth) return notSignedIn(provider);
     if (
       message.startsWith(`No model selected.\n\n${loginHelp}`) ||
       message.startsWith(`No models available. ${loginHelp}`)
     ) {
-      return `${MODEL_CONFIGURATION} No model is available.`;
+      return NO_MODEL;
     }
     return message;
   }
@@ -674,25 +692,26 @@ export async function runOmsInterface(
   function cancel(): void {
     if (active) {
       if (!active.cancellable) {
-        setNotice('This operation must finish within its backend timeout; cancellation is unavailable.');
+        setNotice("Can't cancel this · it stops on its own");
         return;
       }
       if (active.cancellation) return;
       active.controller.abort();
       const action = active;
-      setNotice('Cancellation requested; awaiting the actual operation outcome.');
+      setNotice(CANCELLING);
       if (action.kind === 'agent' && action.accepted) abortAgent(action);
       else action.cancellation = Promise.resolve();
     } else if (externalBusy && !externalCancellation) {
-      setNotice('Cancellation requested; awaiting the live session outcome.');
+      setNotice(CANCELLING);
       externalCancellation = Promise.resolve()
         .then(() => harness.session.abort())
         .catch((error) => {
           failure = error;
-          setNotice(`Cancellation failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+          setNotice(`Cancel failed · ${error instanceof Error ? error.message : 'unknown error'}`);
         })
         .finally(() => {
           externalCancellation = undefined;
+          if (notice === CANCELLING) setNotice('');
           maybeFinish();
           requestRender();
         });
@@ -703,11 +722,11 @@ export async function runOmsInterface(
     if (closing) return;
     if (!force && workbench.dirty && !discardConfirmed) {
       discardConfirmed = true;
-      setNotice('Ctrl+Q again: discard unsaved files. Any other key keeps them; Ctrl+S saves the active file.');
+      setNotice('Unsaved files · ctrl+q again to discard · ctrl+s to save');
       return;
     }
     closing = true;
-    setNotice('Closing...');
+    setNotice('Closing…');
     if (!active || active.cancellable) cancel();
     shutdown = Promise.resolve()
       // A shell closed by the session underneath its pane can end with uncertain cleanup; stop it here first.
@@ -725,11 +744,37 @@ export async function runOmsInterface(
       );
   }
 
+  function disarmQuit(): void {
+    if (!quitArmed) return;
+    clearTimeout(quitArmed.timer);
+    const { notice: armed } = quitArmed;
+    quitArmed = undefined;
+    if (notice === armed) setNotice('');
+  }
+  /** Ctrl+C: cancel what is running. On an idle prompt the first press says so, and a second one within a moment quits. */
+  function interrupt(): void {
+    if (busy()) {
+      disarmQuit();
+      cancel();
+      return;
+    }
+    if (quitArmed) {
+      disarmQuit();
+      quit();
+      return;
+    }
+    const armed = input.document.text ? 'ctrl+c again to quit · unsent text is lost' : 'ctrl+c again to quit';
+    setNotice(armed);
+    quitArmed = { timer: setTimeout(disarmQuit, QUIT_ARMED_MS), notice: notice };
+    quitArmed.timer.unref();
+  }
+
   function begin(
     kind: ActionKind,
     draft: string | undefined,
     operation: (signal: AbortSignal) => Promise<void>,
     cancellable = true,
+    label = FAILED_WHAT[kind],
   ): void {
     const action: Action = {
       kind,
@@ -743,7 +788,7 @@ export async function runOmsInterface(
     notice = '';
     action.completion = Promise.resolve().then(async () => {
       try {
-        if (action.controller.signal.aborted) throw new Error('Request cancelled before dispatch; draft retained.');
+        if (action.controller.signal.aborted) throw new Error('Cancelled before it started');
         await operation(action.controller.signal);
         if (action.error) throw new Error(action.error);
         if (kind !== 'agent' || !action.accepted) clearDraft(draft);
@@ -753,15 +798,13 @@ export async function runOmsInterface(
           error,
           kind === 'agent' && !action.accepted ? harness.session.model?.provider : undefined,
         );
-        // A refusal before agent_start leaves the text untouched. Once the message is in the conversation the failure is
-        // too, so the input stays empty and the next message starts clean.
-        // An SDK assistant error is already represented by its contextual message.
-        if (!action.errorDisplayed) conversation.note(`${kind} failed`, message);
-        setNotice(
-          message.startsWith(MODEL_CONFIGURATION)
-            ? message
-            : `${kind} failed; details in conversation.${action.accepted ? '' : ' Draft retained.'}`,
-        );
+        // A message the agent never received stays in the input, since it is the user's own text. A command was typed to run
+        // once, so it never stays to be run again or to join the next thing typed. Once the message is in the conversation the
+        // failure is too, so the input stays empty and the next message starts clean.
+        if (kind !== 'agent') clearDraft(draft);
+        // An SDK assistant error is already represented by its contextual message; a setup notice says what to do next.
+        if (!action.errorDisplayed && !isSetupNotice(message)) conversation.note(`${kind} failed`, message);
+        setNotice(isSetupNotice(message) ? message : `${label} failed · see above`);
       } finally {
         if (action.cancellation) {
           try {
@@ -772,6 +815,7 @@ export async function runOmsInterface(
         }
         if (!closing) refreshRequirements();
         if (active === action) active = undefined;
+        if (notice === CANCELLING) setNotice('');
         requestRender();
         maybeFinish();
       }
@@ -812,9 +856,14 @@ export async function runOmsInterface(
         async (signal) => {
           const output = await prepared.run(signal);
           show(output);
-          if (output?.failure) throw new Error(output.failure);
+          if (output?.failure) {
+            // The note above already says what went wrong; do not add the same line again.
+            if (output.failureShown && active) active.errorDisplayed = true;
+            throw new Error(output.failure);
+          }
         },
         command.cancellable !== false,
+        `/${command.name}`,
       );
       return;
     }
@@ -834,19 +883,19 @@ export async function runOmsInterface(
   /** /goal <text>: the agent works until the check passes; settle-gate rules (retry cap, budget, repeated failure) end the loop. */
   function startGoal(text: string, check: string | undefined, draft: string | undefined): void {
     if (!hasModelConfiguration(harness.session.model)) {
-      setNotice(`${MODEL_CONFIGURATION} No model is available.`);
+      setNotice(NO_MODEL);
       return;
     }
     const choice = selectedModelChoice();
     if (choice?.selectable === false) {
-      setNotice(choice.detail ?? 'Selected model needs setup · /model to choose a connected provider');
+      setNotice(choice.detail ?? MODEL_UNAVAILABLE);
       return;
     }
     if (check === undefined && !taskVerifierItem(harness)) {
       setNotice(
         harness.kind === 'chat'
-          ? 'No verifier here. Use /goal <text> --check "<command>".'
-          : 'This task has no open requirement for its verifier to decide. Add a check: /goal <text> --check "<command>"',
+          ? 'Add a check: /goal <text> --check "<command>"'
+          : 'No open requirement · add a check: /goal <text> --check "<command>"',
       );
       return;
     }
@@ -935,6 +984,10 @@ export async function runOmsInterface(
     submit: (text) => submit(text, true),
     cancel,
     quit: () => quit(),
+    confirm(question, onYes) {
+      confirmation = { text: `${question} · y yes · n no`, yes: onYes };
+      requestRender();
+    },
   };
 
   /** Slash commands go through the table: busy rule, argument check, then the handler and the shared pipeline. */
@@ -947,7 +1000,7 @@ export async function runOmsInterface(
       return;
     }
     if (closing) {
-      setNotice('Closing; draft retained.');
+      setNotice('Closing…');
       return;
     }
     if (trimmed === '/quit discard' || trimmed === '/exit discard') {
@@ -959,19 +1012,23 @@ export async function runOmsInterface(
     const command = findCommand(parsed?.name);
     const argument = parsed?.argument ?? '';
     if (busy() && !(command && canRunWhileBusy(command, argument))) {
-      setNotice('Work is running. Use /cancel to stop it, or keep editing your next request.');
+      // The typed text stays: it is the user's own next request.
+      setNotice(view === 'harness' ? 'Still working · esc to cancel' : 'Still working · /cancel to stop');
       return;
     }
     if (slash) {
       if (!command || !acceptsArgument(command, argument)) {
-        setNotice('Unknown or invalid OMS command. Use /help; draft retained.');
+        // A mistyped command is not a draft worth keeping: it would only sit there to be run again or joined to the next one.
+        setNotice(commandProblem(parsed, harness.kind));
+        clearDraft(composerDraft);
         return;
       }
       setNotice('');
       const prepared = command.run(commandContext, argument, composerDraft);
       if (!prepared) return;
       if (!prepared.ok) {
-        setNotice(prepared.complete ? prepared.message : `${prepared.message} Draft retained.`);
+        setNotice(prepared.message);
+        clearDraft(composerDraft);
         return;
       }
       runPrepared(command, argument, prepared, composerDraft);
@@ -982,17 +1039,19 @@ export async function runOmsInterface(
   /** The user's next message to the agent, from the composer or a command such as /team. */
   function ask(text: string, composerDraft: string | undefined): void {
     if (!hasModelConfiguration(harness.session.model)) {
-      setNotice(`${MODEL_CONFIGURATION} No model is available.`);
+      setNotice(NO_MODEL);
       return;
     }
     const choice = selectedModelChoice();
     if (choice?.selectable === false) {
-      const detail = choice.detail ?? 'Selected model needs setup · /model to choose a connected provider';
+      const detail = choice.detail ?? MODEL_UNAVAILABLE;
       conversation.note('model unavailable', detail);
       transcript.scrollToEnd();
       setNotice(detail);
       return;
     }
+    // The user sent something: show where it goes, even after scrolling up from the composer.
+    transcript.scrollToEnd();
     begin('agent', composerDraft, async () => {
       await harness.session.prompt(text, { expandPromptTemplates: false });
     });
@@ -1118,7 +1177,7 @@ export async function runOmsInterface(
       setup
         ? setup.label
         : paletteInput
-          ? '─ Commands · Esc back'
+          ? '─ Commands'
           : `─ ${focus === 'input' ? '> ' : ''}Agent · / commands${width >= 55 ? ' · Enter send · Shift+Enter newline' : ' · Enter send'}`,
       width,
       '',
@@ -1130,7 +1189,7 @@ export async function runOmsInterface(
   });
   const noticeRow = component((width) => wrapTextWithAnsi(colorText(theme!, 'warning', notice), width));
   const workingRow = component((width) => [
-    truncateToWidth(colorText(theme!, 'muted', ` ${active?.cancellation ? 'Cancelling...' : 'Working...'}`), width),
+    truncateToWidth(colorText(theme!, 'muted', ` ${active?.cancellation ? 'Cancelling…' : 'Working…'}`), width),
   ]);
   /** The folder, then the model, how full its context is, and YOLO when it is on. One line. */
   const chatFooter = component((width) => {
@@ -1171,7 +1230,7 @@ export async function runOmsInterface(
         setup
           ? setup.hint
           : paletteInput
-            ? '↑↓ choose · Enter run · Esc back'
+            ? '↑↓ choose · enter run · tab complete · esc close'
             : focus === 'editor' || focus === 'terminal'
               ? `${focus} · Ctrl+K commands · Ctrl+L agent${width >= 65 ? ' · /help keys' : ''}`
               : `${focus} · Ctrl+K commands · /help${width >= 65 ? ' keys · Ctrl+L agent' : ''}`,
@@ -1183,11 +1242,11 @@ export async function runOmsInterface(
   const commandMenu = component((width) => {
     const choices = currentCommands();
     if (!choices) return [];
-    if (!choices.length) return [colorText(theme!, 'warning', 'No matching commands. Use /help.')];
+    if (!choices.length) return [colorText(theme!, 'warning', 'No matching commands')];
     const count = Math.max(1, Math.min(10, terminal.rows - 10));
     const start = Math.max(0, commandIndex - count + 1);
     return [
-      colorText(theme!, 'muted', `Commands · ${commandIndex + 1}/${choices.length}`),
+      colorText(theme!, 'muted', 'Commands'),
       ...choices
         .slice(start, start + count)
         .map((command, offset) =>
@@ -1195,7 +1254,7 @@ export async function runOmsInterface(
             theme!,
             start + offset === commandIndex ? 'accent' : 'foreground',
             truncateToWidth(
-              `${start + offset === commandIndex ? '> ' : '  '}/${command.name.padEnd(12)} ${command.group}${width >= 65 ? ' · ' + command.description : ''}`,
+              `${start + offset === commandIndex ? '› ' : '  '}/${command.name.padEnd(13)} ${command.description}`,
               width,
               '',
             ),
@@ -1268,11 +1327,12 @@ export async function runOmsInterface(
       visible: () => terminalVisible && (terminal.rows >= 20 || focus === 'terminal'),
     },
   ]);
-  const approvalRow = component((width) =>
-    hostApproval ? wrapTextWithAnsi(displayText(hostApproval.text, 4096), width) : [],
-  );
+  const approvalRow = component((width) => {
+    const asked = hostApproval?.text ?? confirmation?.text;
+    return asked ? wrapTextWithAnsi(displayText(asked, 4096), width) : [];
+  });
   const layoutRoot = new VStack([
-    { component: approvalRow, basis: 'auto', shrink: 0, visible: () => !!hostApproval },
+    { component: approvalRow, basis: 'auto', shrink: 0, visible: () => !!hostApproval || !!confirmation },
     { component: header, basis: 'auto', shrink: 1, minSize: 1, visible: () => !minimal },
     { component: appActions, basis: 1, shrink: 0, visible: () => !minimal && !setup && !paletteInput },
     {
@@ -1362,17 +1422,19 @@ export async function runOmsInterface(
         const finish = (allowed: boolean | 'session') => {
           signal?.removeEventListener('abort', abort);
           hostApproval = undefined;
+          const outcome = allowed === 'session' ? 'Allowed for this session' : allowed ? 'Allowed once' : 'Denied';
+          conversation.note('host command', `${outcome}: ${singleLine(request.command, 300)}`);
           requestRender();
           resolve(allowed);
         };
-        const choices =
-          harness.kind === 'chat' ? 'y = once · s = this session · n / Escape = deny' : 'Y = allow · N / Escape = deny';
+        const choices = harness.kind === 'chat' ? 'y once · s this session · n deny' : 'y allow · n deny';
+        const from = request.requester ? ` from ${singleLine(request.requester, 40)}` : '';
+        confirmation = undefined;
         hostApproval = {
-          text: `Allow host command${request.requester ? ` from ${singleLine(request.requester, 40)}` : ''}? ${request.reasons.join(', ')}\n${request.command}\n${choices}`,
+          text: `Run on host${from}? (${request.reasons.join(', ')})\n$ ${request.command}\n${choices}`,
           answer: finish,
         };
         signal?.addEventListener('abort', abort, { once: true });
-        conversation.note('Host approval required', hostApproval.text);
         requestRender();
       }),
   );
@@ -1384,19 +1446,42 @@ export async function runOmsInterface(
         if (data.toLowerCase() === 'y') hostApproval.answer(true);
         else if (data.toLowerCase() === 's' && harness.kind === 'chat') hostApproval.answer('session');
         else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) hostApproval.answer(false);
-        else if (matchesKey(data, 'ctrl+q') || matchesKey(data, 'ctrl+c')) {
+        else if (matchesKey(data, 'ctrl+q')) {
           hostApproval.answer(false);
           quit();
+        } else if (matchesKey(data, 'ctrl+c')) {
+          // Ctrl+C cancels the work that is waiting on the answer.
+          hostApproval.answer(false);
+          cancel();
         }
         return { consume: true };
       }
-      if (matchesKey(data, 'ctrl+q') || (matchesKey(data, 'ctrl+c') && focus !== 'terminal' && focus !== 'editor')) {
+      if (confirmation) {
+        // One key answers: y does it; n or Esc drops it; any other key drops it and is handled as usual.
+        const pending = confirmation;
+        confirmation = undefined;
+        requestRender();
+        if (data.toLowerCase() === 'y') {
+          pending.yes();
+          return { consume: true };
+        }
+        if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) return { consume: true };
+      }
+      if (matchesKey(data, 'ctrl+q')) {
+        disarmQuit();
         quit();
         return { consume: true };
       }
+      // Ctrl+C belongs to the shell and the editor when they have focus; anywhere else it cancels work, and twice quits.
+      const interruptKey = matchesKey(data, 'ctrl+c') && focus !== 'terminal' && focus !== 'editor';
+      if (!interruptKey) disarmQuit();
       if (discardConfirmed) notice = '';
       discardConfirmed = false;
       if (closing) return { consume: true };
+      if (interruptKey) {
+        interrupt();
+        return { consume: true };
+      }
       const slashNavigation =
         data === '/' &&
         !setup &&
@@ -1447,7 +1532,8 @@ export async function runOmsInterface(
         return { consume: true };
       }
       if (matchesKey(data, 'f10')) {
-        setFocus('actions');
+        // A chat has no toolbar to focus.
+        if (!minimal) setFocus('actions');
         return { consume: true };
       }
       if (focus === 'actions') {
@@ -1483,12 +1569,12 @@ export async function runOmsInterface(
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+o')) {
-        setNotice(conversation.toggleToolOutput() ? 'Tool output expanded. Ctrl+O to collapse.' : '');
+        setNotice(conversation.toggleToolOutput() ? 'Tool output expanded · ctrl+o to collapse' : '');
         requestRender();
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+t')) {
-        setNotice(conversation.toggleThinking() ? 'Thinking hidden. Ctrl+T to show.' : '');
+        setNotice(conversation.toggleThinking() ? 'Thinking hidden · ctrl+t to show' : '');
         requestRender();
         return { consume: true };
       }
@@ -1528,6 +1614,12 @@ export async function runOmsInterface(
         return { consume: true };
       }
       if (focus === 'input') {
+        // The conversation scrolls from the composer too; the mouse wheel and arrows work in its own focus.
+        if (view === 'harness' && (matchesKey(data, 'pageUp') || matchesKey(data, 'pageDown'))) {
+          transcript.scrollBy((matchesKey(data, 'pageUp') ? -1 : 1) * Math.max(1, transcript.viewportHeight - 1));
+          requestRender();
+          return { consume: true };
+        }
         if (matchesKey(data, 'shift+enter') || matchesKey(data, 'alt+enter') || data === '\x1b\r') {
           input.focus.handleInput?.('\r');
           return { consume: true };
@@ -1651,6 +1743,7 @@ export async function runOmsInterface(
     hostApproval?.answer(false);
     harness.setHostApproval?.(undefined);
     clearInterval(clock);
+    if (quitArmed) clearTimeout(quitArmed.timer);
     process.off('SIGINT', onSignal);
     setup?.dispose();
     process.off('SIGTERM', onSignal);

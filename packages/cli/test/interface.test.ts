@@ -177,11 +177,11 @@ test('read-only status and help remain reachable during work without dispatching
     terminal.send('\x1b/');
     terminal.send('status');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('8800') && screen.includes('known'));
+    await terminal.until((screen) => screen.includes('8,800 tokens'));
     terminal.send('\x1b/');
     terminal.send('help');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('Ctrl+K'));
+    await terminal.until((screen) => screen.includes('all keys'));
     terminal.send('\x1b');
     terminal.send('!');
     await terminal.until((screen) => screen.includes('retained draft!'));
@@ -569,10 +569,11 @@ test('task and session state render from the live consumer and verification upda
     terminal.send('\r');
     const screen = await terminal.until((s) => s.includes('Calculate rent exactly'));
     assert.ok(screen.includes('rental-ledger') && screen.includes('rent') && screen.includes('test-model'));
-    assert.ok(screen.includes('8800') && screen.includes('known') && screen.includes('$0.000001'));
+    assert.ok(screen.includes('8,800 tokens') && screen.includes('$0.000001 left'));
+    assert.doesNotMatch(screen, /known|Token allowance/);
     terminal.send('/verify R1');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('closed'));
+    await terminal.until((s) => s.includes('R1: verified'));
     assert.deepEqual(f.verified, ['R1']);
     assert.deepEqual(f.prompts, []);
   } finally {
@@ -804,14 +805,18 @@ test('sandbox command cancellation uses the controller signal and quit awaits it
     await terminal.until(() => f.commands.length === 1);
     terminal.send('\x03');
     await terminal.until(() => !!f.commandSignal()?.aborted);
+    // Ctrl+C cancels the work; the interface stays open until the user quits.
     assert.equal(ended, false);
     assert.equal(terminal.active, true);
+    terminal.send('\x11');
+    await terminal.until((s) => s.includes('Closing…'));
+    assert.equal(ended, false);
     f.commandGate.resolve({ exitCode: 130, stdout: '', stderr: 'cancelled', timedOut: false });
     await run;
     assert.equal(terminal.active, false);
     assert.equal(f.listeners.size, 0);
   } finally {
-    terminal.send('\x03');
+    terminal.send('\x11');
     f.commandGate.resolve({ exitCode: 130, stdout: '', stderr: '', timedOut: false });
     await run;
     terminal.vt.dispose();
@@ -831,7 +836,7 @@ test('terminal startup failure rejects while removing session subscriptions and 
   terminal.vt.dispose();
 });
 
-test('unsupported actions never dispatch and retain their draft for correction', async () => {
+test('an unknown command never dispatches, names itself and the nearest command, and does not stay in the composer', async () => {
   const f = fixture();
   const terminal = new InterfaceTerminal();
   const run = runOmsInterface(f.harness, { terminal });
@@ -839,7 +844,13 @@ test('unsupported actions never dispatch and retain their draft for correction',
     await terminal.screen();
     terminal.send('/unrecognized');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('/unrecognized') && /unsupported|unknown/i.test(s));
+    await terminal.until((s) => s.includes('/unrecognized not found · /help'));
+    terminal.send('/thme');
+    terminal.send('\r');
+    const screen = await terminal.until((s) => s.includes('/thme not found · did you mean /theme?'));
+    assert.doesNotMatch(screen, /\/unrecognized/);
+    terminal.send('next');
+    assert.doesNotMatch(await terminal.until((s) => s.includes('next')), /\/thmenext/);
     assert.deepEqual(f.prompts, []);
     assert.deepEqual(f.commands, []);
     assert.deepEqual(f.verified, []);
@@ -865,6 +876,8 @@ test('quit during verification awaits the backend outcome rather than pretending
     terminal.send('\r');
     await terminal.until((s) => /verif/i.test(s));
     terminal.send('\x03');
+    await terminal.until((s) => s.includes("Can't cancel this"));
+    terminal.send('\x11');
     await terminal.screen();
     assert.equal(ended, false);
     assert.equal(terminal.active, true);
@@ -872,7 +885,7 @@ test('quit during verification awaits the backend outcome rather than pretending
     await run;
     assert.equal(terminal.active, false);
   } finally {
-    terminal.send('\x03');
+    terminal.send('\x11');
     verification.resolve({ itemId: 'R1', result: { closed: true } });
     await run;
     terminal.vt.dispose();
@@ -916,7 +929,7 @@ test('explicit quit invokes authoritative cleanup and rejects cleanup failure af
   };
   const run = runOmsInterface(f.harness, { terminal });
   await terminal.screen();
-  terminal.send('\x03');
+  terminal.send('\x11');
   await assert.rejects(run, /Lease recovery required/);
   assert.equal(terminal.active, false);
   assert.equal(f.listeners.size, 0);
@@ -1281,7 +1294,7 @@ test('the real SDK default placeholder cannot dispatch, mutate conversation, or 
     terminal.send('\x01');
     terminal.send('/status');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Task: rent'));
+    await terminal.until((s) => /Task +rent/.test(s));
     terminal.send('/verify R1');
     terminal.send('\r');
     await terminal.until(() => f.verified.length === 1);
@@ -1339,14 +1352,14 @@ test('an SDK missing-auth refusal keeps recovery instructions in the notice', as
     terminal.send('auth draft');
     terminal.send('\r');
     const screen = await terminal.until((s) =>
-      s.split('\n').slice(-3, -1).join(' ').includes('Run /connect to sign in or /model to choose a model.'),
+      s.split('\n').slice(-3, -1).join(' ').includes('Not signed in to local · /connect'),
     );
     const notice = screen
       .split('\n')
       .slice(-3, -1)
       .map((line) => line.trim())
       .join(' ');
-    assert.match(notice, /Your draft is kept\. Authentication is unavailable for local\./);
+    assert.match(notice, /Not signed in to local · \/connect$/);
     assert.doesNotMatch(notice, /agent failed|\/login|\/internal\//);
     assert.deepEqual(f.prompts, []);
     terminal.send('!');
@@ -1813,13 +1826,13 @@ test('dismissed slash discovery reopens after clearing and retyping before anoth
   try {
     await terminal.until((screen) => screen.includes('/ commands'));
     terminal.send('/');
-    await terminal.until((screen) => screen.includes('/files') && screen.includes('Navigate'));
+    await terminal.until((screen) => screen.includes('/files') && screen.includes('Browse files'));
     terminal.send('\x1b');
     await terminal.until((screen) => !screen.includes('/files'));
     terminal.send('\x01');
     terminal.send('\x7f');
     terminal.send('/');
-    await terminal.until((screen) => screen.includes('/files') && screen.includes('Navigate'));
+    await terminal.until((screen) => screen.includes('/files') && screen.includes('Browse files'));
     assert.deepEqual(f.prompts, []);
   } finally {
     await quit(terminal, run);
@@ -1840,7 +1853,7 @@ test('dirty quit at 40 columns shows its confirmation key before allowing discar
     terminal.send('X');
     terminal.send('\x11');
     const screen = await terminal.until((value) => /unsaved/i.test(value));
-    assert.ok(screen.includes('Ctrl+Q'), 'discard confirmation must expose its actionable key');
+    assert.ok(screen.includes('ctrl+q again'), 'discard confirmation must expose its actionable key');
     assert.equal(f.closed(), false);
     terminal.send('\x1b');
     terminal.send('\x11');
@@ -1908,20 +1921,20 @@ test('account controls retain the same session and draft, and login cannot inter
     terminal.send('\x0b');
     terminal.send('account');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('OMS account: signed-out'));
+    await terminal.until((screen) => screen.includes('Not signed in'));
     terminal.send('\x1b');
     await terminal.until((screen) => screen.includes('retained account draft'));
     terminal.send('\x0b');
     terminal.send('logout');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('revocation unconfirmed'));
+    await terminal.until((screen) => screen.includes("couldn't reach the server"));
     terminal.send('\x1b');
     terminal.send('\r');
     await terminal.until(() => f.prompts.length === 1);
     terminal.send('\x0b');
     terminal.send('login');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('Wait for current work before signing in'));
+    await terminal.until((screen) => screen.includes('Wait for the current turn to finish'));
     assert.equal(logins, 0);
     assert.equal(f.harness.session, session);
     assert.deepEqual(f.prompts, ['retained account draft']);
@@ -2029,7 +2042,7 @@ test('an empty session opens with startup art above the placeholder, and the art
 
     terminal.send('/help');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Keyboard'));
+    await terminal.until((s) => s.includes('all keys'));
     terminal.send('\x1b[H');
     await terminal.until((s) => s.includes(art.entry.label));
   } finally {
@@ -2162,7 +2175,7 @@ for (const [key, expected] of [
           return value;
         },
       );
-      await terminal.until((screen) => screen.includes('Allow host command?') && screen.includes('Y = allow'));
+      await terminal.until((screen) => screen.includes('Run on host?') && screen.includes('y allow · n deny'));
       assert.equal(settled, false);
       terminal.send(key);
       assert.equal(await pending, expected);
@@ -2187,11 +2200,11 @@ test('host approval denies on cancellation and shutdown', async () => {
     assert.ok(approve);
     const controller = new AbortController();
     const pending = approve({ command: 'sudo true', reasons: ['sudo'] }, controller.signal);
-    await terminal.until((screen) => screen.includes('Allow host command?'));
+    await terminal.until((screen) => screen.includes('Run on host?'));
     controller.abort();
     assert.equal(await pending, false);
     const onShutdown = approve({ command: 'sudo true', reasons: ['sudo'] });
-    await terminal.until((screen) => screen.includes('Allow host command?'));
+    await terminal.until((screen) => screen.includes('Run on host?'));
     terminal.send('\x11');
     assert.equal(await onShutdown, false);
     await run;
@@ -2212,7 +2225,7 @@ test('a host approval from a helper names the helper', async () => {
   try {
     await terminal.until((screen) => screen.includes('Harness'));
     const pending = approve!({ command: 'python x.py', reasons: ['sudo'], requester: 'build#2' });
-    await terminal.until((screen) => screen.includes('Allow host command from build#2?'));
+    await terminal.until((screen) => screen.includes('Run on host from build#2?'));
     terminal.send('y');
     assert.equal(await pending, true);
   } finally {
@@ -2278,7 +2291,7 @@ test('the Cancel button is enabled only while cancellable work runs: a command, 
       return 0;
     },
   });
-  const cancelRefused = (screen: string) => screen.includes('cancellation is unavailable');
+  const cancelRefused = (screen: string) => screen.includes("Can't cancel this");
   try {
     await terminal.until((screen) => screen.includes('Harness'));
     terminal.send('/review');
@@ -2295,7 +2308,7 @@ test('the Cancel button is enabled only while cancellable work runs: a command, 
     terminal.send('\r');
     const running = await terminal.until((screen) => screen.split('\n')[0]?.includes('command') === true);
     clickText(terminal, running, 'Cancel');
-    await terminal.until((screen) => screen.includes('Cancellation requested'));
+    await terminal.until((screen) => screen.includes('Cancelling…'));
     f.commandGate.resolve({ exitCode: 0, stdout: '', stderr: '', timedOut: false, cancelled: true, truncated: false });
   } finally {
     reviewGate.resolve();
@@ -2323,7 +2336,7 @@ test('/web off and /web on switch the session web tools and report the call coun
     await terminal.screen();
     terminal.send('/web off');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Web off · 2 searches, 1 fetches, 3 Solana MCP calls'));
+    await terminal.until((s) => s.includes('Web off · 2 searches · 1 fetch · 3 docs lookups'));
     terminal.send('/web on');
     terminal.send('\r');
     await terminal.until((s) => s.includes('Web on ·'));
@@ -2341,7 +2354,7 @@ test('/web off and /web on switch the session web tools and report the call coun
     await plain.screen();
     plain.send('/web on');
     plain.send('\r');
-    await plain.until((s) => s.includes('Web access is not available in this session.'));
+    await plain.until((s) => s.includes("Web search isn't available here"));
   } finally {
     await quit(plain, other);
     plain.vt.dispose();
@@ -2443,7 +2456,7 @@ test('/goal without --check uses the task verifier, and refuses when the task ha
     await bare.screen();
     bare.send('/goal do something');
     bare.send('\r');
-    await bare.until((s) => s.includes('no open requirement') && s.includes('--check'));
+    await bare.until((s) => s.includes('No open requirement') && s.includes('--check'));
     assert.deepEqual(g.prompts, []);
     bare.send('/goal do something --check');
     bare.send('\r');
@@ -2502,7 +2515,7 @@ test('while work is running only the read-only commands run; every other new com
       terminal.send('\x01');
       terminal.send(command);
       terminal.send('\r');
-      await terminal.until((s) => s.includes('Work is running') && s.includes(command));
+      await terminal.until((s) => s.includes('Still working') && s.includes(command));
     }
     assert.equal(f.clears(), 0);
     assert.deepEqual(f.commands, []);
@@ -2510,7 +2523,7 @@ test('while work is running only the read-only commands run; every other new com
     terminal.send('\x01');
     terminal.send('/usage');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Tokens:') && s.includes('Spend:'));
+    await terminal.until((s) => s.includes('Tokens ') && s.includes('Spend '));
     terminal.send('/goal');
     terminal.send('\r');
     await terminal.until((s) => s.includes('No goal set.'));
@@ -2557,7 +2570,7 @@ for (const model of ['sonnet', 'opus', 'haiku'])
       assert.equal(screen.includes('anthropic/api-sonnet'), false);
       terminal.send(model);
       terminal.send('\r');
-      const ready = await terminal.until((s) => s.includes(`Native Claude chat selected: claude-code/${model}`));
+      const ready = await terminal.until((s) => s.includes(`Model: claude-code/${model} (native Claude chat)`));
       assert.match(ready, /\/help/);
       assert.doesNotMatch(ready, /\/connect|\/model/);
       assert.deepEqual(selections, [`claude-code/${model}`]);
@@ -2591,8 +2604,11 @@ test('removed Claude commands never select a model or reach native lifecycle con
       terminal.send('\x01');
       terminal.send(command);
       terminal.send('\r');
-      await terminal.until((s) => s.includes('Unknown or invalid OMS command') && s.includes(command));
+      await terminal.until((s) => s.includes('/claude not found · /help'));
     }
+    // Each mistyped command was dropped rather than kept to join the next one.
+    terminal.send('ok');
+    assert.doesNotMatch(await terminal.until((s) => s.includes('ok')), /\/claude (status|reconnect|reset)/);
     assert.deepEqual(calls, []);
     assert.deepEqual(f.prompts, []);
     assert.equal(f.clears(), 0);
@@ -2629,7 +2645,7 @@ test('/session reports native Claude identity while a turn runs and /clear keeps
       terminal.send('\x01');
       terminal.send(command);
       terminal.send('\r');
-      await terminal.until((s) => s.includes('Work is running') && s.includes(command));
+      await terminal.until((s) => s.includes('Still working') && s.includes(command));
     }
     assert.deepEqual(calls, []);
     assert.equal(f.clears(), 0);
@@ -2667,7 +2683,7 @@ test('native clear awaits native reset before dropping the OMS branch', async ()
     assert.equal(f.clears(), 0);
     resetGate.resolve();
     const screen = await terminal.until(
-      (s) => s.includes('Fresh native chat boundary') && s.includes('verification are retained'),
+      (s) => s.includes('New Claude chat · earlier messages are not sent') && s.includes('files and task unchanged'),
     );
     await terminal.until(() => f.clears() === 1);
     assert.equal(screen.includes('Earlier native conversation'), false);
@@ -2722,12 +2738,12 @@ test('/clear starts a fresh conversation in the same task, keeping the session a
     await terminal.until((s) => s.includes('idle'));
     terminal.send('/clear extra');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Usage: /clear'));
+    await terminal.until((s) => s.includes('/clear takes no arguments'));
     assert.equal(f.clears(), 0);
     terminal.send('\x01');
     terminal.send('/clear');
     terminal.send('\r');
-    const screen = await terminal.until((s) => s.includes('Fresh conversation in the same task'));
+    const screen = await terminal.until((s) => s.includes('New conversation · files and task unchanged'));
     assert.equal(f.clears(), 1);
     assert.equal(screen.includes('first question'), false);
     assert.equal(f.harness.session, session);
@@ -2776,7 +2792,7 @@ test('Solana commands use the local chain, and /airdrop refuses a chain that is 
     assert.equal(rewinds, 1);
     terminal.send('/airdrop nonsense');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('not a valid Solana address'));
+    await terminal.until((s) => s.includes('Not a valid Solana address'));
     assert.ok(!calls.includes('requestAirdrop'));
     terminal.send('\x01');
     terminal.send(`/airdrop ${wallet} 2`);
@@ -2854,7 +2870,7 @@ test('a folder chat shows its folder in the footer, no panes or requirements, an
   }
 });
 
-test('/yolo toggles unasked, unsandboxed commands and says so once', async () => {
+test('/yolo asks one key before it drops approvals and the sandbox, and turning it off needs none', async () => {
   const f = fixture();
   let on = false;
   Object.assign(f.harness, {
@@ -2869,16 +2885,34 @@ test('/yolo toggles unasked, unsandboxed commands and says so once', async () =>
   });
   const terminal = new InterfaceTerminal(120, 36);
   const run = runOmsInterface(f.harness, { terminal });
+  const asked = (s: string) => s.includes('Turn on YOLO? Commands will run without approval or sandbox · y yes · n no');
   try {
     await terminal.screen();
     terminal.send('/yolo');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('YOLO: commands run without asking and without the sandbox.'));
-    assert.equal(on, true);
-    await terminal.until((s) => s.includes('YOLO'));
+    await terminal.until(asked);
+    assert.equal(on, false, 'nothing changes before the answer');
+    terminal.send('n');
+    await terminal.until((s) => !asked(s));
+    assert.equal(on, false);
+    // Any other key drops the question and is typed as usual.
     terminal.send('/yolo');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('YOLO off'));
+    await terminal.until(asked);
+    terminal.send('x');
+    await terminal.until((s) => !asked(s) && s.includes('x'));
+    assert.equal(on, false);
+    terminal.send('\x7f');
+    terminal.send('/yolo');
+    terminal.send('\r');
+    await terminal.until(asked);
+    terminal.send('y');
+    await terminal.until((s) => s.includes('YOLO on · commands run without approval or sandbox · /yolo to turn off'));
+    assert.equal(on, true);
+    await terminal.until((s) => s.split('\n').at(-2)?.includes('YOLO') === true || s.includes('YOLO'));
+    terminal.send('/yolo');
+    terminal.send('\r');
+    await terminal.until((s) => s.includes('YOLO off · risky commands are sandboxed or ask first'));
     assert.equal(on, false);
   } finally {
     await quit(terminal, run);
@@ -3010,7 +3044,7 @@ test('chat setup hint updates live after OAuth connection and model selection', 
     terminal.send('\r');
     await terminal.until((s) => s.includes('Codex'));
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Connected to openai-codex'));
+    await terminal.until((s) => s.includes('Connected to Codex'));
     terminal.send('\x1b');
     const connectedScreen = await terminal.until((s) => s.includes('/model to pick a model'));
     assert.doesNotMatch(connectedScreen, /\/connect to sign in/);
@@ -3044,18 +3078,9 @@ for (const [columns, rows] of [
       assert.doesNotMatch(initial, /Your draft is kept|No model is available/);
       terminal.send('Explain this folder.');
       terminal.send('\r');
-      const screen = await terminal.until((s) => s.replace(/\s+/g, ' ').includes('Your draft is kept.'));
-      const notice = 'Run /connect to sign in or /model to choose a model. Your draft is kept. No model is available.';
-      assert.ok(
-        screen
-          .split('\n')
-          .map((line) => line.trim())
-          .join(' ')
-          .includes(notice),
-        screen,
-      );
-      assert.match(screen, /^Run \/connect to sign in or \/model/m);
-      assert.doesNotMatch(screen, /\.\.\.|…/);
+      const notice = 'No model selected · /connect to sign in, /model to pick one';
+      const screen = await terminal.until((s) => s.replace(/\s+/g, ' ').includes(notice));
+      assert.doesNotMatch(screen, /\.\.\.|…|Your draft|No model is available/);
       assert.deepEqual(f.prompts, []);
       terminal.send('!');
       await terminal.until((s) => s.includes('Explain this folder.!'));
@@ -3081,7 +3106,6 @@ for (const [columns, rows] of [
     const normalized = (screen: string) => screen.replace(/\s+/g, ' ');
     try {
       const initial = await terminal.until((s) => s.includes('/connect to sign in'));
-      assert.doesNotMatch(initial, /·/);
       assert.ok(normalized(initial).includes(legend), initial);
       assert.ok(
         normalized(initial).includes('Run /connect to sign in, then /model to pick a model. Run /help for help.'),
@@ -3095,10 +3119,11 @@ for (const [columns, rows] of [
       assert.deepEqual(f.prompts, []);
       assert.ok(normalized(draft).includes(legend), draft);
       terminal.send('\r');
-      const refused = await terminal.until((s) => normalized(s).includes('Your draft is kept. No model is available.'));
+      const refused = await terminal.until((s) =>
+        normalized(s).includes('No model selected · /connect to sign in, /model to pick one'),
+      );
       assert.ok(normalized(refused).includes(legend), refused);
       assert.match(refused, /this folder\./);
-      assert.ok(normalized(refused).includes('Run /connect to sign in or /model to choose a model.'));
       assert.match(refused, /\/fixtures\/rental-ledger/);
       assert.deepEqual(f.prompts, []);
       assert.doesNotMatch(refused, /…|\.\.\./);
@@ -3126,7 +3151,7 @@ for (const [columns, rows] of [
     const terminal = new InterfaceTerminal(columns, rows);
     const run = runOmsInterface(f.harness, { terminal });
     const missingModel = (screen: string) =>
-      screen.replace(/\s+/g, ' ').includes('Your draft is kept. No model is available.');
+      screen.replace(/\s+/g, ' ').includes('No model selected · /connect to sign in, /model to pick one');
     try {
       await terminal.until((s) => s.includes('/connect to sign in'));
       for (const command of ['/usage', '/harness', '/theme nord']) {
@@ -3139,7 +3164,7 @@ for (const [columns, rows] of [
         terminal.send('\r');
         const screen = await terminal.until((s) => !missingModel(s));
         if (command === '/usage') {
-          assert.match(screen, /Spend:/);
+          assert.match(screen, /Spend /);
           assert.match(screen.replace(/\s+/g, ' '), /no model calls yet/);
         }
         if (command === '/theme nord') assert.match(screen, /Theme:/);
@@ -3154,7 +3179,7 @@ for (const [columns, rows] of [
       terminal.send('\x7f');
       terminal.send('/not-a-command');
       terminal.send('\r');
-      await terminal.until((s) => s.includes('Unknown or invalid OMS command.'));
+      await terminal.until((s) => s.includes('/not-a-command not found · /help'));
       assert.deepEqual(f.prompts, []);
     } finally {
       await quit(terminal, run);
@@ -3213,7 +3238,7 @@ for (const [columns, rows] of [
       assert.ok(normalized(initial).includes(hint), initial);
       terminal.send('/help');
       terminal.send('\r');
-      const help = await terminal.until((s) => s.includes('Look and account'));
+      const help = await terminal.until((s) => s.includes('Also: /theme /art /settings /login /logout'));
       assert.ok(normalized(help).includes(hint), help);
       terminal.send('\t');
       await terminal.until((s) => normalized(s).includes('Use PgUp/PgDn to scroll.'));
@@ -3227,7 +3252,9 @@ for (const [columns, rows] of [
       await terminal.until((s) => normalized(s).includes(hint));
       terminal.send('Explain this folder.');
       terminal.send('\r');
-      const refused = await terminal.until((s) => normalized(s).includes('Your draft is kept. No model is available.'));
+      const refused = await terminal.until((s) =>
+        normalized(s).includes('No model selected · /connect to sign in, /model to pick one'),
+      );
       assert.ok(normalized(refused).includes(hint), refused);
       assert.match(refused, /Explain this folder\./);
       assert.ok(refused.includes('/fixtures/rental-ledger'), refused);
@@ -3241,24 +3268,27 @@ for (const [columns, rows] of [
 
 test('/help is a short list with one entry for leaving, and /help keys has the rest', async () => {
   const f = chatFixture();
-  const terminal = new InterfaceTerminal(110, 40);
+  const terminal = new InterfaceTerminal(110, 44);
   const run = runOmsInterface(f.harness, { terminal });
   try {
     await terminal.until((s) => s.includes('/help'));
     terminal.send('/help');
     terminal.send('\r');
-    const help = await terminal.until((s) => s.includes('/exit (or /quit)'));
+    const help = await terminal.until((s) => s.includes('Also: /theme /art /settings /login /logout · /exit to quit'));
     assert.match(help, /\/connect +Sign in or add an API key/);
-    assert.match(help, /\/yolo +Run commands without asking/);
-    assert.doesNotMatch(help, /\/requirements|\/verify|\/open |Keyboard\n|F6|Toolbar/);
+    assert.match(help, /\/yolo +YOLO mode: no approvals, no sandbox/);
+    assert.doesNotMatch(help, /\/requirements|\/verify|\/open |Keyboard\n|F6|f6|Toolbar|toolbar/);
     assert.match(help, /\/goal +/);
     assert.match(help, /\/team +Split a goal across helper agents/);
     assert.match(help, /\/agents +List helper agents/);
     assert.match(help, /\/rewind +/);
     assert.match(help, /\/connect +Sign in/, 'the whole list fits on one screen');
+    assert.match(help, /ctrl\+c +cancel · twice to quit/);
     terminal.send('/help keys');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Toolbar: F10'));
+    const keys = await terminal.until((s) => s.includes('clear the field'));
+    for (const key of ['f3', 'f4', 'f8', 'pgup pgdn', 'ctrl+q']) assert.ok(keys.includes(key), key);
+    assert.doesNotMatch(keys, /\b(f2|f6|f10)\b/, 'a chat has no requirements panel or toolbar');
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();
