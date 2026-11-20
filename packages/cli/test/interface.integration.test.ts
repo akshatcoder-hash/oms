@@ -208,9 +208,7 @@ test(
       terminal.send(`\x1b[200~${secret}\x1b[201~`);
       await terminal.until((screen) => screen.includes('••••'));
       terminal.send('\r');
-      await terminal.until(
-        (screen) => screen.includes('oms-ui-keyed/keyed') && screen.includes('Models · choose explicitly'),
-      );
+      await terminal.until((screen) => screen.includes('oms-ui-keyed/keyed') && screen.includes('Choose a model'));
       terminal.send('\r');
       await terminal.until((screen) => screen.includes(draft) && screen.includes('oms-ui-keyed/keyed'));
       assert.equal(harness.session, session);

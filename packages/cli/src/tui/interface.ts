@@ -324,9 +324,11 @@ export async function runOmsInterface(
             colorText(
               theme!,
               'muted',
-              harness.listModels().some((candidate) => candidate.configured)
+              !harness.listModels().some((candidate) => candidate.configured)
                 ? '/connect to sign in · /model to pick a model · /help'
-                : 'Run /connect to sign in.',
+                : configured && selectedModelChoice()?.configured
+                  ? '/help'
+                  : '/model to pick a model · /help',
             ),
             Math.max(1, width - 1),
           ),
