@@ -406,7 +406,7 @@ export function renderExplore(calls: ToolCall[], ctx: RowContext): Rendered {
       const result = call.state === 'done' ? outcome(call, entry) : '';
       return (
         s.muted(`${running(call.state) ? entry.doing : entry.did} ${entry.target}`) +
-        (result ? s.faint(` · ${result}`) : '')
+        (result ? s.muted(` · ${result}`) : '')
       );
     });
   } else {

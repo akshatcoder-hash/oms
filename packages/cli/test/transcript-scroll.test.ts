@@ -45,7 +45,7 @@ test('a click opens and folds the entry under it, and a click on the chip goes t
   const { terminal, close } = start(f.harness, 100, 24);
   try {
     await terminal.screen();
-    const out = Array.from({ length: 30 }, (_, i) => `output row ${i}`).join('\n');
+    const out = Array.from({ length: 40 }, (_, i) => `output row ${i}`).join('\n');
     f.emit({ type: 'tool_execution_start', toolCallId: 't1', toolName: 'bash', args: { command: 'build' } });
     f.emit({
       type: 'tool_execution_end',
@@ -54,14 +54,14 @@ test('a click opens and folds the entry under it, and a click on the chip goes t
       isError: false,
       result: { content: [{ type: 'text', text: out }] },
     });
-    const folded = await terminal.until((s) => s.includes('output row 29'));
-    assert.ok(folded.includes('… +25 lines') && !folded.includes('output row 10'));
-    clickText(terminal, folded, '… +25 lines');
+    const folded = await terminal.until((s) => s.includes('output row 39'));
+    assert.ok(folded.includes('… +35 lines') && !folded.includes('output row 10'));
+    clickText(terminal, folded, '… +35 lines');
     // Open, the entry is taller than the view, which follows the end.
-    const open = await terminal.until((s) => s.includes('output row 20') && !s.includes('output row 10'));
-    assert.ok(!open.includes('… +25 lines'));
-    clickText(terminal, open, 'output row 20');
-    await terminal.until((s) => s.includes('… +25 lines') && !s.includes('output row 20'));
+    const open = await terminal.until((s) => s.includes('output row 30') && !s.includes('output row 10'));
+    assert.ok(!open.includes('… +35 lines'));
+    clickText(terminal, open, 'output row 30');
+    await terminal.until((s) => s.includes('… +35 lines') && !s.includes('output row 30'));
 
     for (let i = 0; i < 40; i++) {
       const message = say(`older line ${i}`);

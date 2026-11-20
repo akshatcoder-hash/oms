@@ -62,7 +62,7 @@ const INDENT = 2;
 export const ARM_WIDTH = 5;
 export const HINT = '(ctrl+o to expand)';
 
-/** Colors and attributes of the transcript. Dim text is the muted role at every depth: there is no separate faint one. */
+/** Colors and attributes of the transcript. Hints, arms, rules and timestamps are the faint role; text a reader reads is muted. */
 export class Style {
   readonly theme: OmsTheme;
   readonly g: Glyphs;
@@ -72,7 +72,7 @@ export class Style {
   }
   fg = (role: ThemeRole, text: string): string => colorText(this.theme, role, text);
   muted = (text: string): string => this.fg('muted', text);
-  faint = (text: string): string => this.fg('muted', text);
+  faint = (text: string): string => this.fg('faint', text);
   accent = (text: string): string => this.fg('accent', text);
   success = (text: string): string => this.fg('success', text);
   warning = (text: string): string => this.fg('warning', text);
@@ -170,7 +170,7 @@ function markdownTheme(s: Style): MarkdownTheme {
     quote: s.muted,
     quoteBorder: s.faint,
     hr: () => s.faint('───'),
-    listBullet: (text) => s.faint(text.startsWith('- ') ? `${s.g.bullet} ` : text),
+    listBullet: (text) => s.muted(text.startsWith('- ') ? `${s.g.bullet} ` : text),
     bold: s.bold,
     italic: s.italic,
     strikethrough: (text) => `\x1b[9m${text}\x1b[29m`,

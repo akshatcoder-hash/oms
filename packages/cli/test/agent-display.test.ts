@@ -128,6 +128,8 @@ test('a helper is a row with its agent and task, and under it how it is going', 
 
 test('a helper that failed shows why under its row, in the error color', () => {
   const conversation = chat();
+  const theme = getTheme('gruvbox')!;
+  conversation.applyTheme(theme);
   call(conversation, 'a2', 'build', 'change a.ts');
   conversation.accept({
     type: 'tool_execution_end',
@@ -141,7 +143,7 @@ test('a helper that failed shows why under its row, in the error color', () => {
     plain(lines),
     /● Agent {2}build · change a\.ts\n {2}⎿ {2}failed · build failed after 3s: stopped after 40 turns/,
   );
-  const error = getTheme('gruvbox')!.sgr.fg.error;
+  const error = theme.sgr.fg.error;
   assert.ok(
     lines.every((row) => row.includes(`\x1b[${error}m`)),
     'the dot and the reason are in the error color',
