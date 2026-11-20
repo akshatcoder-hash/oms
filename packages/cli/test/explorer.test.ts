@@ -88,6 +88,7 @@ test('folders come first, in natural order', () => {
 
 test('the tree starts at the project root and expands a folder lazily with the keyboard', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   const first = screen(f);
   assert.match(first[0]!, /^▾ files\s+Ctrl\+P find/);
@@ -105,6 +106,7 @@ test('the tree starts at the project root and expands a folder lazily with the k
 
 test('Enter opens a file and takes the editor; Space previews it and keeps the explorer', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   screen(f);
   press(f, '\x1b[F');
@@ -116,6 +118,7 @@ test('Enter opens a file and takes the editor; Space previews it and keeps the e
 
 test('Left goes to the parent folder; n creates in the folder of the selection; a asks about a file; Esc leaves', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   screen(f);
   press(f, '\x1b[B', '\x1b[C');
@@ -142,6 +145,7 @@ test('change and agent markers sit at the right; folders with changes get a dot'
   f.marks.set('Anchor.toml', 'M');
   f.marks.set('programs/vault/lib.rs', 'A');
   f.touched.add('Anchor.toml');
+  screen(f);
   await settle();
   screen(f);
   press(f, '\x1b[B', '\x1b[C');
@@ -160,6 +164,7 @@ test('change and agent markers sit at the right; folders with changes get a dot'
 
 test('the selected row is a filled bar, bright with focus and quiet without it', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   const painted = (focused: boolean) => {
     f.explorer.focus.focused = focused;
@@ -172,6 +177,7 @@ test('the selected row is a filled bar, bright with focus and quiet without it',
 
 test('a stale listing is dropped, a failure shows a note and the 512-entry limit says what to do', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   const gate = barrier<void>();
   const slow = [{ path: 'old-entry', kind: 'file' as const }];
@@ -207,6 +213,7 @@ test('a stale listing is dropped, a failure shows a note and the 512-entry limit
 
 test('reveal expands every folder above a path and selects it', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   await f.explorer.reveal('programs/vault/lib.rs');
   const shown = screen(f).join('\n');
@@ -246,6 +253,7 @@ test('sections from a provider appear below files, can be collapsed, and run the
 
 test('clicking a file opens it and clicking a folder toggles it', async () => {
   const f = fixture();
+  screen(f);
   await settle();
   const click = (row: number) => {
     const frame = renderLayoutFrame(f.explorer.body, 30, 12, () => {});

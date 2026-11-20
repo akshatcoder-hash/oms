@@ -1465,7 +1465,8 @@ export async function runOmsInterface(
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+p')) {
-        editorAction(() => ide.openFinder());
+        switchView('workbench');
+        ide.openFinder();
         return { consume: true };
       }
       if (matchesKey(data, 'f4')) {

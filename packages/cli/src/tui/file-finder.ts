@@ -70,6 +70,8 @@ export class FileFinder {
   private lastQuery = '';
   private ranked: string[] = [];
   private rowsAt = 0;
+  /** Enter was pressed before the file list arrived: open the first match as soon as it does. */
+  private openWhenReady = false;
   private readonly options: FinderOptions;
 
   constructor(options: FinderOptions) {
@@ -92,6 +94,7 @@ export class FileFinder {
   /** Open the card; `initial` is what the field starts with (`#`, `:`, or a name). */
   show(initial = ''): void {
     this.shown = true;
+    this.openWhenReady = false;
     this.selected = 0;
     this.matches = [];
     this.searchNote = undefined;
@@ -104,6 +107,8 @@ export class FileFinder {
       .list()
       .then((files) => {
         this.files = files;
+        if (this.openWhenReady && this.shown) this.rows()[0]?.open();
+        this.openWhenReady = false;
         this.options.render();
       })
       .catch(() => {
@@ -315,8 +320,10 @@ export class FileFinder {
     else if (matchesKey(data, 'down')) this.selected = Math.min(rows.length - 1, this.selected + 1);
     else if (matchesKey(data, 'pageUp')) this.selected = Math.max(0, this.selected - page);
     else if (matchesKey(data, 'pageDown')) this.selected = Math.min(rows.length - 1, this.selected + page);
-    else if (matchesKey(data, 'enter')) rows[this.selected]?.open();
-    else if (matchesKey(data, 'tab')) {
+    else if (matchesKey(data, 'enter')) {
+      if (this.mode === 'files' && !this.files && this.query.trim()) this.openWhenReady = true;
+      else rows[this.selected]?.open();
+    } else if (matchesKey(data, 'tab')) {
       // Tab fills the field with the highlighted file name, to refine it.
       const row = rows[this.selected];
       if (this.mode === 'files' && row) this.input.setValue(row.key);

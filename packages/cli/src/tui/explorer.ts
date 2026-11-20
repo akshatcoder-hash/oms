@@ -13,6 +13,7 @@ import {
 import type { TaskFileAccess, TaskFileEntry } from '@oms/engine';
 import { colorBg, colorText, type OmsTheme, type ThemeRole } from './theme.ts';
 import { displayText } from './transcript.ts';
+import { isPrivatePath } from './search.ts';
 import { friendlyError } from './workbench-text.ts';
 
 /** git status of a file: modified, added, deleted, renamed or untracked. */
@@ -105,7 +106,8 @@ export class Explorer {
   private focused = false;
   private revealSelection = true;
   private lastRows: Row[] = [];
-  private pendingReveal: string | undefined;
+  /** The root is listed the first time the explorer is drawn, so a session that never shows it does no file IO. */
+  private started = false;
 
   constructor(options: ExplorerOptions) {
     this.options = options;
@@ -139,7 +141,6 @@ export class Explorer {
         else if (index >= this.scrollTop + viewportHeight) this.scrollTo(index - viewportHeight + 1);
       }
     })(content, { follow: 'none', scrollbar: 'auto', overscroll: 'contain' });
-    void this.load('.');
   }
 
   /** The viewport owns this stable component for mouse focus. */
@@ -167,7 +168,11 @@ export class Explorer {
     try {
       const entries = await this.options.files.list(directory, this.options.signal);
       if (generation !== this.generations.get(directory)) return;
-      this.listings.set(directory, { state: 'ready', entries: sortEntries(entries) });
+      // The file helper already hides private folders; the screen never shows them either way.
+      this.listings.set(directory, {
+        state: 'ready',
+        entries: sortEntries(entries.filter((entry) => !isPrivatePath(entry.path))),
+      });
     } catch (error) {
       if (generation !== this.generations.get(directory) || this.options.signal?.aborted) return;
       this.listings.set(directory, {
@@ -280,6 +285,10 @@ export class Explorer {
   }
 
   private render(width: number): string[] {
+    if (!this.started) {
+      this.started = true;
+      void this.load('.');
+    }
     const theme = this.options.theme();
     const rows = this.rows();
     this.lastRows = rows;
