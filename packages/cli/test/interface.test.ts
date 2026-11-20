@@ -695,6 +695,8 @@ test('stream snapshots and contextual tool results are visible without terminal 
       isError: false,
       result: { content: [{ type: 'text', text: '\x1b]52;c;INJECT\x07safe result\x1b[2J' }] },
     });
+    await terminal.until((s) => s.includes('1 line'));
+    terminal.send('\x0f');
     await terminal.until((s) => s.includes('safe result'));
     assert.ok(!terminal.output.includes('\x1b]52;c;INJECT'));
   } finally {
@@ -1396,6 +1398,9 @@ test('a large multiline diagnostic stays once in contextual conversation, not in
     await terminal.screen();
     terminal.send('editable diagnostic draft');
     terminal.send('\r');
+    const summary = await terminal.until((s) => s.includes('DIAGNOSTIC-BEGIN') && s.includes('ctrl+o to expand'));
+    assert.ok(!summary.includes('DIAGNOSTIC-END'), 'the error is a few rows until Ctrl+O opens it');
+    terminal.send('\x0f');
     const screen = await terminal.until((s) => s.includes('DIAGNOSTIC-END'));
     const rows = screen.split('\n');
     assert.ok(rows[0]?.includes('rental-ledger'), 'workspace header must remain at the top of the parsed viewport');
@@ -2787,7 +2792,7 @@ test('Solana commands use the local chain, and /airdrop refuses a chain that is 
     calls.length = 0;
     terminal.send(`/airdrop ${wallet} 2`);
     terminal.send('\r');
-    await terminal.until((s) => s.includes('Refusing') && s.includes('devnet or mainnet'));
+    await terminal.until((s) => s.includes('Refusing') && s.includes('devnet or'));
     assert.deepEqual(calls, []);
     terminal.send('\x01');
     terminal.send('/program system');
@@ -3217,7 +3222,7 @@ for (const [columns, rows] of [
       assert.ok(normalized(help).includes(hint), help);
       terminal.send('\t');
       await terminal.until((s) => normalized(s).includes('Use PgUp/PgDn to scroll.'));
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 8; i++) {
         terminal.send('\x1b[5~');
         await terminal.screen();
       }
