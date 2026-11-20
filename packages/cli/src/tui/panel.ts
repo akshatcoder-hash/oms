@@ -140,12 +140,25 @@ export function approvalCard(theme: OmsTheme, glyphs: Glyphs, request: ApprovalR
   rows.push('', ...command.slice(0, COMMAND_ROWS));
   if (command.length > COMMAND_ROWS)
     rows.push(colorText(theme, 'faint', `${glyphs.ellipsis} ${command.length - COMMAND_ROWS} more lines`));
-  const option = (key: string, label: string) => `${colorText(theme, 'accent', `\x1b[1m${key}\x1b[22m`)}  ${label}`;
   rows.push(
     '',
-    option('y', 'Allow once'),
-    ...(request.session ? [option('s', 'Allow for this session')] : []),
-    option('n', `Deny${' '.repeat(2)}${colorText(theme, 'faint', 'esc')}`),
+    keyOption(theme, 'y', 'Allow once'),
+    ...(request.session ? [keyOption(theme, 's', 'Allow for this session')] : []),
+    keyOption(theme, 'n', `Deny${' '.repeat(2)}${colorText(theme, 'faint', 'esc')}`),
   );
   return boxLines({ theme, glyphs, width, title: 'Allow host command?', border: 'warning', rows, padY: 0 });
+}
+
+const keyOption = (theme: OmsTheme, key: string, label: string): string =>
+  `${colorText(theme, 'accent', `\x1b[1m${key}\x1b[22m`)}  ${label}`;
+
+/** A yes/no question a command asked (/yolo), drawn like the approval card and answered on one key. */
+export function confirmationCard(theme: OmsTheme, glyphs: Glyphs, question: string, width: number): string[] {
+  const rows = [
+    ...wrapTextWithAnsi(displayText(question, 400), Math.max(1, width - 6)),
+    '',
+    keyOption(theme, 'y', 'Yes'),
+    keyOption(theme, 'n', `No${' '.repeat(2)}${colorText(theme, 'faint', 'esc')}`),
+  ];
+  return boxLines({ theme, glyphs, width, title: 'Confirm', border: 'warning', rows, padY: 0 });
 }

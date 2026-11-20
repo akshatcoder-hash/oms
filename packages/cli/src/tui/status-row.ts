@@ -165,6 +165,8 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
 /** What the status row's left side says for the current state. */
 export interface HintState {
   approval?: 'once-or-session' | 'once';
+  /** A yes/no question from a command (/yolo) is waiting for a key. */
+  confirm?: boolean;
   overlay: boolean;
   busy: boolean;
   popup: boolean;
@@ -179,6 +181,11 @@ export function statusHints(state: HintState): readonly Hint[] {
       ['y', 'allow once'],
       ...(state.approval === 'once-or-session' ? ([['s', 'allow for this session']] as const) : []),
       ['n / esc', 'deny'],
+    ];
+  if (state.confirm)
+    return [
+      ['y', 'yes'],
+      ['n / esc', 'no'],
     ];
   if (state.overlay) return [];
   if (state.popup)
