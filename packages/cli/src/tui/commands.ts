@@ -13,15 +13,17 @@ import { prepareDiff, prepareSession, prepareStatus, prepareUsage } from './insp
 import { prepareReview, prepareRun, prepareTest, prepareVerify } from './work-commands.ts';
 import { agentsCommand, teamCommand } from './agent-commands.ts';
 import { clearConversation, goalCommand } from './conversation-commands.ts';
-import { acceptsArt, acceptsLayout, acceptsWeb, uiCommands } from './ui-commands.ts';
+import { acceptsArt, acceptsLayout, acceptsPanel, acceptsWeb, uiCommands } from './ui-commands.ts';
 import { refuseWith, type Prepared } from './prepared.ts';
 import type { Goal } from './goal.ts';
 import type { StartupArtMode } from './startup-art.ts';
 import type { Conversation } from './transcript.ts';
 import type { WorkbenchPane } from './workbench.ts';
 import type { TerminalPane } from './terminal-pane.ts';
+import type { WorkbenchIde } from './ide.ts';
 
-export type FocusTarget = 'input' | 'requirements' | 'conversation' | 'editor' | 'terminal' | 'actions';
+export type FocusTarget =
+  'input' | 'requirements' | 'conversation' | 'editor' | 'terminal' | 'actions' | 'explorer' | 'panel';
 export type ViewName = 'harness' | 'workbench';
 export interface Requirement {
   id: string;
@@ -34,6 +36,8 @@ export interface CommandContext {
   readonly harness: OmsSession;
   readonly workbench: WorkbenchPane;
   readonly shell: TerminalPane;
+  /** The workbench screen: explorer, panel, quick open, tasks. */
+  readonly ide: WorkbenchIde;
   readonly conversation: Conversation;
   readonly review: typeof runReviewCommand;
   columns(): number;
@@ -130,20 +134,22 @@ export function keysHelp(kind: 'task' | 'chat' = 'task'): string {
     ['f3', 'workbench or conversation'],
     ['f4', 'pick a model'],
     ['f8', 'next theme'],
-    ...(chat
-      ? []
-      : ([
-          ['f2', 'requirements panel'],
-          ['f6', 'cycle panes'],
-          ['f10', 'toolbar'],
-        ] as KeyRow[])),
+    ['f6', 'move between areas'],
+    ['f10', 'header tabs'],
+    ...(chat ? [] : ([['f2', 'requirements panel']] as KeyRow[])),
   ];
   const workbench: KeyRow[] = [
-    ['ctrl+p', 'open file'],
+    ['ctrl+p', 'open a file · name:line · :line · #text'],
+    ['ctrl+b', 'file list'],
+    ['alt+j', 'bottom panel'],
+    ['alt+a', 'ask the agent about the selection'],
+    ['f7', 'tasks and helper agents'],
     ['ctrl+n', 'new file'],
     ['ctrl+s', 'save'],
     ['ctrl+f', 'find'],
     ['ctrl+h', 'replace'],
+    ['ctrl+/', 'comment'],
+    ['ctrl+r', 'reload a file that changed'],
     ['ctrl+w', 'close tab'],
     ['ctrl+tab', 'next tab'],
     ['ctrl+\\', 'other split side'],
@@ -159,6 +165,8 @@ export function keysHelp(kind: 'task' | 'chat' = 'task'): string {
     'Terminal',
     keyTable([
       ['ctrl+c', 'interrupt'],
+      ['f6', 'leave the shell (it gets every other key)'],
+      ['shift+pgup', 'scroll back'],
       ['/terminal stop', 'end the shell'],
     ]),
     '',
@@ -252,7 +260,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'files',
     group: 'Navigate',
-    description: 'Browse files',
+    description: 'Find and open a file · Ctrl+P',
     whileBusy: 'accepted',
     run: uiCommands.files,
   },
@@ -411,6 +419,13 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
         : uiCommands.requirements(ctx, argument, draft),
   },
   {
+    name: 'changes',
+    group: 'Inspect',
+    description: 'Changed files, diffs and reverting',
+    whileBusy: 'accepted',
+    run: uiCommands.changes,
+  },
+  {
     name: 'open',
     group: 'Edit',
     description: 'Open a file',
@@ -433,6 +448,8 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     name: 'save',
     group: 'Edit',
     description: 'Save file · ctrl+s',
+    argument: '[all]',
+    accepts: (argument) => argument === '' || argument === 'all',
     whileBusy: 'accepted',
     run: uiCommands.save,
   },
@@ -466,6 +483,25 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     run: uiCommands.split,
   },
   {
+    name: 'search',
+    group: 'Edit',
+    description: 'Search the project',
+    argument: '[text]',
+    accepts: any,
+    whileBusy: 'accepted',
+    run: uiCommands.search,
+  },
+  {
+    name: 'goto',
+    group: 'Edit',
+    description: 'Go to a line · Ctrl+G',
+    argument: '<line>',
+    needsArgument: true,
+    accepts: present,
+    whileBusy: 'accepted',
+    run: uiCommands.goto,
+  },
+  {
     name: 'layout',
     group: 'Navigate',
     description: 'Show the agent beside the editor',
@@ -473,6 +509,29 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
     accepts: acceptsLayout,
     whileBusy: 'accepted',
     run: uiCommands.layout,
+  },
+  {
+    name: 'tasks',
+    group: 'Navigate',
+    description: 'Tasks and helper agents · F7',
+    whileBusy: 'accepted',
+    run: uiCommands.tasks,
+  },
+  {
+    name: 'panel',
+    group: 'Navigate',
+    description: 'Terminal, problems, output and changes · Alt+J',
+    argument: '[terminal|problems|output|changes|hide]',
+    accepts: acceptsPanel,
+    whileBusy: 'accepted',
+    run: uiCommands.panel,
+  },
+  {
+    name: 'sidebar',
+    group: 'Navigate',
+    description: 'Show or hide the file list · Ctrl+B',
+    whileBusy: 'accepted',
+    run: uiCommands.sidebar,
   },
   {
     name: 'verify',

@@ -46,7 +46,7 @@ test('pointer navigation controls switch the same session without submitting its
   }
 });
 
-test('cancelled workbench toolbar SGR gestures preserve composer focus and draft typing', async () => {
+test('cancelled mouse gestures on the panel tabs preserve composer focus and draft typing', async () => {
   const f = fixture();
   const terminal = new InterfaceTerminal(120, 36);
   const run = runOmsInterface(f.harness, { terminal, view: 'workbench' });
@@ -56,9 +56,9 @@ test('cancelled workbench toolbar SGR gestures preserve composer focus and draft
     terminal.send('composer draft');
     const before = await terminal.until((screen) => screen.includes('composer draft'));
     const rows = before.split('\n');
-    const y = rows.findIndex((row) => row.includes('New') && row.includes('Save'));
-    assert.ok(y >= 0, 'workbench toolbar is visible alongside the composer');
-    const x = rows[y]!.indexOf('New') + 1;
+    const y = rows.findIndex((row) => row.includes('problems') && row.includes('changes'));
+    assert.ok(y >= 0, 'the panel tabs are visible alongside the composer');
+    const x = rows[y]!.indexOf('problems') + 1;
     terminal.send(`\x1b[<0;${x + 1};${y + 1}M`);
     terminal.send(' after press');
     await terminal.until((screen) => screen.includes('composer draft after press'));
@@ -149,7 +149,8 @@ for (const [columns, rows] of [
       terminal.send('X');
       terminal.send('\x13');
       await terminal.until(() => saved.includes('X'));
-      assert.equal(saved, '/\tXSOURCE\nsecond\nthird');
+      // Tab in a TypeScript file with no indentation to copy inserts soft spaces up to the next two-column stop.
+      assert.equal(saved, '/ XSOURCE\nsecond\nthird');
       terminal.send('\x0b');
       terminal.send('harness');
       terminal.send('\r');
@@ -226,7 +227,7 @@ test('terminal slash, Tab, Escape and Ctrl+C stay child input while global navig
     await terminal.screen();
     terminal.send('/terminal');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('running'));
+    await terminal.until((screen) => screen.includes('stop'));
     terminal.send('/');
     terminal.send('\t');
     terminal.send('\x1b');
@@ -236,7 +237,8 @@ test('terminal slash, Tab, Escape and Ctrl+C stay child input while global navig
     terminal.send('\x1b');
     terminal.send('x');
     await terminal.until(() => Buffer.concat(bytes).toString('utf8').endsWith('x'));
-    assert.equal(Buffer.concat(bytes).toString('utf8'), '/\t\x1b\x03x');
+    // A running shell gets every key, including the ones that open the command menu elsewhere; F6 is the way out.
+    assert.equal(Buffer.concat(bytes).toString('utf8'), '/\t\x1b\x03\x1b/help\x1bx');
     assert.equal(f.closed(), false);
     assert.deepEqual(f.prompts, []);
   } finally {
@@ -2853,7 +2855,7 @@ test('Solana commands use the local chain, and /airdrop refuses a chain that is 
 
 test('/help lists the new commands under Solana; a bare /account still opens the OMS account pane', async () => {
   const f = fixture();
-  const terminal = new InterfaceTerminal(120, 60);
+  const terminal = new InterfaceTerminal(120, 72);
   const run = runOmsInterface(f.harness, { terminal });
   try {
     await terminal.screen();

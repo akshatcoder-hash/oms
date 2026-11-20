@@ -173,7 +173,7 @@ export interface HintState {
   /** `/error <code> [program]` when the draft is a command that still needs its argument. */
   usage?: string;
   view: 'harness' | 'workbench';
-  focus: 'input' | 'editor' | 'terminal' | 'conversation' | 'requirements' | 'actions';
+  focus: 'input' | 'editor' | 'terminal' | 'conversation' | 'requirements' | 'actions' | 'explorer' | 'panel';
 }
 export function statusHints(state: HintState): readonly Hint[] {
   if (state.approval)
