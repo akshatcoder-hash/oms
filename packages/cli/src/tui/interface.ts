@@ -1452,23 +1452,33 @@ export async function runOmsInterface(
     const draft = paletteInput?.getValue() ?? input.document.text;
     const popup = currentCommands() !== undefined;
     const usageHint = popup || paletteInput ? undefined : argumentUsage(draft, harness.kind);
+    // In the workbench the editor, explorer, panel and shell know their own keys and messages.
+    const ideLine =
+      view === 'workbench' && !setup && !paletteInput && !hostApproval && !confirmation ? ide.statusLine() : undefined;
+    const ownsHints = !!ideLine && ['editor', 'explorer', 'panel', 'terminal'].includes(focus) && !popup && !usageHint;
+    const shownToast =
+      toastText !== undefined && !hostApproval && !confirmation
+        ? { text: toastText, role: 'accent' as const }
+        : ideLine?.toast;
     return [
       statusRow(theme!, glyphs, {
         width,
         facts,
-        ...(toastText !== undefined && !hostApproval && !confirmation ? { toast: toastText } : {}),
-        hints: statusHints({
-          ...(hostApproval
-            ? { approval: hostApproval.request.session ? ('once-or-session' as const) : ('once' as const) }
-            : {}),
-          ...(confirmation ? { confirm: true } : {}),
-          overlay: !!setup,
-          busy: busy(),
-          popup: popup || !!paletteInput,
-          ...(usageHint ? { usage: usageHint } : {}),
-          view,
-          focus,
-        }),
+        ...(shownToast ? { toast: shownToast.text, toastRole: shownToast.role } : {}),
+        hints: ownsHints
+          ? ideLine.hints
+          : statusHints({
+              ...(hostApproval
+                ? { approval: hostApproval.request.session ? ('once-or-session' as const) : ('once' as const) }
+                : {}),
+              ...(confirmation ? { confirm: true } : {}),
+              overlay: !!setup,
+              busy: busy(),
+              popup: popup || !!paletteInput,
+              ...(usageHint ? { usage: usageHint } : {}),
+              view,
+              focus,
+            }),
       }),
     ];
   });

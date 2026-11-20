@@ -89,7 +89,7 @@ test('120x40: an explorer, tab strip, panel header, status row and key hints; no
     const welcome = await terminal.until((screen) => screen.includes('No file open') && screen.includes('▾ files'));
     assert.doesNotMatch(welcome, /\[ (Files|New|Save|Find|Split|Close) \]|╭ Editor|╭ Files/);
     assert.match(welcome, /Open a file\s+Ctrl\+P/);
-    assert.match(welcome, /Ctrl\+K commands/);
+    assert.match(welcome, /ctrl\+k commands/);
     terminal.send('\x10');
     terminal.send('lib');
     terminal.send('\r');
@@ -104,7 +104,7 @@ test('120x40: an explorer, tab strip, panel header, status row and key hints; no
       'panel tabs are visible',
     );
     assert.ok(
-      rows.some((row) => /Ctrl\+K commands · Ctrl\+P open · Ctrl\+S save/.test(row)),
+      rows.some((row) => /ctrl\+k commands · ctrl\+p open · ctrl\+s save/.test(row)),
       'key hints are visible',
     );
     assert.ok(
@@ -363,9 +363,9 @@ test('workbench commands: /goto, /search, /panel, /sidebar, /save all and a bare
     await terminal.until((screen) => screen.includes('╭ Search the project') && screen.includes('#needle'));
     terminal.send('\x1b');
     await command('/panel changes');
-    await terminal.until((screen) => /↑↓ choose · Enter see the diff/.test(screen));
+    await terminal.until((screen) => /↑↓ choose · enter see the diff/.test(screen));
     await command('/panel hide');
-    await terminal.until((screen) => !/↑↓ choose · Enter see the diff/.test(screen));
+    await terminal.until((screen) => !/↑↓ choose · enter see the diff/.test(screen));
     await command('/sidebar');
     await terminal.until((screen) => !screen.includes('▾ files'));
     await command('/files');
@@ -472,6 +472,43 @@ test('the agent finishing a turn marks the files it edited and refreshes the exp
     f.emit({ type: 'agent_start' });
     f.emit({ type: 'agent_settled' });
     await terminal.until((s) => !/new\.ts\s+● /.test(s));
+  } finally {
+    await done();
+    p.done();
+  }
+});
+
+test('the workbench has one row of hints: the interface status row, in the focused area’s own words, with messages in their color', async () => {
+  const p = project({ 'a.ts': 'ALPHA', 'b.ts': 'BETA' });
+  const { terminal, done } = open(fixture(), p, 120, 30);
+  try {
+    const first = await terminal.until((screen) => screen.includes('No file open'));
+    const rows = (screen: string) => screen.split('\n');
+    const hintRows = (screen: string) =>
+      rows(screen).filter((row) => /ctrl\+k commands|enter open|esc editor/.test(row));
+    assert.equal(hintRows(first).length, 1, 'no second hint row above the status row');
+    assert.match(rows(first).at(-1)!, /ctrl\+k commands · ctrl\+p open a file · ctrl\+n new file/);
+    assert.match(rows(first).at(-1)!, /R1 active · 0\/2/, 'the session facts share the row');
+    // The explorer has its own keys.
+    terminal.send('\x02');
+    terminal.send('\x02');
+    const explorer = await terminal.until((screen) => rows(screen).at(-1)!.includes('↑↓ move'));
+    assert.equal(hintRows(explorer).length, 1);
+    terminal.send('\r');
+    // A message from the workbench replaces the hints for a moment, in the color of its kind.
+    terminal.send('\x0b');
+    terminal.send('open nope.ts');
+    terminal.send('\r');
+    const message = await terminal.until((screen) => /nope\.ts/.test(rows(screen).at(-1)!));
+    assert.doesNotMatch(rows(message).at(-1)!, /ctrl\+k commands/);
+    assert.equal(
+      terminal.vt.buffer.active
+        .getLine(terminal.rows - 1)
+        ?.getCell(2)
+        ?.getFgColorMode() !== 0,
+      true,
+      'the message is colored, not plain text',
+    );
   } finally {
     await done();
     p.done();

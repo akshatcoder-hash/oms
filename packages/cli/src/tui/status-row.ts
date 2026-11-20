@@ -111,6 +111,8 @@ export interface StatusRowInput {
   hints: readonly Hint[];
   /** A confirmation, shown in place of the hints. */
   toast?: string;
+  /** Color of the toast (the accent when absent). */
+  toastRole?: ThemeRole;
   facts: readonly StatusFact[];
 }
 
@@ -145,7 +147,10 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
   const leftRoom = Math.max(0, room - rightSize - MINIMUM_GAP);
   let left = '';
   if (toast !== undefined) {
-    left = leftRoom > 0 ? colorText(theme, 'accent', truncateToWidth(toast, leftRoom, glyphs.ellipsis)) : '';
+    left =
+      leftRoom > 0
+        ? colorText(theme, input.toastRole ?? 'accent', truncateToWidth(toast, leftRoom, glyphs.ellipsis))
+        : '';
   } else {
     const parts: string[] = [];
     let used = 0;

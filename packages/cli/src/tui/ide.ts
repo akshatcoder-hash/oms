@@ -25,6 +25,7 @@ import { ProjectIndex } from './search.ts';
 import { maskSecrets } from './secret-mask.ts';
 import { SolanaPanel } from './solana-panel.ts';
 import { TasksDashboard, type DashboardSources } from './tasks-dashboard.ts';
+import type { Hint } from './status-row.ts';
 import { TerminalPane } from './terminal-pane.ts';
 import { colorBg, colorText, type OmsTheme, type ThemeRole } from './theme.ts';
 import { displayText } from './transcript.ts';
@@ -327,7 +328,6 @@ export class WorkbenchIde {
       visible: () => rows() >= PANEL_ROWS && !options.composerVisible(),
     });
     this.body.addChild(this.statusRow(), { basis: 1, shrink: 0, visible: () => rows() >= 14 });
-    this.body.addChild(this.hintRow(), { basis: 1, shrink: 0, visible: () => rows() >= 8 });
     const entries = main[LAYOUT_NODE]().entries;
     this.entries.sidebar = entries.find((entry) => entry.component === this.explorer.body) as never;
     this.entries.panel = this.body[LAYOUT_NODE]().entries.find((entry) => entry.component === this.panel.body) as never;
@@ -919,27 +919,24 @@ export class WorkbenchIde {
     return `${this.workbench.hint}${this.explorerShown() ? '' : ' · Ctrl+B files'}`;
   }
 
-  private hintRow(): Component {
-    return {
-      invalidate() {},
-      render: (width) => {
-        const theme = this.options.theme();
-        const message = this.confirm ? undefined : this.workbench.message;
-        const role: ThemeRole = this.confirm
+  /**
+   * What the interface's one status row says while the workbench is on screen: the latest message or a question waiting
+   * for y/n (drawn in the color of its kind), else the key hints for what has focus.
+   */
+  statusLine(): { toast?: { text: string; role: ThemeRole }; hints: readonly Hint[] } {
+    const hints = hintList(this.currentHint());
+    if (this.confirm) return { toast: { text: this.confirm.text, role: 'warning' }, hints };
+    const message = this.workbench.message;
+    if (!message) return { hints };
+    const role: ThemeRole =
+      message.kind === 'error'
+        ? 'error'
+        : message.kind === 'warning'
           ? 'warning'
-          : message
-            ? message.kind === 'error'
-              ? 'error'
-              : message.kind === 'warning'
-                ? 'warning'
-                : message.kind === 'success'
-                  ? 'success'
-                  : 'foreground'
-            : 'muted';
-        const text = message ? message.text : this.currentHint();
-        return [truncateToWidth(' ' + colorText(theme, role, clean(text, 600)), width, '')];
-      },
-    };
+          : message.kind === 'success'
+            ? 'success'
+            : 'foreground';
+    return { toast: { text: message.text, role }, hints };
   }
 
   // ------------------------------------------------------------------------------------------------ keys
@@ -1038,4 +1035,17 @@ export class WorkbenchIde {
   get branch(): string | undefined {
     return diffTarget(this.harness)?.branch;
   }
+}
+
+/** 'Ctrl+K commands · Esc back' as hints: the first word of each part is its key, lower-cased unless it is a lone letter. */
+export function hintList(text: string): Hint[] {
+  return text
+    .split(' · ')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part): Hint => {
+      const space = part.indexOf(' ');
+      const key = space < 0 ? part : part.slice(0, space);
+      return [key.length > 1 ? key.toLowerCase() : key, space < 0 ? '' : part.slice(space + 1).trim()];
+    });
 }
