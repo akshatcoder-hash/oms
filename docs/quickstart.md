@@ -7,22 +7,18 @@ macOS, Linux and WSL2. Pick one:
 **curl (recommended)** installs Node, Git, Solana CLI and Surfpool as needed:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/barestate-ai/oms/main/install.sh | sh
+curl -fsSL https://barestate.xyz/oms/install | sh
 ```
 
 Open a new shell afterward. The installer uses `~/.oms` and adds its `bin` directory to your shell config. Solana CLI uses the official Anza installer and its default location under `~/.local/share/solana`; OMS can use it immediately, without a new shell. Rerun to upgrade OMS. On Linux it installs missing Git only with passwordless sudo; otherwise it prints the command to run. On macOS, finish the Command Line Tools prompt if Git is missing, then rerun.
 
-Set `OMS_HOME` for a different OMS directory, `OMS_VERSION` for a specific release, `OMS_NO_MODIFY_PATH=1` to leave shell config alone, `OMS_SKIP_SOLANA=1` to skip Solana CLI installation, or `OMS_SKIP_DOCTOR=1` to defer Surfpool installation. Set these on `sh`, for example `curl -fsSL https://raw.githubusercontent.com/barestate-ai/oms/main/install.sh | OMS_VERSION=0.1.2 sh`.
+Set `OMS_HOME` for a different OMS directory, `OMS_VERSION` for a specific release, `OMS_NO_MODIFY_PATH=1` to leave shell config alone, `OMS_SKIP_SOLANA=1` to skip Solana CLI installation, or `OMS_SKIP_DOCTOR=1` to defer Surfpool installation. Set these on `sh`, for example `curl -fsSL https://barestate.xyz/oms/install | OMS_VERSION=0.1.2 sh`.
 
 **Homebrew** installs Node, Git and Solana CLI:
 
 ```sh
-brew tap barestate-ai/oms https://github.com/barestate-ai/oms
-brew install barestate-ai/oms/oms
-oms doctor --install
+brew install barestate-ai/tap/oms
 ```
-
-Use the explicit tap URL: this repository is not named `homebrew-oms`.
 
 **npm / npx** needs Node >=22.19.0, Git and Solana CLI already installed:
 

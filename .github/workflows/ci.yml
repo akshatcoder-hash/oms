@@ -13,18 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  homebrew:
-    name: Homebrew install and test (macos-latest)
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - name: Tap the PR checkout and test the formula
-        run: |
-          brew tap barestate-ai/oms "$GITHUB_WORKSPACE"
-          brew install barestate-ai/oms/oms
-          brew test barestate-ai/oms/oms
-
   installer:
     name: Installer (${{ matrix.os }}, ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
