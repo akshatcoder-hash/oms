@@ -43,6 +43,10 @@ export function assertPrivate(path: string, directory: boolean): void {
     (stat.mode & 0o077) !== 0 ||
     (!directory && stat.nlink !== 1)
   ) {
+    if (directory && stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.()) {
+      const quoted = `'${path.replaceAll("'", "'\\''")}'`;
+      throw new WorkspaceError('UNSAFE_PATH', `The folder is not private. Run \`chmod 700 ${quoted}\` and try again.`);
+    }
     throw new WorkspaceError('UNSAFE_PATH', `Expected an owned private ${directory ? 'directory' : 'file'}: ${path}`);
   }
 }
