@@ -3210,7 +3210,7 @@ for (const [columns, rows] of [
     const missingModel = (screen: string) =>
       screen.replace(/\s+/g, ' ').includes('Your draft is kept. No model is available.');
     try {
-      await terminal.until((s) => s.includes('Run /connect to sign in.'));
+      await terminal.until((s) => s.includes('/connect to sign in · /model to pick a model · /help'));
       for (const command of ['/usage', '/harness', '/theme nord']) {
         terminal.send('Explain this folder.');
         terminal.send('\r');
