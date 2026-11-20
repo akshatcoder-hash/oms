@@ -78,7 +78,8 @@ async function doctor(args: string[]): Promise<number> {
     const version = await installPinnedSurfpool(environment.binary);
     console.log(`Installed Surfpool ${version} at ${environment.binary} (SHA-256 verified)`);
   }
-  const results = await runChecks(nodeEnv(), {
+  const env = nodeEnv();
+  const results = await runChecks(env, {
     ...DEFAULT_OPTIONS,
     backend,
     needsPrograms: args.includes('--programs'),
@@ -87,7 +88,7 @@ async function doctor(args: string[]): Promise<number> {
     sandboxImage: environment.image,
   });
   const summary = summarize(results);
-  console.log(json ? JSON.stringify({ results, summary }, null, 2) : renderText(results));
+  console.log(json ? JSON.stringify({ results, summary }, null, 2) : renderText(results, env.env));
   return summary.exitCode;
 }
 
