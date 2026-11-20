@@ -3071,10 +3071,13 @@ test('a chat opens to its conversation, keyboard legend, input and one footer li
     const screen = await terminal.until((s) => s.includes('/help'));
     assert.doesNotMatch(screen, /\/connect|\/model/);
     assert.match(screen, /\/fixtures\/rental-ledger +local\/test-model/);
-    assert.match(screen, /Enter send.*Ctrl\+Q quit/);
+    assert.match(screen.replace(/\s+/g, ' '), /Press Enter to send\..*Press Ctrl\+Q to quit\./);
     assert.doesNotMatch(screen, /Harness|Workbench|Commands \]|╭|╰|Conversation|Agent ·|input ·/);
     const rows = screen.split('\n').filter((row) => row.trim());
-    assert.ok(rows.length <= 5, `only the hint, legend, two rules and the footer are drawn, got ${rows.length}`);
+    assert.ok(
+      rows.length <= 6,
+      `only the hint, wrapped legend, two rules and the footer are drawn, got ${rows.length}`,
+    );
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();
@@ -3148,7 +3151,9 @@ test('with nothing connected the chat shows the full setup hint', async () => {
   const run = runOmsInterface(f.harness, { terminal });
   try {
     const screen = await terminal.until((s) => s.includes('/connect to sign in'));
-    assert.match(screen, /\/connect to sign in · \/model to pick a model · \/help/);
+    assert.ok(
+      screen.replace(/\s+/g, ' ').includes('Run /connect to sign in, then /model to pick a model. Run /help for help.'),
+    );
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();
@@ -3212,7 +3217,7 @@ for (const [columns, rows] of [
     const terminal = new InterfaceTerminal(columns, rows);
     const run = runOmsInterface(f.harness, { terminal });
     try {
-      const initial = await terminal.until((s) => s.includes('/connect to sign in · /model to pick a model · /help'));
+      const initial = await terminal.until((s) => s.includes('/connect to sign in'));
       assert.doesNotMatch(initial, /Your draft is kept|No model is available/);
       terminal.send('Explain this folder.');
       terminal.send('\r');
@@ -3248,11 +3253,18 @@ for (const [columns, rows] of [
     (f.harness as unknown as { listModels(): unknown[] }).listModels = () => [];
     const terminal = new InterfaceTerminal(columns, rows);
     const run = runOmsInterface(f.harness, { terminal });
-    const legend = 'Enter send · Shift+Enter newline · / commands · /help keys · Ctrl+Q quit';
+    const legend =
+      'Press Enter to send. Use Shift+Enter for a newline. Type / for commands. Run /help keys for help. Press Ctrl+Q to quit.';
     const normalized = (screen: string) => screen.replace(/\s+/g, ' ');
     try {
       const initial = await terminal.until((s) => s.includes('/connect to sign in'));
+      assert.doesNotMatch(initial, /·/);
       assert.ok(normalized(initial).includes(legend), initial);
+      assert.ok(
+        normalized(initial).includes('Run /connect to sign in, then /model to pick a model. Run /help for help.'),
+        initial,
+      );
+      assert.match(initial, /\/fixtures\/rental-ledger/);
       terminal.send('Explain');
       terminal.send('\x1b[13;2u');
       terminal.send('this folder.');
@@ -3264,6 +3276,7 @@ for (const [columns, rows] of [
       assert.ok(normalized(refused).includes(legend), refused);
       assert.match(refused, /this folder\./);
       assert.ok(normalized(refused).includes('Run /connect to sign in or /model to choose a model.'));
+      assert.match(refused, /\/fixtures\/rental-ledger/);
       assert.deepEqual(f.prompts, []);
       assert.doesNotMatch(refused, /…|\.\.\./);
       f.model(true);
@@ -3292,7 +3305,7 @@ for (const [columns, rows] of [
     const missingModel = (screen: string) =>
       screen.replace(/\s+/g, ' ').includes('Your draft is kept. No model is available.');
     try {
-      await terminal.until((s) => s.includes('/connect to sign in · /model to pick a model · /help'));
+      await terminal.until((s) => s.includes('/connect to sign in'));
       for (const command of ['/usage', '/harness', '/theme nord']) {
         terminal.send('Explain this folder.');
         terminal.send('\r');

@@ -318,21 +318,18 @@ export async function runOmsInterface(
   function placeholder(width: number): string[] {
     const configured = hasModelConfiguration(harness.session.model);
     if (minimal)
-      return [
-        ' ' +
-          truncateToWidth(
-            colorText(
-              theme!,
-              'muted',
-              !harness.listModels().some((candidate) => candidate.configured)
-                ? '/connect to sign in · /model to pick a model · /help'
-                : configured && selectedModelChoice()?.configured
-                  ? '/help'
-                  : '/model to pick a model · /help',
-            ),
-            Math.max(1, width - 1),
-          ),
-      ];
+      return wrapTextWithAnsi(
+        colorText(
+          theme!,
+          'muted',
+          !harness.listModels().some((candidate) => candidate.configured)
+            ? 'Run /connect to sign in, then /model to pick a model. Run /help for help.'
+            : configured && selectedModelChoice()?.configured
+              ? 'Run /help for help.'
+              : 'Run /model to pick a model. Run /help for help.',
+        ),
+        Math.max(1, width - 1),
+      ).map((line) => ' ' + line);
     const content = configured
       ? [
           colorText(theme!, 'accent', 'What are we building?'),
@@ -1068,7 +1065,11 @@ export async function runOmsInterface(
   const inputLabel = component((width) => {
     if (minimal && !setup && !paletteInput)
       return wrapTextWithAnsi(
-        colorText(theme!, 'muted', 'Enter send · Shift+Enter newline · / commands · /help keys · Ctrl+Q quit'),
+        colorText(
+          theme!,
+          'muted',
+          'Press Enter to send. Use Shift+Enter for a newline. Type / for commands. Run /help keys for help. Press Ctrl+Q to quit.',
+        ),
         width,
       );
     const label = truncateToWidth(
