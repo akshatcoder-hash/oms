@@ -146,8 +146,9 @@ const CHAT_HELP = [
   'error',
 ];
 const CHAT_KEYS =
-  'Enter sends · Shift+Enter adds a line · Esc cancels · Ctrl+O shows full tool output · Ctrl+T hides thinking · Ctrl+D leaves\n' +
-  '/help keys lists every key.';
+  'Press Enter to send. Use Shift+Enter to add a line. Press Esc to cancel.\n' +
+  'Press Ctrl+O to show full tool output. Press Ctrl+T to hide thinking.\n' +
+  'Press Ctrl+D to leave. Run /help keys to list every key.';
 
 export function chatHelp(): string {
   const rows = CHAT_HELP.map((name) => findCommand(name)!).map((command) => [`/${command.name}`, command.description]);
