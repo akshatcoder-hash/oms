@@ -85,3 +85,15 @@ test('interface options start from the saved choices and save every change', (t)
   assert.equal(second.theme, 'rose-pine');
   assert.equal(second.startupArt, 'off');
 });
+
+test('an unreadable file is left alone instead of being replaced with defaults', (t) => {
+  if (process.getuid?.() === 0) return t.skip('root reads any file');
+  const root = stateRoot(t);
+  mkdirSync(root, { recursive: true });
+  const file = join(root, 'tui.json');
+  writeFileSync(file, '{"theme":"nord","background":"terminal","startupArt":"off"}');
+  chmodSync(file, 0o000);
+  assert.equal(saveTuiPreferences(root, { theme: 'dracula' }), false);
+  chmodSync(file, 0o600);
+  assert.deepEqual(readTuiPreferences(root), { theme: 'nord', background: 'terminal', startupArt: 'off' });
+});

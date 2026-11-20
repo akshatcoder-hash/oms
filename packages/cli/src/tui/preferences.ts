@@ -35,6 +35,12 @@ export function readTuiPreferences(stateRoot: string): TuiPreferences {
 
 /** Merge `change` into the saved choices: a private file replaced atomically. False when it could not be written. */
 export function saveTuiPreferences(stateRoot: string, change: Partial<TuiPreferences>): boolean {
+  try {
+    readFileSync(file(stateRoot));
+  } catch (error) {
+    // Only a missing file starts from defaults; an unreadable one must not be replaced by them.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false;
+  }
   const next = { ...readTuiPreferences(stateRoot), ...change };
   const temporary = `${file(stateRoot)}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
   try {
