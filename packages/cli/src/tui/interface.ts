@@ -52,9 +52,11 @@ import { StartupArt, artShow, settleKittyGraphics, type StartupArtMode } from '.
 import {
   colorText,
   DEFAULT_THEME_ID,
+  detectColorDepth,
   getTheme,
   paintThemeRow,
   THEME_IDS,
+  type Backdrop,
   type OmsTheme,
   type OmsThemeId,
 } from './theme.ts';
@@ -154,6 +156,8 @@ export async function runOmsInterface(
     terminal?: Terminal;
     theme?: OmsThemeId;
     onThemeChange?: (theme: OmsThemeId) => void;
+    /** 'theme' paints the palette background on every row; the default 'terminal' keeps the terminal's own. */
+    background?: Backdrop;
     startupArt?: StartupArtMode;
     onStartupArtChange?: (mode: StartupArtMode) => void;
     view?: 'harness' | 'workbench';
@@ -163,7 +167,8 @@ export async function runOmsInterface(
   } = {},
 ): Promise<void> {
   const terminal = options.terminal ?? new ProcessTerminal();
-  let theme = getTheme(options.theme ?? DEFAULT_THEME_ID);
+  const display = { depth: detectColorDepth(), backdrop: options.background ?? 'terminal' } as const;
+  let theme = getTheme(options.theme ?? DEFAULT_THEME_ID, display);
   if (!theme) throw new Error(`Choose a theme from: ${THEME_IDS.join(', ')}`);
   /** A folder chat is pi-minimal: the conversation, the input and one footer line. A pinned task keeps its panes. */
   const minimal = harness.kind === 'chat';
@@ -306,6 +311,7 @@ export async function runOmsInterface(
       requestRender: () => requestRender(),
     },
   );
+  conversation.applyTheme(theme);
   if (options.startNote) conversation.note('scratch folder', options.startNote);
   const art = new StartupArt();
   let artMode = options.startupArt ?? (minimal ? 'off' : 'auto');
@@ -415,12 +421,13 @@ export async function runOmsInterface(
   }
 
   function changeTheme(id: string): boolean {
-    const next = getTheme(id);
+    const next = getTheme(id, display);
     if (!next) {
       setNotice(`Unknown theme. Choose: ${THEME_IDS.join(', ')}; draft retained.`);
       return false;
     }
     theme = next;
+    conversation.applyTheme(next);
     options.onThemeChange?.(next.id);
     setNotice(`Theme: ${next.name}`);
     return true;
