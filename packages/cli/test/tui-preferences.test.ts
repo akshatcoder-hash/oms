@@ -11,7 +11,7 @@ function stateRoot(t: TestContext): string {
   return join(base, 'state');
 }
 
-const DEFAULTS = { theme: 'gruvbox', background: 'theme' };
+const DEFAULTS = { theme: 'oms-ember', background: 'theme' };
 
 test('a missing file gives the defaults and reading never creates anything', (t) => {
   const root = stateRoot(t);
@@ -76,7 +76,7 @@ test('a failed write reports false and leaves the previous file intact', (t) => 
 test('interface options start from the saved choices and save every change', (t) => {
   const root = stateRoot(t);
   const first = interfacePreferences(root);
-  assert.equal(first.theme, 'gruvbox');
+  assert.equal(first.theme, 'oms-ember');
   assert.equal(first.background, 'theme');
   assert.equal('startupArt' in first, false, 'an unsaved art mode keeps the interface default');
   first.onThemeChange('rose-pine');
