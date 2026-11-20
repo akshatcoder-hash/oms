@@ -256,3 +256,23 @@ test('an idle interface stops redrawing every second, and a running agent keeps 
     terminal.vt.dispose();
   }
 });
+
+test('quitting with the workbench terminal running stops the shell before closing the session', async () => {
+  const f = fakeSession('chat');
+  const terminal = new InterfaceTerminal(100, 30);
+  const run = runOmsInterface(f.harness, { terminal });
+  try {
+    await terminal.until((screen) => screen.includes('/help'));
+    terminal.send('/terminal');
+    terminal.send('\r');
+    await terminal.until((screen) => screen.includes('Terminal · running'));
+    terminal.send('\x0c');
+    terminal.send('\x11');
+    await run;
+    assert.deepEqual(f.order, ['terminal closed', 'session closed']);
+  } finally {
+    terminal.send('\x11');
+    await run;
+    terminal.vt.dispose();
+  }
+});

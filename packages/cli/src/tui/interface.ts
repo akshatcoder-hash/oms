@@ -703,6 +703,8 @@ export async function runOmsInterface(
     setNotice('Closing...');
     if (!active || active.cancellable) cancel();
     shutdown = Promise.resolve()
+      // A shell closed by the session underneath its pane can end with uncertain cleanup; stop it here first.
+      .then(() => shell.release())
       .then(() => harness.close())
       .then(
         () => {
