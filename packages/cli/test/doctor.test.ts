@@ -56,6 +56,26 @@ test('missing Solana CLI warns for chat and blocks program readiness checks', as
   }
 });
 
+test('a broken Solana CLI preserves its diagnostic and blocks only program readiness', async () => {
+  for (const diagnostic of ['Permission denied', 'Failed to load shared library', '']) {
+    for (const needsPrograms of [false, true]) {
+      const env = fakeEnv({ tools: { surfpool: 'surfpool 1.7.0', docker: '1', anchor: 'anchor-cli 0.32.1' } });
+      const execute = env.exec;
+      env.exec = async (bin, args) => (bin === 'solana' ? { ok: false, out: diagnostic } : execute(bin, args));
+      const results = await runChecks(env, { ...DEFAULT_OPTIONS, needsPrograms });
+      const solana = results.find((check) => check.id === 'solana');
+      assert.equal(solana?.status, 'fail');
+      assert.equal(solana?.severity, needsPrograms ? 'blocking' : 'warning');
+      assert.equal(
+        solana?.detail,
+        `${diagnostic ? `${diagnostic} ` : ''}The Solana CLI is needed to build and deploy programs.`,
+      );
+      assert.equal(summarize(results).exitCode, needsPrograms ? 1 : 0);
+      assert.ok(renderText(results).includes(solana!.detail));
+    }
+  }
+});
+
 test('a missing Solana CLI does not downgrade other blocking failures', async () => {
   const results = await runChecks(
     fakeEnv({ nodeVersion: '20.1.0', tools: { surfpool: 'surfpool 1.7.0', docker: '1' } }),
