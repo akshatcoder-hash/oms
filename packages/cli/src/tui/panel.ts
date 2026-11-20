@@ -1,5 +1,5 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from '@earendil-works/pi-tui';
-import type { Glyphs } from './glyphs.ts';
+import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorText, paintSurfaceRow, type OmsTheme, type ThemeRole } from './theme.ts';
 import { displayText, singleLine } from './transcript.ts';
 
@@ -32,12 +32,16 @@ export function boxLines(options: BoxOptions): string[] {
   const edge = (text: string) => colorText(theme, options.border, text);
   const inner = Math.max(0, width - 2);
   const content = Math.max(1, inner - 2 * padX);
-  const title = options.title ? truncateToWidth(` ${singleLine(options.title, 200)} `, Math.max(0, inner - 2), '') : '';
+  const title = options.title
+    ? truncateToWidth(` ${inGlyphs(glyphs, singleLine(options.title, 200))} `, Math.max(0, inner - 2), '')
+    : '';
   const top =
     edge(topLeft + glyphs.rule) +
     colorText(theme, options.border, `\x1b[1m${title}\x1b[22m`) +
     edge(glyphs.rule.repeat(Math.max(0, inner - 1 - visibleWidth(title))) + topRight);
-  const hint = options.hint ? truncateToWidth(` ${singleLine(options.hint, 200)} `, Math.max(0, inner - 2), '') : '';
+  const hint = options.hint
+    ? truncateToWidth(` ${inGlyphs(glyphs, singleLine(options.hint, 200))} `, Math.max(0, inner - 2), '')
+    : '';
   const bottom =
     edge(bottomLeft + glyphs.rule.repeat(Math.max(0, inner - 1 - visibleWidth(hint)))) +
     colorText(theme, 'faint', hint) +

@@ -10,8 +10,6 @@ import {
   matchesKey,
   isKeyRelease,
   truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
   getKeybindings,
   setKeybindings,
   KeybindingsManager,
@@ -50,7 +48,7 @@ import {
   warningRows,
   type RuleLabel,
 } from './chrome-rows.ts';
-import { glyphsFor } from './glyphs.ts';
+import { glyphsFor, inGlyphs } from './glyphs.ts';
 import { approvalCard, Panel } from './panel.ts';
 import { argumentUsage, POPUP_ROWS, slashChoices, slashPopup } from './slash-popup.ts';
 import { SpinnerRow, toolVerb } from './spinner.ts';
@@ -68,7 +66,7 @@ import {
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
 import { displayDefinition, type HelperDisplay } from './display-tools.ts';
-import { Conversation, describeValue, displayText, singleLine } from './transcript.ts';
+import { Conversation, describeValue, singleLine } from './transcript.ts';
 import { nativeChatDisplayHistory } from './claude-chat.ts';
 import type { CommandOutput, Prepared } from './prepared.ts';
 import { sessionLabel } from './inspect-commands.ts';
@@ -369,8 +367,6 @@ export async function runOmsInterface(
   const models = () => (framing ? (frameModels ??= harness.listModels()) : harness.listModels());
   /** The one busy rule: a model turn, a command, or a cancellation still settling. */
   const busy = () => !!active || externalBusy || !!externalCancellation;
-  /** Cancel does something only for cancellable work: the running action, or a turn this presentation did not start. */
-  const canCancel = () => (active ? active.cancellable : externalBusy);
   const input = createFileEditorPane('', () => {
     if (input.document.text !== dismissedCommands) dismissedCommands = undefined;
     requestRender();
@@ -588,9 +584,17 @@ export async function runOmsInterface(
     }
   }
 
+  /** The text cursor takes the theme's accent (truecolor, painted themes); OSC 112 gives it back on exit. */
+  let cursorColored = false;
+  function colorCursor(): void {
+    if (disposed || display.depth !== 'truecolor' || theme!.ansi) return;
+    cursorColored = true;
+    terminal.write(`\x1b]12;${theme!.colors.accentFill}\x07`);
+  }
   function applyTheme(next: OmsTheme): void {
     theme = next;
     conversation.applyTheme(next);
+    if (cursorColored) colorCursor();
     requestRender();
   }
   function changeTheme(id: string): boolean {
@@ -1243,12 +1247,15 @@ export async function runOmsInterface(
   const bottomRule = component((width) => [ruleRow(theme!, glyphs, width, focus === 'input', composerLabel())]);
   const promptColumn = component(() => [promptRow(theme!, glyphs, focus === 'input' && !setup)]);
   const composerHint = (): string =>
-    !models().some((candidate) => candidate.configured)
-      ? 'Type /connect to sign in and pick a model'
-      : // The empty state above already suggests something to try.
-        (harness.session.messages?.length ?? 0) === 0
-        ? PLACEHOLDERS[0]
-        : composerPlaceholder;
+    inGlyphs(
+      glyphs,
+      !models().some((candidate) => candidate.configured)
+        ? 'Type /connect to sign in and pick a model'
+        : // The empty state above already suggests something to try.
+          (harness.session.messages?.length ?? 0) === 0
+          ? PLACEHOLDERS[0]
+          : composerPlaceholder,
+    );
   const emptyComposer: Component = {
     invalidate() {},
     handleMouse(event) {
@@ -1282,10 +1289,7 @@ export async function runOmsInterface(
   ]);
 
   // The row above the composer while work runs. On a short terminal it moves into the composer's top rule.
-  function spinnerLine(): string {
-    const [line = ''] = spinner.render(Math.max(1, terminal.columns - 8));
-    return line.trimStart();
-  }
+  const spinnerLine = (): string => spinner.compact(Math.max(1, terminal.columns - 8));
 
   // Slash popup: directly above the composer.
   const commandMenu = component((width) => {
@@ -1783,6 +1787,7 @@ export async function runOmsInterface(
     renderer.start();
     terminal.write('\x1b[22;0t');
     titleSaved = true;
+    colorCursor();
     syncActivity();
     if (options.firstRun) options.onFirstRunShown?.();
     // Running work and a bounded budget's wall clock change with time; nothing else on screen does.
@@ -1835,6 +1840,7 @@ export async function runOmsInterface(
         } finally {
           try {
             if (progressShown) terminal.setProgress(false);
+            if (cursorColored) terminal.write('\x1b]112\x07');
             if (titleSaved) terminal.write('\x1b[23;0t');
           } finally {
             setKeybindings(previousKeybindings);

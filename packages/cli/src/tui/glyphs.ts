@@ -59,3 +59,16 @@ export function glyphsFor(env: Readonly<Record<string, string | undefined>> = pr
   const base = on(env.OMS_ASCII) || env.TERM === 'linux' || env.TERM === 'dumb' ? ASCII : UNICODE;
   return on(env.OMS_REDUCED_MOTION) ? { ...base, spinner: [base.dot] } : base;
 }
+
+/** Chrome text in the glyph set: Unicode as written, or plain ASCII (arrows, dots, ellipses, pointers) without Unicode. */
+export function inGlyphs(glyphs: Glyphs, text: string): string {
+  return glyphs.ascii
+    ? text
+        .replaceAll('↑↓', 'up/down')
+        .replaceAll('↓', 'v')
+        .replaceAll('↑', '^')
+        .replaceAll(' · ', glyphs.separator)
+        .replaceAll('…', glyphs.ellipsis)
+        .replaceAll('›', glyphs.pointer)
+    : text;
+}

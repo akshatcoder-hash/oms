@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
-import type { Glyphs } from './glyphs.ts';
+import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorText, type OmsTheme, type ThemeRole } from './theme.ts';
 import { singleLine } from './transcript.ts';
 
@@ -115,7 +115,8 @@ export interface StatusRowInput {
 }
 
 function factText(theme: OmsTheme, glyphs: Glyphs, fact: StatusFact): string {
-  const text = colorText(theme, fact.role, fact.bold ? `\x1b[1m${fact.text}\x1b[22m` : fact.text);
+  const shown = inGlyphs(glyphs, fact.text);
+  const text = colorText(theme, fact.role, fact.bold ? `\x1b[1m${shown}\x1b[22m` : shown);
   return fact.dot ? `${colorText(theme, fact.dot, glyphs.dot)} ${text}` : text;
 }
 
@@ -129,8 +130,9 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
   const room = Math.max(0, input.width - 2 * margin);
   const separator = colorText(theme, 'faint', glyphs.separator);
   const joined = (parts: readonly string[]) => parts.join(separator);
-  const toast = input.toast === undefined ? undefined : singleLine(input.toast, 400);
-  const first = input.hints[0];
+  const toast = input.toast === undefined ? undefined : inGlyphs(glyphs, singleLine(input.toast, 400));
+  const hints = input.hints.map(([key, label]) => [inGlyphs(glyphs, key), inGlyphs(glyphs, label)] as const);
+  const first = hints[0];
   const needed = toast !== undefined ? visibleWidth(toast) : first ? visibleWidth(`${first[0]} ${first[1]}`) : 0;
   const shown = [...input.facts];
   const rightWidth = () => visibleWidth(joined(shown.map((fact) => factText(theme, glyphs, fact))));
@@ -147,7 +149,7 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
   } else {
     const parts: string[] = [];
     let used = 0;
-    for (const [key, label] of input.hints) {
+    for (const [key, label] of hints) {
       const text = `${colorText(theme, 'muted', key)} ${colorText(theme, 'faint', label)}`;
       const size = visibleWidth(`${key} ${label}`) + (parts.length ? visibleWidth(glyphs.separator) : 0);
       if (used + size > leftRoom) break;

@@ -2,7 +2,7 @@ import { Loader, truncateToWidth, visibleWidth, type TUI } from '@earendil-works
 import type { Glyphs } from './glyphs.ts';
 import { edge } from './status-row.ts';
 import { colorText, type OmsTheme } from './theme.ts';
-import { singleLine } from './transcript.ts';
+import { clipLine } from './transcript.ts';
 
 /** `12s`, `1m 04s`, `1h 02m`. */
 export function formatElapsed(ms: number): string {
@@ -15,9 +15,9 @@ export function formatElapsed(ms: number): string {
 
 /** `412`, `1.2k`, `12k`, `1.3M`. */
 export function formatCount(tokens: number): string {
+  const short = (value: number) => (value < 10 ? value.toFixed(1).replace(/\.0$/, '') : String(Math.round(value)));
   if (tokens < 1000) return String(Math.max(0, Math.round(tokens)));
-  const value = tokens < 1e6 ? tokens / 1e3 : tokens / 1e6;
-  return `${value < 10 ? value.toFixed(1).replace(/\.0$/, '') : Math.round(value)}${tokens < 1e6 ? 'k' : 'M'}`;
+  return tokens < 999_500 ? `${short(tokens / 1e3)}k` : `${short(tokens / 1e6)}M`;
 }
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -27,7 +27,7 @@ const lastSegments = (path: string): string => path.split('/').filter(Boolean).s
 export function toolVerb(name: string | undefined, args: unknown): string {
   if (!name) return 'Thinking';
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
-  const path = lastSegments(singleLine(text(a.path ?? a.file_path ?? a.file), 120));
+  const path = lastSegments(clipLine(text(a.path ?? a.file_path ?? a.file), 120));
   switch (name) {
     case 'read':
       return path ? `Reading ${path}` : 'Reading';
@@ -36,7 +36,7 @@ export function toolVerb(name: string | undefined, args: unknown): string {
     case 'edit':
       return path ? `Editing ${path}` : 'Editing';
     case 'bash':
-      return `Running ${singleLine(text(a.command), 48) || 'a command'}`;
+      return `Running ${clipLine(text(a.command), 48) || 'a command'}`;
     case 'grep':
     case 'find':
     case 'ls':
@@ -87,6 +87,13 @@ export class SpinnerRow extends Loader {
     this.facts = facts;
     // The Loader starts animating on construction; it runs only while work does.
     this.stop();
+  }
+  /** `⠹ Reading lib.rs… 12s`: the left label and the time, for a short terminal's merged rule. */
+  compact(width: number): string {
+    const { verb, elapsedMs } = this.facts();
+    const time = formatElapsed(elapsedMs);
+    const text = truncateToWidth(verb + this.glyphs.ellipsis, Math.max(1, width - visibleWidth(time) - 3), '');
+    return `${this.getRenderedIndicator()} ${colorText(this.palette(), 'foreground', text)} ${colorText(this.palette(), 'faint', time)}`;
   }
   override render(width: number): string[] {
     const theme = this.palette();
