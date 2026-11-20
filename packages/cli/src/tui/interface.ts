@@ -1017,7 +1017,7 @@ export async function runOmsInterface(
   );
   const setupActions = new ActionBar(
     () => [
-      { id: 'back', label: 'Back', icon: '‹', onPress: closeSetup },
+      { id: 'back', label: 'Back', icon: '‹', onPress: () => setup?.handleInput('\x1b') },
       { id: 'confirm', label: 'Confirm', icon: '↵', onPress: () => setup?.handleInput('\r') },
     ],
     { theme: () => theme!, render: requestRender },

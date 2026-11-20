@@ -86,6 +86,190 @@ function fixture(
 }
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+function catalogFixture(mode: 'connect' | 'model', width: number, count = 39, configured = false, query = '') {
+  const providers = [
+    { id: 'openai-codex', name: 'Codex', apiKey: false, oauth: true },
+    { id: 'claude-code', name: 'Claude Code', apiKey: false, oauth: true },
+    { id: 'xai', name: 'Grok', apiKey: false, oauth: true },
+    ...Array.from({ length: 36 }, (_, index) => ({
+      id: `provider-${String(index).padStart(2, '0')}`,
+      name: `Provider ${String(index).padStart(2, '0')}`,
+      apiKey: true,
+      oauth: false,
+    })),
+  ]
+    .slice(0, count)
+    .map((provider) => ({ ...provider, configured }));
+  const labels = [
+    'Codex (ChatGPT subscription)',
+    'Claude Code (Claude subscription)',
+    'Grok (SuperGrok or X Premium)',
+    ...providers.slice(3).map((provider) => `${provider.name} API key`),
+  ].slice(0, count);
+  const logins: string[] = [];
+  const selections: string[] = [];
+  let closed = false;
+  const pane = new SetupPane(
+    {
+      listProviders: () => providers,
+      listModels: () =>
+        providers.map((provider) => ({ provider: provider.id, id: 'model', name: 'Model', configured })),
+      async loginProvider(provider, method) {
+        logins.push(`${provider}/${method}`);
+        throw new Error('Fixture login failure');
+      },
+      async selectModel(provider, model) {
+        selections.push(`${provider}/${model}`);
+      },
+      async importEnvironment() {
+        throw new Error('Not used');
+      },
+    },
+    {
+      mode,
+      query,
+      theme: () => getTheme('gruvbox')!,
+      rows: () => (width === 60 ? 18 : 24),
+      render() {},
+      close() {
+        closed = true;
+      },
+      notice() {},
+      selectTheme: () => false,
+    },
+  );
+  return {
+    pane,
+    providers,
+    labels,
+    logins,
+    selections,
+    closed: () => closed,
+    screen: () => stripVTControlCharacters(pane.body.render(width).join('\n')),
+  };
+}
+
+for (const mode of ['connect', 'model'] as const) {
+  for (const width of [80, 60]) {
+    test(`${mode} shortlists three unchanged methods and opens all 39 choices at ${width} columns`, async () => {
+      const f = catalogFixture(mode, width);
+      try {
+        const initial = f.screen();
+        assert.match(initial, /Other providers \(36 more\)/);
+        assert.deepEqual(
+          f.labels.filter((label) => initial.includes(label)),
+          f.labels.slice(0, 3),
+        );
+        assert.doesNotMatch(initial, /\(1\/39\)/);
+        if (mode === 'model')
+          assert.ok(initial.replace(/\s+/g, ' ').includes('No provider is connected yet. Choose one to sign in.'));
+        f.pane.handleInput('\x1b[B');
+        f.pane.handleInput('\x1b[B');
+        f.pane.handleInput('\x1b[B');
+        f.pane.handleInput('\r');
+        const seen = new Set<string>();
+        for (let index = 0; index < 39; index++) {
+          const screen = f.screen();
+          assert.match(screen, /Type a provider name to filter\./);
+          assert.doesNotMatch(screen, /Other providers/);
+          for (const label of f.labels) if (screen.includes(label)) seen.add(label);
+          if (index < 38) f.pane.handleInput('\x1b[B');
+        }
+        assert.deepEqual([...seen], f.labels);
+        assert.deepEqual(f.logins, []);
+        f.pane.handleInput('\r');
+        await flush();
+        assert.deepEqual(f.logins, ['provider-35/api_key']);
+        assert.match(f.screen(), /Setup incomplete/);
+        assert.deepEqual(f.selections, []);
+      } finally {
+        f.pane.dispose();
+      }
+    });
+
+    test(`${mode} filters the entire catalog from the shortlist and restores it at ${width} columns`, () => {
+      const f = catalogFixture(mode, width);
+      try {
+        for (const [index, provider] of f.providers.entries()) {
+          f.pane.handleInput(provider.id);
+          assert.ok(f.screen().includes(f.labels[index]!), f.screen());
+          assert.doesNotMatch(f.screen(), /Other providers/);
+          f.pane.handleInput('\x15');
+          assert.match(f.screen(), /Other providers \(36 more\)/);
+        }
+        f.pane.handleInput('no-such-provider');
+        assert.match(f.screen(), /No matches/);
+        f.pane.handleInput('\x15');
+        assert.match(f.screen(), /Other providers \(36 more\)/);
+        assert.deepEqual(f.logins, []);
+        assert.deepEqual(f.selections, []);
+      } finally {
+        f.pane.dispose();
+      }
+    });
+
+    test(`${mode} full-list Escape and Left return to the shortlist at ${width} columns`, () => {
+      for (const back of ['\x1b', '\x1b[D']) {
+        const f = catalogFixture(mode, width);
+        try {
+          f.screen();
+          for (let i = 0; i < 3; i++) f.pane.handleInput('\x1b[B');
+          f.pane.handleInput('\r');
+          assert.match(f.screen(), /\(1\/39\)/);
+          if (back === '\x1b') f.pane.handleInput('provider-35');
+          f.pane.handleInput(back);
+          assert.match(f.screen(), /Other providers \(36 more\)/);
+          assert.equal(f.closed(), false);
+          f.pane.handleInput(back);
+          assert.equal(f.closed(), true);
+          assert.deepEqual(f.logins, []);
+        } finally {
+          f.pane.dispose();
+        }
+      }
+    });
+  }
+}
+
+test('configured provider model entries remain available without a shortlist', async () => {
+  const f = catalogFixture('model', 80, 5, true);
+  try {
+    const screen = f.screen();
+    for (const label of ['Codex models', 'Claude Code', 'Grok models', 'Provider 00 models', 'Provider 01 models'])
+      assert.ok(screen.includes(label));
+    assert.doesNotMatch(screen, /Other providers|No provider is connected yet/);
+    f.pane.handleInput('provider-01');
+    f.pane.handleInput('\r');
+    assert.match(f.screen(), /provider-01\/model/);
+    f.pane.handleInput('\r');
+    await flush();
+    assert.deepEqual(f.selections, ['provider-01/model']);
+    assert.deepEqual(f.logins, []);
+  } finally {
+    f.pane.dispose();
+  }
+});
+
+test('empty and small provider catalogs do not invent an Other providers row', () => {
+  for (const count of [0, 1, 3]) {
+    const f = catalogFixture('model', 60, count);
+    try {
+      assert.doesNotMatch(f.screen(), /Other providers/);
+      assert.match(f.screen(), /No provider is connected yet/);
+      if (!count) assert.match(f.screen(), /No matches/);
+    } finally {
+      f.pane.dispose();
+    }
+  }
+  const queried = catalogFixture('connect', 60, 39, false, 'provider-35');
+  try {
+    assert.match(queried.screen(), /Provider 35 API key/);
+    assert.doesNotMatch(queried.screen(), /Other providers/);
+  } finally {
+    queried.pane.dispose();
+  }
+});
+
 for (const mode of ['connect', 'model'] as const) {
   for (const width of [80, 60]) {
     test(`${mode} provider picker explains filtering at ${width} columns`, () => {
