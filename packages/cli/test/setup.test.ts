@@ -86,6 +86,27 @@ function fixture(
 }
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+for (const mode of ['connect', 'model'] as const) {
+  for (const width of [80, 60]) {
+    test(`${mode} provider picker explains filtering at ${width} columns`, () => {
+      const f = fixture(mode);
+      const screen = () => stripVTControlCharacters(f.pane.body.render(width).join('\n'));
+      assert.match(screen(), /Type a provider name to filter\./);
+      f.pane.handleInput('anthropic');
+      assert.match(screen(), /Anthropic/);
+      assert.doesNotMatch(screen(), /Codex/);
+      f.pane.handleInput('not-a-provider');
+      assert.match(screen(), /No matches/);
+      assert.match(screen(), /Type a provider name to filter\./);
+      f.pane.handleInput('\x15');
+      assert.match(screen(), /Codex/);
+      assert.deepEqual(f.starts, []);
+      assert.deepEqual(f.selected, []);
+      f.pane.dispose();
+    });
+  }
+}
+
 for (const mode of ['model', 'connect', 'theme'] as const) {
   test(`${mode} picker goes back on Left with an empty filter`, () => {
     const f = fixture(mode);

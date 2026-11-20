@@ -651,6 +651,30 @@ test('/diff shows staged, unstaged and untracked changes against the base, scope
   }
 });
 
+test('/usage displays dollars consistently without changing micro-USD values', async () => {
+  for (const [used, cap, left, dollars] of [
+    [0, 0, 0, ['$0', '$0', '$0']],
+    [0, 5_000_000, 5_000_000, ['$0', '$5', '$5']],
+    [2500, 5_000_000, 4_997_500, ['$0.0025', '$5', '$4.9975']],
+    [0, 1, 1, ['$0', '$0.000001', '$0.000001']],
+    [0, 1_234_567_890, 1_234_567_890, ['$0', '$1,234.56789', '$1,234.56789']],
+  ] as const) {
+    const base = harnessFake().budget.snapshot();
+    const snapshot = {
+      ...base,
+      used: { ...base.used, spendMicroUsd: used },
+      caps: { ...base.caps, spendMicroUsd: cap },
+      remaining: { ...base.remaining, spendMicroUsd: left },
+    };
+    const original = structuredClone(snapshot);
+    const harness = harnessFake({ budget: { snapshot: () => snapshot, receipts: () => [] } });
+    const out = await run(prepareSlash('usage', '', harness));
+    assert.deepEqual(out.text.match(/\$[\d,.]+/g), dollars);
+    assert.match(out.text, /no model calls yet/);
+    assert.deepEqual(snapshot, original);
+  }
+});
+
 test('/usage reports token breakdown, spend, time, caps and the remaining line', async () => {
   const usageHarness = harnessFake();
   const out = await run(prepareSlash('usage', '', usageHarness));
