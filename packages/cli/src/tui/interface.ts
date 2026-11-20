@@ -39,6 +39,9 @@ import { SetupPane } from './setup.ts';
 import { copyToClipboard } from '@earendil-works/pi-coding-agent';
 import { HarnessSettingsPane } from './harness-settings.ts';
 import { AccountPane } from './account.ts';
+import { ConnectorsPane } from './connectors.ts';
+import { createApprovalQueue } from '../connectors/approvals.ts';
+import type { Connectors } from '../connectors/runtime.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
 import { WorkbenchPane } from './workbench.ts';
 import { TerminalPane } from './terminal-pane.ts';
@@ -177,6 +180,8 @@ export async function runOmsInterface(
     onViewChange?: (view: 'harness' | 'workbench') => void;
     /** A note shown in the conversation when the interface opens. */
     startNote?: string;
+    /** A folder chat's connectors (GitHub, Docker, AWS and more): the /connectors pane, their approvals and the sign-in tip. */
+    connectors?: Connectors;
   } = {},
 ): Promise<void> {
   const terminal = options.terminal ?? new ProcessTerminal();
@@ -217,9 +222,13 @@ export async function runOmsInterface(
   let workbenchFocus: Focus = 'editor';
   let selectedId: string | undefined;
   let notice = '';
-  let hostApproval: { text: string; answer(allowed: boolean | 'session'): void } | undefined;
+  /** Sandbox and connector approvals share one row, asked one at a time. */
+  const approvals = createApprovalQueue({
+    changed: () => requestRender(),
+    shown: (entry) => conversation.note('Host approval required', entry.text),
+  });
   let checkedItems: Requirement[] = [];
-  let setup: SetupPane | HarnessSettingsPane | AccountPane | undefined;
+  let setup: SetupPane | HarnessSettingsPane | AccountPane | ConnectorsPane | undefined;
   let commandIndex = 0;
   let commandDraft = '';
   let dismissedCommands: string | undefined;
@@ -345,21 +354,25 @@ export async function runOmsInterface(
   const loadArtImage = () => (artShown === 'image' ? art.loadImage().catch(() => {}) : Promise.resolve());
   let artViewport = 0,
     artHidden = 0;
+  /** The sign-in tip, once chosen, stays for this empty conversation; it is never part of the transcript. */
+  let emptyTip: string | undefined;
   function placeholder(width: number): string[] {
     const configured = hasModelConfiguration(harness.session.model);
-    if (minimal)
+    if (minimal) {
+      emptyTip ??= connectorTip('empty');
       return wrapTextWithAnsi(
         colorText(
           theme!,
           'muted',
-          !models().some((candidate) => candidate.configured)
+          (!models().some((candidate) => candidate.configured)
             ? 'Run /connect to sign in, then /model to pick a model. Run /help for help.'
             : configured && selectedModelChoice()?.configured
               ? 'Run /help for help.'
-              : 'Run /model to pick a model. Run /help for help.',
+              : 'Run /model to pick a model. Run /help for help.') + (emptyTip ? `\n${emptyTip}` : ''),
         ),
         Math.max(1, width - 1),
       ).map((line) => ' ' + line);
+    }
     const content = configured
       ? [
           colorText(theme!, 'accent', 'What are we building?'),
@@ -501,10 +514,36 @@ export async function runOmsInterface(
       render: requestRender,
       close: closeSetup,
       bodyRows: () => Math.max(1, terminal.rows - (terminal.rows >= 20 ? 7 : 6) - (notice ? 1 : 0)),
+      tip: () => connectorTip('login'),
     });
     clearDraft(draft);
     renderer.setFocus(setup.input);
     requestRender();
+  }
+  function openConnectors(draft?: string): void {
+    if (closing || !options.connectors) return;
+    setup?.dispose();
+    setup = new ConnectorsPane(harness, options.connectors, {
+      theme: () => theme!,
+      render: requestRender,
+      close: closeSetup,
+      bodyRows: () => Math.max(1, terminal.rows - (terminal.rows >= 20 ? 7 : 6) - (notice ? 1 : 0)),
+    });
+    clearDraft(draft);
+    notice = '';
+    renderer.setFocus(setup.input);
+    requestRender();
+  }
+  /** The optional "connect your tools" line, when the schedule says so; counted as shown the moment it is handed out. */
+  function connectorTip(where: 'empty' | 'login'): string | undefined {
+    const connectors = options.connectors;
+    // Wait for the folder's remote to be known, so the line can name GitHub or GitLab.
+    if (!connectors || (where === 'empty' && connectors.remote() === undefined)) return undefined;
+    return connectors.tip(where, {
+      chat: minimal,
+      modelConfigured: hasModelConfiguration(harness.session.model) && !!selectedModelChoice()?.configured,
+      rows: terminal.rows,
+    });
   }
   function openPalette(): void {
     if (setup) closeSetup();
@@ -806,6 +845,7 @@ export async function runOmsInterface(
       if (output) showOutput(command.name, output);
     };
     if (!canRunWhileBusy(command, argument)) {
+      let followUp: string | undefined;
       begin(
         command.activity ?? 'command',
         draft,
@@ -813,9 +853,14 @@ export async function runOmsInterface(
           const output = await prepared.run(signal);
           show(output);
           if (output?.failure) throw new Error(output.failure);
+          followUp = output?.ask;
         },
         command.cancellable !== false,
       );
+      // A command that gathered something for the agent (/pr, /issue, /ci) hands it over once its own work has ended.
+      void active?.completion.then(() => {
+        if (followUp && !closing) ask(followUp, undefined);
+      });
       return;
     }
     // Reads take no action slot and cannot be cancelled, but they are short and bounded.
@@ -910,6 +955,8 @@ export async function runOmsInterface(
     modelDetail: () => selectedModelChoice()?.detail,
     openSetup,
     openAccount,
+    openConnectors,
+    connectors: options.connectors,
     changeTheme,
     art: {
       setMode(mode) {
@@ -1203,7 +1250,11 @@ export async function runOmsInterface(
         ),
     ];
   });
-  const setupBody = component((width) => setup?.body.render(width) ?? []);
+  const setupBody: Component = {
+    invalidate() {},
+    render: (width) => setup?.body.render(width) ?? [],
+    handleMouse: (event) => setup?.body.handleMouse?.(event),
+  };
   const setupInput = component((width) => setup?.input.render(width) ?? []);
   const conversationFrame = new PaneFrame(transcript, {
     theme: () => theme!,
@@ -1269,10 +1320,10 @@ export async function runOmsInterface(
     },
   ]);
   const approvalRow = component((width) =>
-    hostApproval ? wrapTextWithAnsi(displayText(hostApproval.text, 4096), width) : [],
+    approvals.current() ? wrapTextWithAnsi(displayText(approvals.current()!.text, 4096), width) : [],
   );
   const layoutRoot = new VStack([
-    { component: approvalRow, basis: 'auto', shrink: 0, visible: () => !!hostApproval },
+    { component: approvalRow, basis: 'auto', shrink: 0, visible: () => !!approvals.current() },
     { component: header, basis: 'auto', shrink: 1, minSize: 1, visible: () => !minimal },
     { component: appActions, basis: 1, shrink: 0, visible: () => !minimal && !setup && !paletteInput },
     {
@@ -1351,41 +1402,42 @@ export async function runOmsInterface(
           ];
     setFocus(order[(order.indexOf(focus) + (backward ? order.length - 1 : 1)) % order.length]!);
   }
-  harness.setHostApproval?.(
-    (request, signal) =>
-      new Promise<boolean | 'session'>((resolve) => {
-        if (closing || signal?.aborted || hostApproval) {
-          resolve(false);
-          return;
-        }
-        const abort = () => finish(false);
-        const finish = (allowed: boolean | 'session') => {
-          signal?.removeEventListener('abort', abort);
-          hostApproval = undefined;
-          requestRender();
-          resolve(allowed);
-        };
-        const choices =
-          harness.kind === 'chat' ? 'y = once · s = this session · n / Escape = deny' : 'Y = allow · N / Escape = deny';
-        hostApproval = {
-          text: `Allow host command${request.requester ? ` from ${singleLine(request.requester, 40)}` : ''}? ${request.reasons.join(', ')}\n${request.command}\n${choices}`,
-          answer: finish,
-        };
-        signal?.addEventListener('abort', abort, { once: true });
-        conversation.note('Host approval required', hostApproval.text);
-        requestRender();
-      }),
+  harness.setHostApproval?.((request, signal) => {
+    if (closing) return Promise.resolve(false);
+    const chat = harness.kind === 'chat';
+    return approvals.request({
+      text: `Allow host command${request.requester ? ` from ${singleLine(request.requester, 40)}` : ''}? ${request.reasons.join(', ')}\n${request.command}\n${
+        chat ? 'y = once · s = this session · n / Escape = deny' : 'Y = allow · N / Escape = deny'
+      }`,
+      session: chat,
+      signal,
+    });
+  });
+  // The agent's connector actions (a pull request comment, a container run) ask in the same row.
+  options.connectors?.setApprover((request, signal) =>
+    closing
+      ? Promise.resolve(false)
+      : approvals.request({
+          text: `Allow ${singleLine(request.label, 40)}: ${singleLine(request.summary, 600)}?\n${
+            request.sessionAllowable
+              ? 'y = once · s = this session · n / Escape = deny'
+              : 'y = once · n / Escape = deny'
+          }`,
+          session: request.sessionAllowable,
+          signal,
+        }),
   );
   const removeInput = renderer.addInputListener((data) => {
     try {
       repairHiddenFocus();
       if (isKeyRelease(data)) return { consume: true };
-      if (hostApproval) {
-        if (data.toLowerCase() === 'y') hostApproval.answer(true);
-        else if (data.toLowerCase() === 's' && harness.kind === 'chat') hostApproval.answer('session');
-        else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) hostApproval.answer(false);
+      const pending = approvals.current();
+      if (pending) {
+        if (data.toLowerCase() === 'y') pending.answer(true);
+        else if (data.toLowerCase() === 's' && pending.session) pending.answer('session');
+        else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) pending.answer(false);
         else if (matchesKey(data, 'ctrl+q') || matchesKey(data, 'ctrl+c')) {
-          hostApproval.answer(false);
+          pending.answer(false);
           quit();
         }
         return { consume: true };
@@ -1625,6 +1677,7 @@ export async function runOmsInterface(
         fail(error);
       }
     });
+    void options.connectors?.prime();
     process.on('SIGINT', onSignal);
     process.on('SIGTERM', onSignal);
     process.on('SIGHUP', onSignal);
@@ -1648,8 +1701,9 @@ export async function runOmsInterface(
     await finished;
   } finally {
     closing = true;
-    hostApproval?.answer(false);
+    approvals.denyAll();
     harness.setHostApproval?.(undefined);
+    options.connectors?.setApprover(undefined);
     clearInterval(clock);
     process.off('SIGINT', onSignal);
     setup?.dispose();

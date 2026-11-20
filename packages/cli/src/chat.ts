@@ -10,6 +10,7 @@ import {
 } from '@oms/engine';
 import { webSetting } from './interactive.ts';
 import type { LaunchOptions } from './harness.ts';
+import { createConnectors } from './connectors/runtime.ts';
 import { chooseLocalAction } from './ownership.ts';
 import { runOmsInterface } from './tui/interface.ts';
 import { interfacePreferences } from './tui/preferences.ts';
@@ -57,6 +58,9 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
   const folder = resolveChatFolder(o.folder, { stateRoot: o.stateRoot });
   const selected = await chooseChatSession(folder, o.stateRoot, o.launch, o.choose);
   if (!selected) return;
+  // The folder's connectors (GitHub, Docker, AWS and more): off until the user turns one on in /connectors.
+  const connectors = createConnectors({ stateRoot: o.stateRoot, folder: folder.path });
+  connectors.recordLaunch();
   const chat = await (o.start ?? createChatSession)({
     folder,
     stateRoot: o.stateRoot,
@@ -66,11 +70,14 @@ export async function runInteractiveChat(o: ChatLaunch): Promise<void> {
     executionMode: o.launch.executionMode,
     web: { enabled: o.web !== false && webSetting(o.stateRoot) === 'on' },
     ...(o.yolo ? { yolo: true } : {}),
+    // The engine's `extensions` option (branch tui/engine-extensions); a spread keeps this compiling until it lands.
+    ...({ extensions: connectors.extensions } as object),
     ...selected,
   });
   try {
     await (o.run ?? runOmsInterface)(chat, {
       ...interfacePreferences(o.stateRoot),
+      connectors,
       view: 'harness',
       ...(folder.scratch || o.yolo
         ? {

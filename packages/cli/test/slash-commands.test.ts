@@ -126,7 +126,12 @@ test('folder chat help explains every summary binding in complete sentences', ()
       'Press Ctrl+D to leave. Run /help keys to list every key.',
   );
   assert.doesNotMatch(summary, /[·—–]/);
-  assert.match(chatHelp(), /\/connect +Sign in or add an API key/);
+  assert.match(chatHelp(), /\/connect +Model provider sign-in or API key/);
+  assert.match(chatHelp(), /\/connectors +Give the agent GitHub, Docker, AWS/);
+  // Commands that need a connected service are listed only when one is on.
+  assert.doesNotMatch(chatHelp(), /\/pr |\/issue |\/ci /);
+  assert.match(chatHelp(['pr', 'issue', 'ci']), /\/pr +Have the agent review a pull request/);
+  assert.match(chatHelp(['pr', 'issue', 'ci']), /\/ci +Have the agent fix failing checks/);
   assert.match(chatHelp(), /\/model +Pick a model/);
 });
 
