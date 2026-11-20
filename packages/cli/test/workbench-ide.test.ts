@@ -344,3 +344,136 @@ test('quitting with unsaved files names them', async () => {
     p.done();
   }
 });
+
+test('workbench commands: /goto, /search, /panel, /sidebar, /save all and a bare /open name', async () => {
+  const p = project({ 'src/lib.rs': SOURCE, 'a.ts': 'one', 'b.ts': 'two' });
+  const { terminal, done } = open(fixture(), p, 120, 40);
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    const command = async (text: string) => {
+      terminal.send('\x0b');
+      terminal.send(text.slice(1));
+      terminal.send('\r');
+    };
+    await command('/open lib.rs');
+    await terminal.until((screen) => screen.includes('line 1') && screen.includes('lib.rs ×'));
+    await command('/goto 12');
+    await terminal.until((screen) => screen.includes('Ln 12, Col 1'));
+    await command('/search needle');
+    await terminal.until((screen) => screen.includes('╭ Search the project') && screen.includes('#needle'));
+    terminal.send('\x1b');
+    await command('/panel changes');
+    await terminal.until((screen) => /↑↓ choose · Enter see the diff/.test(screen));
+    await command('/panel hide');
+    await terminal.until((screen) => !/↑↓ choose · Enter see the diff/.test(screen));
+    await command('/sidebar');
+    await terminal.until((screen) => !screen.includes('▾ files'));
+    await command('/files');
+    await terminal.until((screen) => screen.includes('╭ Open'));
+    terminal.send('\x1b');
+    // Two files with unsaved edits are both saved by /save all.
+    for (const name of ['a.ts', 'b.ts']) {
+      terminal.send('\x10');
+      terminal.send(name);
+      terminal.send('\r');
+      await terminal.until((screen) => screen.includes(`${name} ×`));
+      terminal.send('!');
+    }
+    await command('/save all');
+    await terminal.until(() => p.disk.get('a.ts') === '!one' && p.disk.get('b.ts') === '!two');
+  } finally {
+    await done();
+    p.done();
+  }
+});
+
+test('reverting a changed file asks first, then restores the committed text and clears the change', async () => {
+  const p = project({ 'a.txt': 'one\ntwo\n' });
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+      cwd: p.root,
+      encoding: 'utf8',
+    });
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-qm', 'base');
+  const base = git('rev-parse', 'HEAD').trim();
+  p.put('a.txt', 'one\nTWO\n');
+  const f = fixture();
+  Object.assign((f.harness as unknown as { task: object }).task, { baseOid: base });
+  const { terminal, done } = open(f, p, 120, 40);
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    terminal.send('\x0b');
+    terminal.send('changes');
+    terminal.send('\r');
+    const list = await terminal.until((screen) => /M {2}a\.txt\s+\+1 −1/.test(screen));
+    assert.match(list, /changes 1/);
+    terminal.send('R');
+    await terminal.until((screen) => screen.includes('Revert a.txt to the last commit?'));
+    terminal.send('n');
+    await terminal.until((screen) => !screen.includes('Revert a.txt'));
+    assert.equal(p.disk.get('a.txt'), 'one\nTWO\n');
+    terminal.send('R');
+    terminal.send('y');
+    await terminal.until(() => p.disk.get('a.txt') === 'one\ntwo\n');
+    await terminal.until((screen) => screen.includes('No changes yet.'));
+    // The gutter marks follow the change list: an edited line shows a bar, a reverted file none.
+    terminal.send('\x1b');
+  } finally {
+    await done();
+    p.done();
+  }
+});
+
+test('asking about a selection that looks like a secret sends only its location', async () => {
+  const p = project({ 'src/lib.rs': 'let key = "sk-abcdefghijklmnopqrstuvwxyz0123456789";\nplain line\n' });
+  const f = fixture();
+  const { terminal, done } = open(f, p, 120, 40);
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    terminal.send('\x10');
+    terminal.send('lib');
+    terminal.send('\r');
+    await terminal.until((screen) => screen.includes('sk-abcdef'));
+    // An unsaved edit makes the saved file differ from the buffer, so the agent could not read this text on its own.
+    terminal.send('!');
+    terminal.send('\x1b[1;2B');
+    terminal.send('\x1ba');
+    await terminal.until((screen) => screen.includes('Ask OMS · lib.rs'));
+    terminal.send('\r');
+    await terminal.until(() => f.prompts.length === 1);
+    assert.match(
+      f.prompts[0]!,
+      /^In lines 1 of `src\/lib\.rs`|^In lines 1-2 of `src\/lib\.rs`|^In `src\/lib\.rs`|^In lines? 1/,
+    );
+    assert.doesNotMatch(f.prompts[0]!, /sk-abcdef/);
+    f.promptGate.resolve();
+  } finally {
+    f.abortGate.resolve();
+    f.promptGate.resolve();
+    await done();
+    p.done();
+  }
+});
+
+test('the agent finishing a turn marks the files it edited and refreshes the explorer', async () => {
+  const p = project({ 'a.ts': 'one' });
+  const f = fixture();
+  const { terminal, done } = open(f, p, 120, 30);
+  try {
+    await terminal.until((screen) => screen.includes('a.ts') && screen.includes('▾ files'));
+    p.put('new.ts', 'created by the agent');
+    f.emit({ type: 'agent_start' });
+    f.emit({ type: 'tool_execution_start', toolCallId: 'w1', toolName: 'write', args: { path: 'new.ts' } });
+    f.emit({ type: 'tool_execution_end', toolCallId: 'w1', toolName: 'write', result: {}, isError: false });
+    const screen = await terminal.until((s) => /new\.ts\s+● /.test(s));
+    assert.match(screen, /new\.ts/);
+    f.emit({ type: 'agent_start' });
+    f.emit({ type: 'agent_settled' });
+    await terminal.until((s) => !/new\.ts\s+● /.test(s));
+  } finally {
+    await done();
+    p.done();
+  }
+});

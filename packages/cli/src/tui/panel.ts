@@ -328,7 +328,7 @@ export class Panel {
     };
     const right = this.tab === 'terminal' ? (this.options.terminal.running ? '■ stop' : '▸ start') : '';
     const hide = '▾ hide';
-    const tail = (right ? right + '  ' : '') + hide + ' ─';
+    const tail = (right ? right + '  ' : '') + hide + (width >= 36 ? ' ─' : '');
     // On a narrow terminal the tabs that are not showing give way first.
     const tabs = PANEL_TABS.map((tab) => {
       const count = tab === 'problems' ? this.problemList.length : tab === 'changes' ? this.options.changes.count : 0;
@@ -362,7 +362,7 @@ export class Panel {
       put(right, colorText(theme, 'foreground', right), { action: this.options.terminal.running ? 'stop' : 'start' });
     if (right) put('  ', '  ');
     put(hide, colorText(theme, 'muted', hide), { action: 'hide' });
-    put(' ─', colorText(theme, 'border', ' ─'));
+    if (width >= 36) put(' ─', colorText(theme, 'border', ' ─'));
     return [truncateToWidth(line, width, '')];
   }
 

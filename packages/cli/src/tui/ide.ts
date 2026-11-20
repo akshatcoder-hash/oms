@@ -438,6 +438,8 @@ export class WorkbenchIde {
   }
   /** The component keyboard focus rests on for an area. */
   focusTarget(area: IdeFocus) {
+    // Quick open's field is the text cursor's owner while the card is up.
+    if (this.finder.open) return this.finder.focusTarget;
     return area === 'explorer'
       ? this.explorer.focus
       : area === 'editor'
