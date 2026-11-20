@@ -29,7 +29,7 @@ test('resume command binds the OMS session and current native model instead of t
     session: { model: { provider: 'claude-code', id: 'sonnet' } },
   } as HarnessSession;
   const args = resumeHarnessArguments(options, harness, 'oms-owner-id', ['--tokens', '123']);
-  assert.deepEqual(args.slice(0, 3), ['npx', '@barestate/oms', 'run']);
+  assert.deepEqual(args.slice(0, 3), [process.execPath, bin, 'run']);
   const value = (flag: string) => args[args.indexOf(flag) + 1];
   assert.equal(value('--session'), 'oms-owner-id');
   assert.equal(value('--provider'), 'claude-code');
@@ -39,6 +39,11 @@ test('resume command binds the OMS session and current native model instead of t
   assert.equal(value('--surfpool-binary'), '/trusted/surfpool');
   assert.equal(value('--tokens'), '123');
   assert.equal(args.includes('old-model'), false);
+  delete process.env.npm_command;
+  assert.deepEqual(
+    resumeHarnessArguments(options, harness, 'oms-owner-id', ['--tokens', '123']).slice(0, 3),
+    [process.execPath, bin, 'run'],
+  );
 });
 
 test('local workspace initialization records an ignored repository and external state without a model request', (t) => {

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { omsCommand, type HarnessSession, type HarnessSessionOptions } from '@oms/engine';
+import { fileURLToPath } from 'node:url';
+import type { HarnessSession, HarnessSessionOptions } from '@oms/engine';
 import { openHarnessWithOwnership } from './ownership.ts';
 import { runOmsInterface } from './tui/interface.ts';
 import { DEFAULT_THEME_ID } from './tui/theme.ts';
@@ -18,7 +19,8 @@ export function resumeHarnessArguments(
 ): string[] {
   const model = harness.session.model;
   return [
-    ...omsCommand().split(' '),
+    process.execPath,
+    fileURLToPath(new URL('./bin.ts', import.meta.url)),
     'run',
     '--workspace',
     harness.workspace.root,
