@@ -97,3 +97,16 @@ test('an unreadable file is left alone instead of being replaced with defaults',
   chmodSync(file, 0o600);
   assert.deepEqual(readTuiPreferences(root), { theme: 'nord', background: 'terminal', startupArt: 'off' });
 });
+
+test('the startup art is for the first launch only: it is marked shown once and never again', (t) => {
+  const root = stateRoot(t);
+  const first = interfacePreferences(root);
+  assert.equal(first.firstRun, true);
+  first.onFirstRunShown();
+  assert.deepEqual(readTuiPreferences(root), { ...DEFAULTS, welcomed: true });
+  assert.equal(interfacePreferences(root).firstRun, false);
+  assert.equal(saveTuiPreferences(root, { theme: 'nord' }), true);
+  assert.equal(interfacePreferences(root).firstRun, false, 'other choices keep the mark');
+  writeFileSync(join(root, 'tui.json'), '{"welcomed":"yes"}');
+  assert.equal(interfacePreferences(root).firstRun, true, 'only true counts');
+});
