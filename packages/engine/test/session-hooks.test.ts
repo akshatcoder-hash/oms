@@ -45,6 +45,38 @@ async function beforeStart(contract: boolean) {
   };
 }
 
+test('switching a folder conversation tells npx users how to resume without changing prompts', async (t) => {
+  const previous = process.env.npm_command;
+  process.env.npm_command = 'exec';
+  t.after(() => {
+    if (previous === undefined) delete process.env.npm_command;
+    else process.env.npm_command = previous;
+  });
+  const hooks = createSessionHooks(
+    {} as CommonSessionOptions,
+    {} as SessionLifecycle,
+    { executionMode: 'interactive' } as RuntimeEnvironment,
+    { taskRoot: '/work', toolchainSummary: 'ok' } as SessionTools,
+  );
+  let switchSession: ((_event: unknown, ctx: ExtensionContext) => unknown) | undefined;
+  await hooks.policy({
+    on(name: string, handler: unknown) {
+      if (name === 'session_before_switch') switchSession = handler as typeof switchSession;
+      return () => {};
+    },
+    registerTool() {},
+  } as unknown as ExtensionAPI);
+  assert.ok(switchSession);
+  const notices: string[] = [];
+  assert.deepEqual(
+    switchSession({}, { ui: { notify: (text: string) => notices.push(text) } } as unknown as ExtensionContext),
+    { cancel: true },
+  );
+  assert.deepEqual(notices, [
+    'Run npx @barestate/oms again in this folder to resume a conversation. This chat keeps its folder fixed.',
+  ]);
+});
+
 for (const contract of [false, true]) {
   for (const provider of ['claude-code', 'anthropic', 'openai', undefined]) {
     test(`capped-work guidance is ${contract && provider === 'claude-code' ? 'present' : 'absent'} for ${provider ?? 'no model'} with contract=${contract}`, async () => {

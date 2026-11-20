@@ -11,9 +11,10 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { privateDirectory } from '@oms/engine';
 
 const run = promisify(execFile);
 
@@ -75,6 +76,8 @@ export async function installPinnedSurfpool(target: string, fetchImpl: typeof fe
   const archive: SurfpoolArchive | undefined = manifest.surfpoolArchives[`${process.platform}-${process.arch}`];
   if (!archive)
     throw new Error(`No Surfpool ${manifest.surfpoolVersion} build for ${process.platform}-${process.arch}`);
+  if (target === join(homedir(), '.oms', 'tools', `surfpool-${manifest.surfpoolVersion}`, 'surfpool'))
+    privateDirectory(join(homedir(), '.oms'));
   await installSurfpool(archive, target, fetchImpl);
   return manifest.surfpoolVersion;
 }
