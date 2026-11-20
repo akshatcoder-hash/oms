@@ -37,3 +37,5 @@ On a prepared offline task, run `/verify` and confirm a pinned failure leaves th
 ## Publication
 
 Review the exact commit and the staged archive before publishing. Verify the published archive's checksum against the local file before announcing availability.
+
+After publishing, bump the npm tarball URL and SHA-256 in `Formula/oms.rb` for every release. Download the published tarball and calculate its checksum with `shasum -a 256` (or `sha256sum`), then run `brew style barestate-ai/oms/oms` and `brew audit --strict barestate-ai/oms/oms` from the tap. Smoke-test the curl installer with `OMS_VERSION` set to the new version.

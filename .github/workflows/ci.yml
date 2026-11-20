@@ -13,6 +13,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  installer:
+    name: Installer (${{ matrix.os }}, ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [system]
+        include:
+          - os: ubuntu-latest
+            node: download
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Shellcheck
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install shellcheck
+          else
+            sudo apt-get update && sudo apt-get install -y shellcheck
+          fi
+          shellcheck install.sh
+      - name: Install and rerun
+        env:
+          OMS_NO_MODIFY_PATH: '1'
+        run: |
+          export OMS_HOME="$RUNNER_TEMP/oms"
+          if [ '${{ matrix.node }}' = download ]; then
+            mkdir -p "$RUNNER_TEMP/no-node"
+            for tool in uname git curl tar mkdir mktemp awk sha256sum rm mv dirname sed chmod sh; do
+              ln -s "$(command -v "$tool")" "$RUNNER_TEMP/no-node/$tool"
+            done
+            # tar invokes gzip; npm invokes node from the private Node directory.
+            ln -s "$(command -v gzip)" "$RUNNER_TEMP/no-node/gzip"
+            PATH="$RUNNER_TEMP/no-node" /bin/sh install.sh
+          else
+            sh install.sh
+          fi
+          sh install.sh
+          "$OMS_HOME/bin/oms" --help
+
   test:
     name: Typecheck and test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}

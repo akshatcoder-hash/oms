@@ -27,12 +27,36 @@ Oh My Sol (OMS) runs in your terminal with the model you already use, Codex and 
 
 ## Install
 
+macOS, Linux and WSL2. Pick one:
+
+**curl (recommended)** — installs Node if needed, Git through your system package manager, and Surfpool:
+
 ```sh
-cd path/to/your/project
+curl -fsSL https://raw.githubusercontent.com/barestate-ai/oms/main/install.sh | sh
+```
+
+Open a new shell, then run `oms` in your project folder. Installs privately under `~/.oms`, without sudo except when installing Git on Linux. On macOS, finish the Command Line Tools prompt if Git is missing, then rerun. Rerun to upgrade. Set `OMS_HOME` to change the install directory, `OMS_VERSION` to pin a release, `OMS_NO_MODIFY_PATH=1` to leave shell config alone, or `OMS_SKIP_DOCTOR=1` to defer Surfpool installation.
+
+**Homebrew** — installs Node and Git:
+
+```sh
+brew tap barestate-ai/oms https://github.com/barestate-ai/oms
+brew install barestate-ai/oms/oms
+oms doctor --install
+```
+
+The explicit tap URL is needed because this repository is named `oms`, not `homebrew-oms`.
+
+**npm / npx** — bring Node >=22.19.0 and Git:
+
+```sh
+npm install -g @barestate/oms --ignore-scripts --no-audit --no-fund
+oms
+# Or run without a global install:
 npx @barestate/oms
 ```
 
-You need Node 22.19.0 or newer and Git. The first launch installs Surfpool 1.7.0 and checks its SHA-256.
+The first launch installs Surfpool 1.7.0 and checks its SHA-256. `oms doctor --install` does the same on its own.
 
 ## The batteries
 
