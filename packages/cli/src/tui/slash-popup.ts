@@ -1,6 +1,6 @@
 import { fuzzyMatch, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { OMS_COMMANDS, type CommandSpec } from './commands.ts';
-import type { Glyphs } from './glyphs.ts';
+import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorBg, colorText, type OmsTheme } from './theme.ts';
 import { singleLine } from './transcript.ts';
 
@@ -70,7 +70,11 @@ export function slashPopup(
       colorText(
         theme,
         role,
-        truncateToWidth(singleLine(command.description, 200), Math.max(0, width - nameWidth - 2), glyphs.ellipsis),
+        truncateToWidth(
+          inGlyphs(glyphs, singleLine(command.description, 200)),
+          Math.max(0, width - nameWidth - 2),
+          glyphs.ellipsis,
+        ),
       );
     return isSelected ? colorBg(theme, 'selection', row, width) : row;
   });

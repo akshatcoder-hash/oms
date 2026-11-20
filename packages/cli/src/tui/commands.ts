@@ -165,7 +165,7 @@ export function keysHelp(kind: 'task' | 'chat' = 'task'): string {
     'Terminal',
     keyTable([
       ['ctrl+c', 'interrupt'],
-      ['f6', 'leave the shell (it gets every other key)'],
+      ['f6', 'move out (the shell gets every other key)'],
       ['shift+pgup', 'scroll back'],
       ['/terminal stop', 'end the shell'],
     ]),
@@ -260,7 +260,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'files',
     group: 'Navigate',
-    description: 'Find and open a file · Ctrl+P',
+    description: 'Find and open a file · ctrl+p',
     whileBusy: 'accepted',
     run: uiCommands.files,
   },
@@ -494,7 +494,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'goto',
     group: 'Edit',
-    description: 'Go to a line · Ctrl+G',
+    description: 'Go to a line · ctrl+g',
     argument: '<line>',
     needsArgument: true,
     accepts: present,
@@ -513,14 +513,14 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'tasks',
     group: 'Navigate',
-    description: 'Tasks and helper agents · F7',
+    description: 'Tasks and helper agents · f7',
     whileBusy: 'accepted',
     run: uiCommands.tasks,
   },
   {
     name: 'panel',
     group: 'Navigate',
-    description: 'Terminal, problems, output and changes · Alt+J',
+    description: 'Terminal, problems, output and changes · alt+j',
     argument: '[terminal|problems|output|changes|hide]',
     accepts: acceptsPanel,
     whileBusy: 'accepted',
@@ -529,7 +529,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'sidebar',
     group: 'Navigate',
-    description: 'Show or hide the file list · Ctrl+B',
+    description: 'Show or hide the file list · ctrl+b',
     whileBusy: 'accepted',
     run: uiCommands.sidebar,
   },

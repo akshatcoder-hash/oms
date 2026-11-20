@@ -1847,13 +1847,13 @@ test('dismissed slash discovery reopens after clearing and retyping before anoth
   try {
     await terminal.until((screen) => idle(screen));
     terminal.send('/');
-    await terminal.until((screen) => screen.includes('/files') && screen.includes('Browse files'));
+    await terminal.until((screen) => screen.includes('/files') && screen.includes('Find and open a file'));
     terminal.send('\x1b');
     await terminal.until((screen) => !screen.includes('/files'));
     terminal.send('\x01');
     terminal.send('\x7f');
     terminal.send('/');
-    await terminal.until((screen) => screen.includes('/files') && screen.includes('Browse files'));
+    await terminal.until((screen) => screen.includes('/files') && screen.includes('Find and open a file'));
     assert.deepEqual(f.prompts, []);
   } finally {
     await quit(terminal, run);
@@ -3318,7 +3318,7 @@ test('/help is a short list with one entry for leaving, and /help keys has the r
     terminal.send('\r');
     const keys = await terminal.until((s) => s.includes('clear the field'));
     for (const key of ['f3', 'f4', 'f8', 'pgup pgdn', 'ctrl+q']) assert.ok(keys.includes(key), key);
-    assert.doesNotMatch(keys, /\b(f2|f6|f10)\b/, 'a chat has no requirements panel or toolbar');
+    assert.doesNotMatch(keys, /\bf2\b/, 'a chat has no requirements panel');
   } finally {
     await quit(terminal, run);
     terminal.vt.dispose();

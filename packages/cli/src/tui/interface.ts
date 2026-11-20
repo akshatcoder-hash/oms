@@ -918,7 +918,7 @@ export async function runOmsInterface(
       const list = names.length
         ? `${names.slice(0, 4).join(', ')}${names.length > 4 ? ` +${names.length - 4}` : ''}`
         : 'files';
-      setNotice(`Unsaved ${list} · ctrl+q again to discard · ctrl+s to save`);
+      setNotice(`Unsaved: ${list} · ctrl+q again to discard · ctrl+s to save`);
       return;
     }
     closing = true;

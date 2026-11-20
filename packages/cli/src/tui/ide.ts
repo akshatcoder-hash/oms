@@ -594,7 +594,7 @@ export class WorkbenchIde {
    */
   recordOutput(command: string, output: { title: string; text: string; failure?: string }): boolean {
     // Only a build, test or command result replaces the problems list; /status and the like leave it alone.
-    const builds = ['tests', 'sandbox command', 'verification'].includes(output.title);
+    const builds = ['test', 'run', 'verify'].includes(output.title);
     const problems = builds ? parseProblems(output.text, this.harness.root) : [];
     const exit = /^Exit: (\d+)/m.exec(output.text)?.[1];
     this.panel.pushOutput({

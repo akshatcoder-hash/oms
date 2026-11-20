@@ -335,7 +335,7 @@ test('quitting with unsaved files names them', async () => {
     }
     terminal.send('\x11');
     const screen = await terminal.until((s) => s.includes('Unsaved: a.ts, b.ts'));
-    assert.match(screen, /Ctrl\+Q again discards them/);
+    assert.match(screen, /ctrl\+q again to discard/);
     terminal.send('\x11');
     await run;
     assert.equal(terminal.active, false);
