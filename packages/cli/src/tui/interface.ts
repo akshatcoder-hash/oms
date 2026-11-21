@@ -1461,7 +1461,8 @@ export async function runOmsInterface(
     const facts: StatusFact[] = [];
     if (!headerShown()) {
       facts.push({ key: 'folder', text: sessionLabel(harness), role: 'muted' });
-      const branch = branchName();
+      // The workbench's own status row names the branch.
+      const branch = view === 'workbench' ? undefined : branchName();
       if (branch) facts.push({ key: 'branch', text: branch, role: 'muted' });
     }
     if (harness.chain?.rpcUrl()) facts.push({ key: 'chip', text: 'surfpool', role: 'muted', dot: 'success' });
