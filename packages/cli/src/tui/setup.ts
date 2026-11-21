@@ -325,9 +325,11 @@ export class SetupPane {
       lines.push(
         ...wrapTextWithAnsi(colorText(palette, 'muted', 'No provider is connected yet. Choose one to sign in.'), width),
       );
-    if (this.stage === 'providers')
+    // The warning about keys is always shown where a key might be pasted; the filter tip goes first when rows run short.
+    const connecting = this.stage === 'providers' && this.options.mode === 'connect';
+    if (this.stage === 'providers' && !(connecting && this.bodyHeight() < 12))
       lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', 'Type a provider name to filter.'), width));
-    if (this.stage === 'providers' && this.options.mode === 'connect' && this.bodyHeight() >= 12)
+    if (connecting)
       lines.push(
         ...wrapTextWithAnsi(colorText(palette, 'faint', 'Never paste keys or sign-in codes into chat.'), width),
       );

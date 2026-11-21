@@ -428,3 +428,46 @@ test('/settings at 80x24 shows several settings, one hint, and a search prompt w
     await close();
   }
 });
+
+test('a panel at 60x20 stays clear of the composer, and /connect always warns about pasting keys', async () => {
+  for (const [columns, rows] of [
+    [60, 20],
+    [80, 24],
+    [140, 42],
+  ] as const) {
+    const f = chatFixture();
+    Object.assign(f.harness, {
+      settings: {
+        snapshot: () => ({
+          thinkingLevel: 'off',
+          availableThinkingLevels: ['off', 'low', 'high'],
+          supportsThinking: true,
+          steeringMode: 'one-at-a-time',
+          followUpMode: 'one-at-a-time',
+          httpIdleTimeoutMs: 300_000,
+          defaultModel: 'x/y',
+        }),
+      },
+    });
+    const { terminal, close } = start(f.harness, columns, rows);
+    try {
+      await terminal.until((screen) => screen.includes('/ commands'));
+      terminal.send('/connect');
+      terminal.send('\r');
+      const screen = await terminal.until((s) => s.includes('Choose how to sign in'));
+      assert.match(screen, /Never paste keys or sign-in codes into chat\./, `${columns}x${rows}`);
+      terminal.send('\x1b');
+      terminal.send('/settings');
+      terminal.send('\r');
+      const settings = await terminal.until((s) => s.includes('Search settings'));
+      for (const shown of [screen, settings]) {
+        assert.ok(
+          !shown.split('\n').some((row) => /^[─❯]/.test(row) && /[│╰╭]/.test(row)),
+          `no row mixes the composer's rule or prompt with the panel at ${columns}x${rows}\n${shown}`,
+        );
+      }
+    } finally {
+      await close();
+    }
+  }
+});

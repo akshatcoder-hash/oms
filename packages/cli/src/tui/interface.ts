@@ -1501,7 +1501,8 @@ export async function runOmsInterface(
   /** The floating panel for the model, connect, theme, settings and account screens: 60% of the rows, 72 columns. */
   const overlayRows = () =>
     terminal.rows < 24
-      ? Math.max(5, terminal.rows - 2)
+      ? // From 20 rows the centered panel stays clear of the composer's rules and the status row; below that every row counts.
+        Math.max(5, terminal.rows - (terminal.rows >= 20 ? 8 : 2))
       : Math.min(terminal.rows - 2, Math.max(14, Math.floor(terminal.rows * 0.6)));
   const setupPanel = new Panel({
     theme: () => theme!,
