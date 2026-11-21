@@ -1092,3 +1092,14 @@ test('/clear and /goal in a chat never mention a task or its verifier', async ()
   assert.match(shown[0]!, /^No goal set\. Start one with \/goal <text> --check "<command>"\.\nBudget:/);
   assert.doesNotMatch(shown[0]!, /verifier/);
 });
+
+test('/help never runs a long command into its description', () => {
+  for (const kind of ['task', 'chat'] as const) {
+    const help = commandHelp(kind);
+    for (const command of OMS_COMMANDS) {
+      const usage = `/${command.name}${command.argument ? ' ' + command.argument : ''}`;
+      if (usage.length > 26 && help.includes(usage)) assert.ok(help.includes(`${usage}\n`), `${kind}: ${usage}`);
+    }
+    for (const line of help.split('\n')) assert.doesNotMatch(line, /[\]>]\p{Lu}/u, `${kind}: ${line}`);
+  }
+});

@@ -187,7 +187,8 @@ test('read-only status and help remain reachable during work without dispatching
     terminal.send('\x1b/');
     terminal.send('help');
     terminal.send('\r');
-    await terminal.until((screen) => screen.includes('all keys'));
+    // Help opens at its first line: wait for that, not a frame on the way there.
+    await terminal.until((screen) => /⎿ +help/.test(screen));
     terminal.send('\x1b');
     terminal.send('!');
     await terminal.until((screen) => screen.includes('retained draft!'));
@@ -2070,7 +2071,7 @@ test('an empty session opens with startup art above the placeholder, and the art
 
     terminal.send('/help');
     terminal.send('\r');
-    await terminal.until((s) => s.includes('all keys'));
+    await terminal.until((s) => /⎿ +help/.test(s));
     terminal.send('\x1b[H');
     await terminal.until((s) => s.includes(art.entry.label));
   } finally {
