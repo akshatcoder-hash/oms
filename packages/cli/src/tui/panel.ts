@@ -1,4 +1,11 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from '@earendil-works/pi-tui';
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
+} from '@earendil-works/pi-tui';
 import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorText, paintSurfaceRow, type OmsTheme, type ThemeRole } from './theme.ts';
 import { displayText, singleLine } from './transcript.ts';
@@ -95,6 +102,16 @@ export class Panel implements Component {
     this.options.body.invalidate();
     this.options.input?.invalidate();
   }
+  /** Mouse events inside the border go to the body in its own coordinates; the border and padding swallow them. */
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const body = this.options.body;
+    if (!body.handleMouse) return undefined;
+    const x = event.x - 3;
+    const y = event.y - 1 - ((this.options.compact?.() ?? false) ? 0 : 1);
+    const width = event.width - 6;
+    if (x < 0 || y < 0 || x >= width || y >= this.bodyRows()) return { handled: true, focus: false };
+    return body.handleMouse({ ...event, x, y, width, height: this.bodyRows() });
+  }
   render(width: number): string[] {
     const o = this.options;
     const content = Math.max(1, width - 6);
@@ -115,6 +132,10 @@ export class Panel implements Component {
 }
 
 export interface ApprovalRequest {
+  /** The card's title; 'Allow host command?' when absent. */
+  title?: string;
+  /** `command` is a sentence about a connector action, not a shell command: no `$` prefix. */
+  plain?: boolean;
   requester?: string;
   reasons: readonly string[];
   command: string;
@@ -136,7 +157,9 @@ export function approvalCard(theme: OmsTheme, glyphs: Glyphs, request: ApprovalR
   if (reason) rows.push(...wrapTextWithAnsi(colorText(theme, 'warning', reason), content));
   const command = displayText(request.command, 4096)
     .split('\n')
-    .flatMap((line, index) => wrapTextWithAnsi(index === 0 ? `$ ${line}` : `  ${line}`, content));
+    .flatMap((line, index) =>
+      wrapTextWithAnsi(request.plain ? line : index === 0 ? `$ ${line}` : `  ${line}`, content),
+    );
   rows.push('', ...command.slice(0, COMMAND_ROWS));
   if (command.length > COMMAND_ROWS)
     rows.push(colorText(theme, 'faint', `${glyphs.ellipsis} ${command.length - COMMAND_ROWS} more lines`));
@@ -146,7 +169,15 @@ export function approvalCard(theme: OmsTheme, glyphs: Glyphs, request: ApprovalR
     ...(request.session ? [keyOption(theme, 's', 'Allow for this session')] : []),
     keyOption(theme, 'n', `Deny${' '.repeat(2)}${colorText(theme, 'faint', 'esc')}`),
   );
-  return boxLines({ theme, glyphs, width, title: 'Allow host command?', border: 'warning', rows, padY: 0 });
+  return boxLines({
+    theme,
+    glyphs,
+    width,
+    title: request.title ?? 'Allow host command?',
+    border: 'warning',
+    rows,
+    padY: 0,
+  });
 }
 
 const keyOption = (theme: OmsTheme, key: string, label: string): string =>
