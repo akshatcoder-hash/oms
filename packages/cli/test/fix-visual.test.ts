@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HarnessSession } from '@oms/engine';
 import { chatFixture, fixture, start } from '../test-support/fake-session.ts';
+import { getTheme } from '../src/tui/theme.ts';
 import { barrier } from '../test-support/interface-terminal.ts';
 
 type Approve = Parameters<NonNullable<HarnessSession['setHostApproval']>>[0];
@@ -247,4 +248,88 @@ test('an environment import that may have saved credentials is a warning that st
   assert.deepEqual(notices, [], 'no toast: it would vanish after three seconds');
   assert.match(warnings.join(' '), /GROQ_API_KEY: may have been saved; check configuration before retrying/);
   pane.dispose();
+});
+
+test('shrinking the terminal while the header actions bar has the focus returns the keys to the composer', async () => {
+  const f = chatFixture();
+  const { terminal, close } = start(f.harness, 100, 34);
+  try {
+    await terminal.until((screen) => screen.includes('/ commands'));
+    terminal.send('\x1b[21~'); // F10
+    await terminal.until((screen) => /chat\s+workbench/.test(screen));
+    terminal.setSize(100, 26);
+    terminal.send('hello');
+    await terminal.until((screen) => screen.includes('❯ hello'));
+  } finally {
+    await close();
+  }
+});
+
+test('a helper transcript is recolored when the theme changes', async () => {
+  const f = chatFixture();
+  const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } };
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: 'Find exports' }], timestamp: 1 },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'Look at a.ts first.' },
+        { type: 'toolCall', id: 'h1', name: 'bash', arguments: { command: 'echo hi' } },
+      ],
+      stopReason: 'toolUse',
+      usage,
+      api: 'x',
+      provider: 'p',
+      model: 'm',
+      timestamp: 2,
+    },
+    {
+      role: 'toolResult',
+      toolCallId: 'h1',
+      toolName: 'bash',
+      content: [{ type: 'text', text: 'hi\n' }],
+      isError: false,
+      timestamp: 3,
+    },
+  ];
+  Object.assign(f.harness, {
+    helpers: {
+      agents: () => ({ agents: [], problems: [] }),
+      list: () => [],
+      messages: () => messages,
+      cancel: async () => {},
+      available: () => ({ ok: true }),
+    },
+  });
+  const { terminal, close } = start(f.harness, 120, 36);
+  try {
+    await terminal.until((screen) => screen.includes('/ commands'));
+    f.emit({ type: 'tool_execution_start', toolCallId: 'a1', toolName: 'agent', args: { agent: 'explore', task: 'x' } });
+    f.emit({
+      type: 'tool_execution_end',
+      toolCallId: 'a1',
+      toolName: 'agent',
+      isError: false,
+      result: {
+        content: [{ type: 'text', text: 'done' }],
+        details: { id: 'explore#1', agent: 'explore', status: 'done', elapsedMs: 1000, tokens: 10 },
+      },
+    });
+    await terminal.until((screen) => screen.includes('Agent'));
+    terminal.send('\x0f'); // ctrl+o: expand, which shows the helper's own conversation
+    await terminal.until((screen) => screen.includes('∴ Thought'));
+    const color = async (needle: string) => {
+      const rows = (await terminal.screen()).split('\n');
+      const row = rows.findIndex((line) => line.includes(needle));
+      return terminal.vt.buffer.active.getLine(row)!.getCell(rows[row]!.indexOf(needle))!.getFgColor();
+    };
+    terminal.send('/theme dracula');
+    terminal.send('\r');
+    await terminal.until((screen) => screen.includes('Theme set to'));
+    assert.equal(await color('❯ Find exports'), Number.parseInt(getTheme('dracula')!.colors.accent.slice(1), 16));
+    assert.equal(await color('∴ Thought'), await color('⎿  done'), 'muted rows follow the new theme');
+    assert.equal(await color('Ran  echo hi'), await color('Agent  explore'), 'and so do the tool rows');
+  } finally {
+    await close();
+  }
 });

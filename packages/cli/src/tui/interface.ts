@@ -443,6 +443,7 @@ export async function runOmsInterface(
               cwd: harness.root,
               requestRender: () => requestRender(),
             });
+            if (theme) view.applyTheme(theme);
             helperViews.set(id, { count: messages.length, view });
             return view;
           },
@@ -638,6 +639,8 @@ export async function runOmsInterface(
   function applyTheme(next: OmsTheme): void {
     theme = next;
     conversation.applyTheme(next);
+    // Each helper transcript draws with its own style: recolor the ones already built.
+    for (const { view } of helperViews.values()) view.applyTheme(next);
     if (cursorColored) colorCursor();
     requestRender();
   }
@@ -822,6 +825,8 @@ export async function runOmsInterface(
   function repairHiddenFocus(): void {
     if (setup) return;
     if (focus === 'requirements' && !requirementsShown()) setFocus('input');
+    // The header, and the actions bar in it, hide on a short terminal: its keys must not stay trapped there.
+    if (focus === 'actions' && !headerShown()) setFocus(view === 'harness' ? 'input' : 'editor');
     if (view === 'harness' && (focus === 'editor' || focus === 'terminal')) setFocus('input');
     if (view === 'workbench' && focus === 'terminal' && !terminalVisible) setFocus('editor');
     if (view === 'workbench' && focus === 'conversation' && (!agentPanelVisible || terminal.columns < 118))
