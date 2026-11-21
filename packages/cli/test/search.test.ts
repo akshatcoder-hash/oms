@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -131,6 +131,29 @@ test('a search that is aborted returns nothing instead of failing', async () => 
     controller.abort();
     assert.deepEqual(await index.search('needle', controller.signal), { matches: [] });
   } finally {
+    p.done();
+  }
+});
+
+test('without ripgrep, git grep follows the same smart-case rule', async () => {
+  const p = project({ 'a.rs': 'let total = 1;\nlet Total = 2;\n' });
+  const bin = mkdtempSync(join(tmpdir(), 'oms-no-rg-'));
+  const path = process.env.PATH;
+  try {
+    execFileSync('git', ['add', '-A'], { cwd: p.root });
+    symlinkSync(execFileSync('which', ['git'], { encoding: 'utf8' }).trim(), join(bin, 'git'));
+    process.env.PATH = bin;
+    const index = new ProjectIndex({ root: p.root, files: noFiles });
+    assert.equal((await index.search('total')).matches.length, 2, 'lowercase query ignores case');
+    const exact = await index.search('Total');
+    assert.deepEqual(
+      exact.matches.map((match) => [match.line, match.column]),
+      [[2, 5]],
+      'a capital makes it match case',
+    );
+  } finally {
+    process.env.PATH = path;
+    rmSync(bin, { recursive: true, force: true });
     p.done();
   }
 });
