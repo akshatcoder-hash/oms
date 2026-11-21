@@ -11,6 +11,8 @@ import { glyphsFor } from './glyphs.ts';
 import { colorText, type OmsTheme } from './theme.ts';
 import { displayText } from './transcript.ts';
 
+const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m|\x1b_pi:[^\x07]*\x07/g, '');
+
 interface HarnessSettingsOptions {
   theme: () => OmsTheme;
   rows: () => number;
@@ -47,6 +49,8 @@ export class HarnessSettingsPane {
   private readonly options: HarnessSettingsOptions;
   private list: SettingsList | undefined;
   private listRows = 0;
+  /** The body row the list's search field was drawn on last frame. */
+  private listTop = 0;
   private pending = false;
   private disposed = false;
   private message = '';
@@ -54,7 +58,16 @@ export class HarnessSettingsPane {
   constructor(harness: HarnessSettingsHost, options: HarnessSettingsOptions) {
     this.harness = harness;
     this.options = options;
-    this.body = { invalidate: () => this.list?.invalidate(), render: (width) => this.renderBody(width) };
+    this.body = {
+      invalidate: () => this.list?.invalidate(),
+      render: (width) => this.renderBody(width),
+      // The list expects a blank row under its search row, which the tidy layout drops: count it back in.
+      handleMouse: (event) =>
+        this.list?.handleMouse?.({
+          ...event,
+          y: event.y - this.listTop + (event.y - this.listTop >= 1 ? 1 : 0),
+        }),
+    };
     this.input = {
       focused: false,
       invalidate() {},
@@ -150,7 +163,11 @@ export class HarnessSettingsPane {
   }
 
   private ensureList(): SettingsList {
-    const rows = Math.max(1, Math.min(10, (this.options.bodyRows?.() ?? this.options.rows() - 5) - 9));
+    // The pane's own line, the list's search row, its counter and a two-row description leave the rest for settings.
+    const rows = Math.max(
+      1,
+      Math.min(10, (this.options.bodyRows?.() ?? this.options.rows() - 5) - 5 - (this.message ? 1 : 0)),
+    );
     if (!this.list || rows !== this.listRows) {
       const palette = () => this.options.theme();
       this.list = new SettingsList(
@@ -174,11 +191,35 @@ export class HarnessSettingsPane {
     return this.list;
   }
 
+  /**
+   * The list draws a search row, blank rows and its own key hint; the panel's border already says the keys. Keep the
+   * search row (the filter you type into) with a prompt and a placeholder, and drop the blanks and the second hint.
+   */
+  private tidy(lines: string[], palette: OmsTheme): string[] {
+    if (lines.length < 4) return lines;
+    const counter = lines.findIndex((line) => /^\s*\(\d+\/\d+\)\s*$/.test(plain(line)));
+    const out = lines.filter(
+      (line, index) =>
+        !(
+          (index === 1 && !plain(line).trim()) ||
+          (counter >= 0 && index === counter + 1 && !plain(line).trim()) ||
+          index === lines.length - 1 ||
+          (index === lines.length - 2 && !plain(line).trim())
+        ),
+    );
+    const search = out[0] ?? '';
+    const query = plain(search).replace(/^> /, '').trim();
+    out[0] = `${colorText(palette, 'accent', glyphsFor().prompt)} ${search.replace(/^> /, '')}`;
+    if (!query) out[0] = out[0].replace(/\s+$/, '') + colorText(palette, 'faint', 'Search settings');
+    return out;
+  }
+
   private renderBody(width: number): string[] {
     const palette = this.options.theme();
+    this.listTop = this.message ? 2 : 1;
     const lines = [
       ...(this.message ? [colorText(palette, 'warning', this.message)] : []),
-      ...this.ensureList().render(Math.max(48, width)),
+      ...this.tidy(this.ensureList().render(Math.max(48, width)), palette),
     ];
     return lines
       .slice(0, Math.max(1, this.options.bodyRows?.() ?? this.options.rows() - 5))

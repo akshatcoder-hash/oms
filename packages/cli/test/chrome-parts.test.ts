@@ -405,13 +405,25 @@ test('the approval card shows the request in a warning box with the keys it answ
   assert.ok(chat.some((line) => /│ {2}s {2}Allow for this session/.test(line)));
   assert.ok(chat.some((line) => line.includes('from build#2')));
   assert.match(chat.at(-1)!, /^╰─+╯$/);
-  const long = rows({
+  const longRequest = {
     reasons: [],
     command: Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'),
     session: true,
-  });
-  assert.ok(long.some((line) => line.includes('line 5')) && !long.some((line) => line.includes('line 6')));
-  assert.ok(long.some((line) => line.includes('… 6 more lines')));
+  };
+  // Without a window the card draws every row of the command: nothing is hidden from the person who allows it.
+  const whole = rows(longRequest);
+  assert.ok(whole.some((line) => line.includes('line 11')));
+  assert.ok(!whole.some((line) => /more/.test(line)));
+  // In a window the rest scrolls, and Allow is marked locked until the last row has been shown.
+  const window = (offset: number) => approvalCard(theme, glyphs, longRequest, 80, { rows: 6, offset }).map(plain);
+  const top = window(0);
+  assert.ok(top.some((line) => line.includes('line 5')) && !top.some((line) => line.includes('line 6')));
+  assert.ok(top.some((line) => line.includes('↓ 6 more · ↑↓ scroll')));
+  assert.ok(top.some((line) => /read the whole command first/.test(line)));
+  const end = window(6);
+  assert.ok(end.some((line) => line.includes('line 11')) && !end.some((line) => line.includes('line 5')));
+  assert.ok(end.some((line) => line.includes('↑ 6 above')));
+  assert.ok(!end.some((line) => /read the whole command first/.test(line)), 'Allow opens at the end');
   const hostile = approvalCard(
     theme,
     glyphs,

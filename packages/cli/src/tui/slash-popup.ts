@@ -38,6 +38,12 @@ export function argumentUsage(draft: string, kind: 'task' | 'chat'): string | un
   return `/${command.name} ${singleLine(command.argument, 80)}`;
 }
 
+/** The first choice the popup shows: the window keeps the selected one in view, at its last row when scrolling down. */
+export function popupStart(selected: number, total: number, rows: number): number {
+  const count = Math.max(1, Math.min(rows, total));
+  return Math.max(0, Math.min(selected - count + 1, total - count));
+}
+
 /** The popup rows above the composer: pointer, `/name usage`, description; the selected row on the raised surface. */
 export function slashPopup(
   theme: OmsTheme,
@@ -52,7 +58,7 @@ export function slashPopup(
       colorText(theme, 'faint', truncateToWidth(`  No command matches that. Type / to see them all.`, width, '')),
     ];
   const count = Math.max(1, Math.min(maxRows, choices.length));
-  const start = Math.max(0, Math.min(selected - count + 1, choices.length - count));
+  const start = popupStart(selected, choices.length, maxRows);
   const shown = choices.slice(start, start + count);
   const label = (command: CommandSpec) =>
     `/${command.name}${command.argument ? ' ' + singleLine(command.argument, 60) : ''}`;

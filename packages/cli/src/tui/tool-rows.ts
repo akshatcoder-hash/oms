@@ -224,7 +224,9 @@ function diffRows(ctx: RowContext, diff: string, collapse: boolean): { rows: str
     const removed = row.sign === '-';
     const sign = added ? s.fg('diffAdded', '+') : removed ? s.fg('diffRemoved', s.g.minus) : ' ';
     wrapTextWithAnsi(marked.get(index) ?? (row.text || ' '), code).forEach((part, at) => {
-      const lead = at === 0 ? `${s.faint(row.num.padStart(numbers))} ${sign} ` : ' '.repeat(numbers + 3);
+      // Numbers on a tinted row use the muted tone: the faint one is about 1.5:1 against the 256-color tints.
+      const number = (text: string) => (added || removed ? s.muted(text) : s.faint(text));
+      const lead = at === 0 ? `${number(row.num.padStart(numbers))} ${sign} ` : ' '.repeat(numbers + 3);
       const body = lead + (added || removed ? part : s.muted(part));
       rows.push(
         s.paints && (added || removed) ? colorBg(s.theme, added ? 'diffAdded' : 'diffRemoved', body, room) : body,

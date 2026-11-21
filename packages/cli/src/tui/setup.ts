@@ -39,6 +39,8 @@ interface SetupOptions {
   render: () => void;
   close: () => void;
   notice: (message: string) => void;
+  /** A warning that stays until dismissed (credentials may be stored); defaults to `notice`. */
+  warn?: (message: string) => void;
   selectTheme: (id: string) => boolean;
   /** The theme picker shows a theme as the cursor reaches it; closing without choosing restores the chosen one. */
   previewTheme?: (id: string) => void;
@@ -94,7 +96,13 @@ export class SetupPane {
     } else {
       this.buildTopLevel();
     }
-    this.body = { invalidate() {}, render: (width) => this.renderBody(width) };
+    this.body = {
+      invalidate() {},
+      render: (width) => this.renderBody(width),
+      // A click or the wheel on the list, with y counted from the list's first row.
+      handleMouse: (event) =>
+        this.listTop < 0 || !this.list ? undefined : this.list.handleMouse?.({ ...event, y: event.y - this.listTop }),
+    };
     this.input = {
       focused: false,
       invalidate() {},
@@ -251,6 +259,9 @@ export class SetupPane {
     this.note = '';
   }
 
+  /** The body row the list's first item was drawn on last frame; -1 when no list is on screen. */
+  private listTop = -1;
+
   private bodyHeight(): number {
     return Math.max(1, this.options.bodyRows?.() ?? this.options.rows() - 5);
   }
@@ -307,6 +318,7 @@ export class SetupPane {
   }
 
   private renderBody(width: number): string[] {
+    this.listTop = -1;
     const palette = this.options.theme();
     const title =
       this.stage === 'theme'
@@ -323,9 +335,11 @@ export class SetupPane {
       lines.push(
         ...wrapTextWithAnsi(colorText(palette, 'muted', 'No provider is connected yet. Choose one to sign in.'), width),
       );
-    if (this.stage === 'providers')
+    // The warning about keys is always shown where a key might be pasted; the filter tip goes first when rows run short.
+    const connecting = this.stage === 'providers' && this.options.mode === 'connect';
+    if (this.stage === 'providers' && !(connecting && this.bodyHeight() < 12))
       lines.push(...wrapTextWithAnsi(colorText(palette, 'muted', 'Type a provider name to filter.'), width));
-    if (this.stage === 'providers' && this.options.mode === 'connect' && this.bodyHeight() >= 12)
+    if (connecting)
       lines.push(
         ...wrapTextWithAnsi(colorText(palette, 'faint', 'Never paste keys or sign-in codes into chat.'), width),
       );
@@ -358,6 +372,7 @@ export class SetupPane {
         ].flatMap((text) => wrapTextWithAnsi(colorText(palette, 'muted', text), Math.max(1, width))),
       );
       if (this.prompt?.type === 'select') {
+        this.listTop = 2;
         const fixed = [
           lines[0]!,
           colorText(palette, 'accent', truncateToWidth(line(this.prompt.message), width, '')),
@@ -394,6 +409,7 @@ export class SetupPane {
             ),
           );
       }
+      this.listTop = lines.length;
       lines.push(...list.render(width));
     }
     if (this.stage === 'auth' && this.prompt?.type !== 'select') {
@@ -572,7 +588,8 @@ export class SetupPane {
         notify: (event) => this.notify(event),
       });
       if (!this.disposed) {
-        this.options.notice(
+        const uncertain = result.outcomes.some((item) => item.status === 'may_have_saved');
+        (uncertain ? (this.options.warn ?? this.options.notice) : this.options.notice)(
           result.outcomes
             .map(
               (item) =>
@@ -623,7 +640,7 @@ export class SetupPane {
         this.message =
           provider === 'claude-code'
             ? 'Claude Code is not ready · run `claude auth login`, then /connect'
-            : 'Setup incomplete · try again';
+            : 'Setup incomplete · credentials may already be saved; check your configuration before trying again';
       }
     } finally {
       this.pending = false;

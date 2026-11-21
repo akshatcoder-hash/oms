@@ -164,11 +164,14 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
 
 /** What the status row's left side says for the current state. */
 export interface HintState {
-  approval?: 'once-or-session' | 'once';
+  /** `read`: the command is taller than the card and has not been scrolled to its end, so Allow is locked. */
+  approval?: 'once-or-session' | 'once' | 'read';
   /** A yes/no question from a command (/yolo) is waiting for a key. */
   confirm?: boolean;
   overlay: boolean;
   busy: boolean;
+  /** Esc stops the running work from here (default true); false for a verification or review, or the shell's focus. */
+  canInterrupt?: boolean;
   popup: boolean;
   /** `/error <code> [program]` when the draft is a command that still needs its argument. */
   usage?: string;
@@ -176,6 +179,11 @@ export interface HintState {
   focus: 'input' | 'editor' | 'terminal' | 'conversation' | 'requirements' | 'actions';
 }
 export function statusHints(state: HintState): readonly Hint[] {
+  if (state.approval === 'read')
+    return [
+      ['↑↓', 'read the whole command to allow'],
+      ['n / esc', 'deny'],
+    ];
   if (state.approval)
     return [
       ['y', 'allow once'],
@@ -199,7 +207,7 @@ export function statusHints(state: HintState): readonly Hint[] {
       ['usage', state.usage],
       ['enter', 'run'],
     ];
-  if (state.busy)
+  if (state.busy && state.canInterrupt !== false)
     return [
       ['esc', 'interrupt'],
       ['/', 'commands'],
