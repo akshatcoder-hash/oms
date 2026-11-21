@@ -49,7 +49,7 @@ import {
   type RuleLabel,
 } from './chrome-rows.ts';
 import { glyphsFor, inGlyphs } from './glyphs.ts';
-import { approvalCard, Panel } from './panel.ts';
+import { approvalCard, approvalCommandRows, approvalFullyShown, Panel } from './panel.ts';
 import { argumentUsage, POPUP_ROWS, slashChoices, slashPopup } from './slash-popup.ts';
 import { SpinnerRow, toolVerb } from './spinner.ts';
 import {
@@ -287,9 +287,15 @@ export async function runOmsInterface(
         /** The conversation note's text; the card draws the same request as rows. */
         text: string;
         request: { requester?: string; reasons: readonly string[]; command: string; session: boolean };
+        /** The first command row the card shows; a command taller than the card scrolls. */
+        offset: number;
+        /** The last row of the command has been on screen, so Allow is open. */
+        read: boolean;
         answer(allowed: boolean | 'session'): void;
       }
     | undefined;
+  /** A card that appears right after an answer ignores Allow until this time, so a repeated key cannot approve it unseen. */
+  let approvalGuardUntil = 0;
   /** The running turn, for the spinner row, the terminal title and the progress bar. */
   let busyStartedAt: number | undefined;
   let currentTool: { id: string; name: string; args: unknown } | undefined;
@@ -1317,8 +1323,27 @@ export async function runOmsInterface(
 
   // The warning that stays until dismissed, and the card for a host command that needs a yes or no.
   const noticeRow = component((width) => warningRows(theme!, notice, width));
+  /** How many command rows the card shows at this terminal height; a longer command scrolls inside it. */
+  const approvalWindow = () => Math.max(2, Math.min(12, terminal.rows - 17));
+  /** The farthest the card's command can scroll. */
+  const approvalMaxOffset = () =>
+    hostApproval
+      ? Math.max(0, approvalCommandRows(hostApproval.request.command, terminal.columns).length - approvalWindow())
+      : 0;
+  /** Allow is open once the whole command has been on screen. */
+  const approvalRead = () => {
+    if (!hostApproval) return true;
+    const total = approvalCommandRows(hostApproval.request.command, terminal.columns).length;
+    hostApproval.read ||= approvalFullyShown(total, { rows: approvalWindow(), offset: hostApproval.offset });
+    return hostApproval.read;
+  };
   const approvalRow = component((width) =>
-    hostApproval ? approvalCard(theme!, glyphs, hostApproval.request, width) : [],
+    hostApproval
+      ? approvalCard(theme!, glyphs, hostApproval.request, width, {
+          rows: approvalWindow(),
+          offset: hostApproval.read ? Math.min(hostApproval.offset, approvalMaxOffset()) : hostApproval.offset,
+        })
+      : [],
   );
 
   // Status row: key hints (or a toast) on the left, session facts on the right.
@@ -1377,7 +1402,13 @@ export async function runOmsInterface(
         ...(toastText !== undefined && !hostApproval ? { toast: toastText } : {}),
         hints: statusHints({
           ...(hostApproval
-            ? { approval: hostApproval.request.session ? ('once-or-session' as const) : ('once' as const) }
+            ? {
+                approval: !approvalRead()
+                  ? ('read' as const)
+                  : hostApproval.request.session
+                    ? ('once-or-session' as const)
+                    : ('once' as const),
+              }
             : {}),
           overlay: !!setup,
           busy: busy(),
@@ -1496,6 +1527,7 @@ export async function runOmsInterface(
         const finish = (allowed: boolean | 'session') => {
           signal?.removeEventListener('abort', abort);
           hostApproval = undefined;
+          approvalGuardUntil = Date.now() + 700;
           requestRender();
           resolve(allowed);
         };
@@ -1509,6 +1541,8 @@ export async function runOmsInterface(
             command: request.command,
             session: harness.kind === 'chat',
           },
+          offset: 0,
+          read: false,
           answer: finish,
         });
         signal?.addEventListener('abort', abort, { once: true });
@@ -1521,9 +1555,29 @@ export async function runOmsInterface(
       repairHiddenFocus();
       if (isKeyRelease(data)) return { consume: true };
       if (hostApproval) {
-        if (data.toLowerCase() === 'y') hostApproval.answer(true);
-        else if (data.toLowerCase() === 's' && harness.kind === 'chat') hostApproval.answer('session');
-        else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) hostApproval.answer(false);
+        const allowed = approvalRead() && Date.now() >= approvalGuardUntil;
+        const scroll = matchesKey(data, 'up')
+          ? -1
+          : matchesKey(data, 'down')
+            ? 1
+            : matchesKey(data, 'pageUp')
+              ? -approvalWindow()
+              : matchesKey(data, 'pageDown')
+                ? approvalWindow()
+                : matchesKey(data, 'home')
+                  ? -Infinity
+                  : matchesKey(data, 'end')
+                    ? Infinity
+                    : 0;
+        if (scroll) {
+          hostApproval.offset = Math.max(0, Math.min(approvalMaxOffset(), hostApproval.offset + scroll));
+          approvalRead();
+          requestRender();
+        } else if (data.toLowerCase() === 'y') {
+          if (allowed) hostApproval.answer(true);
+        } else if (data.toLowerCase() === 's' && harness.kind === 'chat') {
+          if (allowed) hostApproval.answer('session');
+        } else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) hostApproval.answer(false);
         else if (matchesKey(data, 'ctrl+q') || matchesKey(data, 'ctrl+c')) {
           hostApproval.answer(false);
           quit();

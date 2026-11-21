@@ -164,7 +164,8 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
 
 /** What the status row's left side says for the current state. */
 export interface HintState {
-  approval?: 'once-or-session' | 'once';
+  /** `read`: the command is taller than the card and has not been scrolled to its end, so Allow is locked. */
+  approval?: 'once-or-session' | 'once' | 'read';
   overlay: boolean;
   busy: boolean;
   popup: boolean;
@@ -174,6 +175,11 @@ export interface HintState {
   focus: 'input' | 'editor' | 'terminal' | 'conversation' | 'requirements' | 'actions';
 }
 export function statusHints(state: HintState): readonly Hint[] {
+  if (state.approval === 'read')
+    return [
+      ['↑↓', 'read the whole command to allow'],
+      ['n / esc', 'deny'],
+    ];
   if (state.approval)
     return [
       ['y', 'allow once'],
