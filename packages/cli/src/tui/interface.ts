@@ -62,6 +62,7 @@ import {
   shortModelName,
   statusHints,
   statusRow,
+  type Hint,
   type StatusChip,
   type StatusFact,
 } from './status-row.ts';
@@ -1548,6 +1549,17 @@ export async function runOmsInterface(
     else if (harness.kind === 'chat') asked.answer('session');
   }
 
+  /**
+   * The workbench's own hints with what a short terminal lacks: no header means no chat tab, so Ctrl+L says how to get
+   * back; and while the agent runs, Esc stops it from the editor.
+   */
+  const ideHints = (hints: readonly Hint[]): readonly Hint[] => {
+    const stop: Hint[] = focus === 'editor' && canInterrupt() && ide.atRest ? [['esc', 'interrupt']] : [];
+    const back: Hint[] = !headerShown() && !hints.some(([key]) => key === 'ctrl+l') ? [['ctrl+l', 'chat']] : [];
+    // First, because the status row always keeps the first hint and drops the rest as the row fills.
+    return [...stop, ...back, ...hints];
+  };
+
   // Status row: key hints (or a toast) on the left, session facts on the right.
   const status = component((width) => {
     const model = harness.session.model;
@@ -1609,11 +1621,11 @@ export async function runOmsInterface(
       statusRow(theme!, glyphs, {
         width,
         facts,
+        // With no header the chat hint and the command hint both stay.
+        ...(ownsHints && !headerShown() ? { keepHints: 2 } : {}),
         ...(shownToast ? { toast: shownToast.text, toastRole: shownToast.role } : {}),
         hints: ownsHints
-          ? focus === 'editor' && canInterrupt() && ide.atRest
-            ? [['esc', 'interrupt'], ...ideLine.hints]
-            : ideLine.hints
+          ? ideHints(ideLine.hints)
           : statusHints({
               ...(hostApproval
                 ? {

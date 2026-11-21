@@ -182,3 +182,34 @@ test('the tasks dashboard follows the session: working while a turn runs, idle w
     p.done();
   }
 });
+
+test('80x24 workbench: with no header the key hints say how to get back to the chat', async () => {
+  const p = project({ 'README.md': 'hello' });
+  const { terminal, done } = open(fixture(), p, 80, 24, 'chat');
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    assert.match((await terminal.screen()).split('\n').at(-1)!, /^ *ctrl\+l chat · ctrl\+k commands/);
+    terminal.send('\x10');
+    terminal.send('README');
+    terminal.send('\r');
+    const screen = await terminal.until((s) => s.includes('hello'));
+    assert.match(screen.split('\n').at(-1)!, /ctrl\+l chat/, 'and with a file open');
+    terminal.send('\x0c');
+    await terminal.until((s) => /❯/.test(s));
+  } finally {
+    await done();
+    p.done();
+  }
+});
+
+test('with the header on screen the hints do not repeat the chat tab', async () => {
+  const p = project({ 'README.md': 'hello' });
+  const { terminal, done } = open(fixture(), p, 120, 40, 'chat');
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    assert.doesNotMatch((await terminal.screen()).split('\n').at(-1)!, /ctrl\+l chat/);
+  } finally {
+    await done();
+    p.done();
+  }
+});

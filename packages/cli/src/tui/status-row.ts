@@ -114,6 +114,8 @@ export interface StatusRowInput {
   /** Color of the toast (the accent when absent). */
   toastRole?: ThemeRole;
   facts: readonly StatusFact[];
+  /** How many leading hints must stay on screen, by dropping facts (default 1). */
+  keepHints?: number;
 }
 
 function factText(theme: OmsTheme, glyphs: Glyphs, fact: StatusFact): string {
@@ -134,8 +136,13 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
   const joined = (parts: readonly string[]) => parts.join(separator);
   const toast = input.toast === undefined ? undefined : inGlyphs(glyphs, singleLine(input.toast, 400));
   const hints = input.hints.map(([key, label]) => [inGlyphs(glyphs, key), inGlyphs(glyphs, label)] as const);
-  const first = hints[0];
-  const needed = toast !== undefined ? visibleWidth(toast) : first ? visibleWidth(`${first[0]} ${first[1]}`) : 0;
+  const kept = hints.slice(0, Math.max(1, input.keepHints ?? 1));
+  const needed =
+    toast !== undefined
+      ? visibleWidth(toast)
+      : kept.length
+        ? visibleWidth(joined(kept.map(([key, label]) => `${key} ${label}`)))
+        : 0;
   const shown = [...input.facts];
   const rightWidth = () => visibleWidth(joined(shown.map((fact) => factText(theme, glyphs, fact))));
   for (const key of DROP_ORDER) {
