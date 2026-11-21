@@ -401,10 +401,14 @@ export async function runOmsInterface(
     focus !== 'terminal' &&
     !externalCancellation &&
     (active ? active.cancellable && !active.cancellation : true);
-  const input = createFileEditorPane('', () => {
-    if (input.document.text !== dismissedCommands) dismissedCommands = undefined;
-    requestRender();
-  });
+  const input = createFileEditorPane(
+    '',
+    () => {
+      if (input.document.text !== dismissedCommands) dismissedCommands = undefined;
+      requestRender();
+    },
+    { wrap: true },
+  );
   const workbench = new WorkbenchPane(harness, {
     theme: () => theme!,
     render: requestRender,
@@ -1278,10 +1282,11 @@ export async function runOmsInterface(
 
   // Composer: two rules, the prompt and the input, growing up to eight lines.
   const composerMax = () => Math.max(1, Math.min(8, Math.floor(terminal.rows * 0.4)));
-  /** Source lines of the draft, at least one; one while the conversation has the focus. */
+  /** Rows of the draft, wrapped, at least one; one while the conversation has the focus. */
   function composerLines(): number {
     if (focus === 'conversation') return 1;
-    return Math.max(1, Math.min(input.document.text.split(/\r\n|\r|\n/).length, composerMax()));
+    // The prompt takes two columns; long lines wrap onto more rows, up to the same cap.
+    return Math.max(1, Math.min(input.rows(Math.max(1, terminal.columns - 2)), composerMax()));
   }
   const composerLabel = (): RuleLabel[] => {
     const model = harness.session.model;
@@ -1293,8 +1298,13 @@ export async function runOmsInterface(
     ];
   };
   const spinnerInRule = () => busy() && terminal.rows < 20 && !hostApproval;
+  // A draft taller than the composer scrolls: the top rule counts the rows above the view, so nothing is lost silently.
+  const clipped = (): RuleLabel[] =>
+    input.view.scrollTop > 0 && input.document.text
+      ? [{ text: inGlyphs(glyphs, `↑ ${Math.round(input.view.scrollTop)} more`), role: 'muted' }]
+      : [];
   const topRule = component((width) => [
-    ruleRow(theme!, glyphs, width, focus === 'input', [], spinnerInRule() ? spinnerLine() : undefined),
+    ruleRow(theme!, glyphs, width, focus === 'input', clipped(), spinnerInRule() ? spinnerLine() : undefined),
   ]);
   const bottomRule = component((width) => [ruleRow(theme!, glyphs, width, focus === 'input', composerLabel())]);
   const promptColumn = component(() => [promptRow(theme!, glyphs, focus === 'input' && !setup)]);
