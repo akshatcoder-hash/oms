@@ -786,7 +786,10 @@ export function commandHelp(kind: 'task' | 'chat' = 'task'): string {
         .concat(group === 'Solana' ? [['/account <address>', 'Chain account: owner, lamports, data, tokens']] : []);
       // One long argument list must not push every description to the right.
       const width = Math.min(26, Math.max(...rows.map(([name]) => name!.length))) + 2;
-      return `${group}\n${rows.map(([name, text]) => `${name!.padEnd(width)}${text}`).join('\n')}`;
+      // A name longer than the column puts its description on the next line, under the others.
+      const row = ([name, text]: string[]) =>
+        name!.length <= width - 2 ? `${name!.padEnd(width)}${text}` : `${name}\n${' '.repeat(width)}${text}`;
+      return `${group}\n${rows.map(row).join('\n')}`;
     })
     .join('\n\n');
 }
