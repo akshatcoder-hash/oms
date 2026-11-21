@@ -256,7 +256,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'harness',
     group: 'Navigate',
-    description: 'Back to the conversation',
+    description: 'Back to chat',
     whileBusy: 'accepted',
     run: uiCommands.harness,
   },

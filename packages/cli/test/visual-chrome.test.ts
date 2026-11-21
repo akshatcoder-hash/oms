@@ -295,7 +295,9 @@ test('the slash popup sits directly above the composer: eight rows, pointer, arg
     assert.ok(!/Commands ·|Navigate|Setup/.test(screen), 'no heading and no group column');
     assert.equal(cell(terminal, 3, top - 8).isBgRGB(), true, 'the selected row is on the raised surface');
     terminal.send('\x1b[B');
-    screen = await terminal.until((s) => /^› \/harness/m.test(s));
+    // The chat view's own command (/harness) is not offered where you already are: the next row is /files.
+    screen = await terminal.until((s) => /^› \/files/m.test(s));
+    assert.doesNotMatch(screen, /^[› ] \/harness/m);
     terminal.send('\x01');
     terminal.send('\x7f');
     terminal.send('/err');

@@ -11,11 +11,19 @@ export const POPUP_ROWS = 8;
  * The commands the typed name matches, best first: names that start with it, then names that contain it, then fuzzy
  * (in-order letters) name matches, then descriptions. An unfinished name opens it; arguments stay normal input.
  */
-export function slashChoices(draft: string, kind: 'task' | 'chat'): readonly CommandSpec[] | undefined {
+export function slashChoices(
+  draft: string,
+  kind: 'task' | 'chat',
+  /** The view on screen: its own command (go to where you already are) is left out. */
+  view?: 'harness' | 'workbench',
+): readonly CommandSpec[] | undefined {
   const match = /^\/([a-z]*)$/i.exec(draft.trimStart());
   if (!match) return undefined;
   const query = match[1]!.toLowerCase();
-  const available = OMS_COMMANDS.filter((command) => command.availability !== (kind === 'chat' ? 'task' : 'chat'));
+  const here = view === 'workbench' ? 'workbench' : view === 'harness' ? 'harness' : undefined;
+  const available = OMS_COMMANDS.filter(
+    (command) => command.availability !== (kind === 'chat' ? 'task' : 'chat') && command.name !== here,
+  );
   if (!query) return available;
   const tier = (command: CommandSpec): number => {
     if (command.name.startsWith(query)) return 0;

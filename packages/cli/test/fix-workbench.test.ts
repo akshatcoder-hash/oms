@@ -277,3 +277,76 @@ test('a closed panel strip offers ▴ show, and clicking it opens the panel', as
     p.done();
   }
 });
+
+test('Ctrl+Q with a running terminal asks first, like unsaved files do', async () => {
+  const p = project({ 'README.md': 'hello' });
+  const f = fixture();
+  let started = 0;
+  Object.assign(f.harness, {
+    async startTerminal() {
+      started++;
+      return {
+        write() {},
+        resize() {},
+        onData: () => () => {},
+        onExit: () => () => {},
+        async close() {},
+        kill() {},
+      };
+    },
+  });
+  const { terminal, done, run } = open(f, p, 120, 40);
+  try {
+    await terminal.until((s) => s.includes('No file open'));
+    terminal.send('\x1bj'); // Alt+J: the panel
+    terminal.send('\r'); // Enter starts the shell
+    for (let wait = 0; wait < 30 && !started; wait++) await new Promise((done) => setTimeout(done, 20));
+    assert.equal(started, 1, 'the shell was started');
+    await terminal.screen();
+    terminal.send('\x11');
+    const screen = await terminal.until((s) => /Shell is running · ctrl\+q again to stop it and quit/.test(s), 3000);
+    assert.match(screen, /Shell is running/);
+    assert.equal(terminal.active, true, 'it did not quit on the first press');
+    terminal.send('\x11');
+    await run;
+  } finally {
+    await done().catch(() => undefined);
+    p.done();
+  }
+});
+
+test('Ctrl+K in the workbench floats the palette: no pane moves, no current-view command, a ❯ prompt', async () => {
+  const p = project({ 'README.md': 'hello' });
+  const { terminal, done } = open(fixture(), p, 140, 42, 'chat');
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    const before = (await terminal.screen()).split('\n');
+    const editorRow = before.findIndex((row) => row.includes('No file open'));
+    assert.ok(editorRow >= 0);
+    terminal.send('\x0b');
+    const screen = await terminal.until((s) => /❯ \//.test(s) && /commands · esc to close/.test(s));
+    const rows = screen.split('\n');
+    assert.equal(
+      rows.findIndex((row) => row.includes('No file open')),
+      editorRow,
+      'the editor did not move',
+    );
+    assert.doesNotMatch(screen, /^[› ] \/workbench/m, 'the workbench is where you are');
+    assert.match(screen, /\/harness +Back to chat/);
+    assert.doesNotMatch(screen, /^> \//m, 'the prompt is the same ❯ as the composer');
+    terminal.send('\x1b');
+    await terminal.until((s) => !/commands · esc to close/.test(s));
+    const after = (await terminal.screen()).split('\n');
+    assert.equal(
+      after.findIndex((row) => row.includes('No file open')),
+      editorRow,
+    );
+    assert.ok(
+      after.some((row) => /terminal\s+problems\s+output/.test(row)),
+      'the panel strip is back',
+    );
+  } finally {
+    await done();
+    p.done();
+  }
+});

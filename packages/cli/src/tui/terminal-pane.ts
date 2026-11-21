@@ -55,6 +55,10 @@ export class TerminalPane {
   get running(): boolean {
     return !!this.terminal || !!this.pending;
   }
+  /** A shell is up (not just starting): what quitting would stop. */
+  get live(): boolean {
+    return !!this.terminal;
+  }
   get cleanupUncertain(): boolean {
     return this.state === 'cleanup uncertain';
   }

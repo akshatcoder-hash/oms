@@ -771,9 +771,23 @@ export async function runOmsInterface(
     clearDraft(draft);
     showPanel(pane);
   }
+  /** The command palette floats over the bottom of the screen: opening it moves no pane. */
+  let paletteOverlay: OverlayHandle | undefined;
+  function setPalette(next: Input | undefined): void {
+    paletteInput = next;
+    if (next) {
+      paletteOverlay ??= renderer.showOverlay(paletteView, {
+        anchor: 'bottom-center',
+        width: '100%',
+        margin: { bottom: 1 },
+        nonCapturing: true,
+      });
+      paletteOverlay.setHidden(false);
+    } else paletteOverlay?.setHidden(true);
+  }
   function openPalette(prefill?: string): void {
     if (setup) closeSetup();
-    paletteInput = paletteInput && prefill === undefined ? undefined : new Input();
+    setPalette(paletteInput && prefill === undefined ? undefined : new Input({ prompt: `${glyphs.prompt} ` }));
     paletteInput?.handleInput('/');
     if (prefill !== undefined && paletteInput) {
       paletteInput.setValue(prefill.startsWith('/') ? prefill : `/${prefill}`);
@@ -785,7 +799,7 @@ export async function runOmsInterface(
   function currentCommands(): readonly OmsCommand[] | undefined {
     const draft = paletteInput?.getValue() ?? input.document.text;
     if (setup || closing || (!paletteInput && (focus !== 'input' || draft === dismissedCommands))) return undefined;
-    const choices = slashChoices(draft, harness.kind);
+    const choices = slashChoices(draft, harness.kind, view);
     if (draft !== commandDraft) {
       commandDraft = draft;
       commandIndex = 0;
@@ -799,7 +813,7 @@ export async function runOmsInterface(
       paletteInput.setValue(value);
       paletteInput.handleInput('\x05');
       if (execute && !command.needsArgument) {
-        paletteInput = undefined;
+        setPalette(undefined);
         setFocus(focus);
         submit(value, true);
       }
@@ -1002,13 +1016,18 @@ export async function runOmsInterface(
 
   function quit(force = false): void {
     if (closing) return;
-    if (!force && workbench.dirty && !discardConfirmed) {
+    // Unsaved files and a running shell are both lost on quit: the first Ctrl+Q says so, the second confirms.
+    if (!force && (workbench.dirty || shell.live) && !discardConfirmed) {
       discardConfirmed = true;
       const names = workbench.dirtyNames;
       const list = names.length
         ? `${names.slice(0, 4).join(', ')}${names.length > 4 ? ` +${names.length - 4}` : ''}`
         : 'files';
-      setNotice(`Unsaved: ${list} · ctrl+q again to discard · ctrl+s to save`);
+      setNotice(
+        workbench.dirty
+          ? `Unsaved: ${list}${shell.live ? ' · shell is running' : ''} · ctrl+q again to discard${shell.live ? ' and stop it' : ''} · ctrl+s to save`
+          : 'Shell is running · ctrl+q again to stop it and quit',
+      );
       return;
     }
     closing = true;
@@ -1467,18 +1486,20 @@ export async function runOmsInterface(
     { component: composerBody, basis: 0, grow: 1, minSize: 1 },
     { component: bottomRule, basis: 1, shrink: 0 },
   ]);
-  const paletteField = component((width) => paletteInput?.render(width) ?? []);
-  const paletteComposer = new VStack([
-    { component: component((width) => [ruleRow(theme!, glyphs, width, true)]), basis: 1, shrink: 0 },
-    { component: paletteField, basis: 1, shrink: 0 },
-    {
-      component: component((width) => [
+  // The palette: its matches above a rule, the field, and a closing rule, drawn as one floating panel.
+  const paletteView: Component = {
+    invalidate() {},
+    render(width) {
+      const fit = (line: string) => truncateToWidth(line, width, '', true);
+      return [
+        ...commandMenu.render(width).map(fit),
+        ruleRow(theme!, glyphs, width, true),
+        fit(paletteInput?.render(width)[0] ?? ''),
         ruleRow(theme!, glyphs, width, true, [{ text: 'commands · esc to close', role: 'muted' }]),
-      ]),
-      basis: 1,
-      shrink: 0,
+      ];
     },
-  ]);
+    handleMouse: (event) => commandMenu.handleMouse?.(event),
+  };
 
   // The row above the composer while work runs. On a short terminal it moves into the composer's top rule.
   const spinnerLine = (): string => spinner.compact(Math.max(1, terminal.columns - 8));
@@ -1712,15 +1733,19 @@ export async function runOmsInterface(
     { component: workbenchLayout, basis: 0, grow: 1, shrink: 1, minSize: 1, visible: () => view === 'workbench' },
     { component: approvalRow, basis: 'auto', shrink: 0, visible: () => !!hostApproval || !!confirmation },
     { component: spinner, basis: 1, shrink: 0, visible: () => busy() && !spinnerInRule() },
-    { component: commandMenu, basis: 'auto', shrink: 0, visible: () => currentCommands() !== undefined },
+    {
+      component: commandMenu,
+      basis: 'auto',
+      shrink: 0,
+      visible: () => currentCommands() !== undefined && !paletteInput,
+    },
     {
       component: composer,
       basis: 3,
       shrink: 1,
       minSize: 3,
-      visible: () => !paletteInput && (view === 'harness' || focus === 'input'),
+      visible: () => view === 'harness' || focus === 'input',
     },
-    { component: paletteComposer, basis: 3, shrink: 0, visible: () => !!paletteInput },
     { component: noticeRow, basis: 'auto', shrink: 0, visible: () => !!notice },
     { component: status, basis: 1, shrink: 0 },
   ]);
@@ -1870,7 +1895,7 @@ export async function runOmsInterface(
       }
       if (paletteInput) {
         if (matchesKey(data, 'escape')) {
-          paletteInput = undefined;
+          setPalette(undefined);
           setFocus(focus);
           return { consume: true };
         }
@@ -1881,7 +1906,7 @@ export async function runOmsInterface(
           completeCommand(choices[commandIndex]!, matchesKey(data, 'enter'));
         } else if (matchesKey(data, 'enter')) {
           const draft = paletteInput.getValue();
-          paletteInput = undefined;
+          setPalette(undefined);
           setFocus(focus);
           if (draft.startsWith('/')) submit(draft, true);
         } else {
