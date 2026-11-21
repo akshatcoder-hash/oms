@@ -304,7 +304,12 @@ test('a helper transcript is recolored when the theme changes', async () => {
   const { terminal, close } = start(f.harness, 120, 36);
   try {
     await terminal.until((screen) => screen.includes('/ commands'));
-    f.emit({ type: 'tool_execution_start', toolCallId: 'a1', toolName: 'agent', args: { agent: 'explore', task: 'x' } });
+    f.emit({
+      type: 'tool_execution_start',
+      toolCallId: 'a1',
+      toolName: 'agent',
+      args: { agent: 'explore', task: 'x' },
+    });
     f.emit({
       type: 'tool_execution_end',
       toolCallId: 'a1',
@@ -331,5 +336,59 @@ test('a helper transcript is recolored when the theme changes', async () => {
     assert.equal(await color('Ran  echo hi'), await color('Agent  explore'), 'and so do the tool rows');
   } finally {
     await close();
+  }
+});
+
+/** The xterm 256-color palette entry as [r, g, b]. */
+function xterm256(index: number): [number, number, number] {
+  if (index >= 232) return Array(3).fill(8 + (index - 232) * 10) as [number, number, number];
+  const level = (n: number) => (n === 0 ? 0 : 55 + n * 40);
+  const n = index - 16;
+  return [level(Math.floor(n / 36)), level(Math.floor(n / 6) % 6), level(n % 6)];
+}
+const luminance = ([r, g, b]: [number, number, number]) =>
+  [r, g, b].map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as number[];
+const contrast = (a: [number, number, number], b: [number, number, number]) => {
+  const [la, lb] = [luminance(a), luminance(b)].map((l) => 0.2126 * l[0]! + 0.7152 * l[1]! + 0.0722 * l[2]!);
+  return (Math.max(la!, lb!) + 0.05) / (Math.min(la!, lb!) + 0.05);
+};
+
+test('on the 256-color path the line numbers of added and removed diff rows stay readable', async () => {
+  const { Conversation } = await import('../src/tui/transcript.ts');
+  const theme = getTheme('oms-ember', { depth: '256', backdrop: 'paint' })!;
+  const conversation = new Conversation([], undefined, { cwd: '/work/project' });
+  conversation.applyTheme(theme);
+  const message = {
+    role: 'assistant',
+    content: [{ type: 'toolCall', id: 'e1', name: 'edit', arguments: { path: '/work/project/a.rs' } }],
+    stopReason: 'toolUse',
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
+    api: 'x',
+    provider: 'p',
+    model: 'm',
+    timestamp: 2,
+  };
+  conversation.accept({ type: 'message_start', message } as never);
+  conversation.accept({ type: 'message_end', message } as never);
+  conversation.accept({ type: 'tool_execution_start', toolCallId: 'e1', toolName: 'edit', args: {} } as never);
+  conversation.accept({
+    type: 'tool_execution_end',
+    toolCallId: 'e1',
+    toolName: 'edit',
+    isError: false,
+    result: { content: [{ type: 'text', text: 'ok' }], details: { diff: ' 40 a\n-41 let a = 1;\n+41 let a = 2;' } },
+  } as never);
+  const rows = conversation.render(60);
+  for (const marker of ['-', '+'] as const) {
+    const row = rows.find((line) => new RegExp(`41 [${marker}−]`).test(line.replace(/\x1b\[[0-9;]*m/g, '')))!;
+    const sgr = [...row.matchAll(/\x1b\[([0-9;]*)m/g)].map((match) => match[1]!);
+    const background = Number(sgr.find((code) => code.startsWith('48;5;'))!.split(';')[2]);
+    // The first foreground set after the row's background is the gutter number.
+    const afterBg = sgr.slice(sgr.findIndex((code) => code.startsWith('48;5;')));
+    const gutter = Number(afterBg.find((code) => code.startsWith('38;5;'))!.split(';')[2]);
+    assert.ok(
+      contrast(xterm256(gutter), xterm256(background)) >= 4,
+      `gutter ${gutter} on ${background}: ${contrast(xterm256(gutter), xterm256(background)).toFixed(2)}:1`,
+    );
   }
 });
