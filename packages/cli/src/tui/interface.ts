@@ -696,6 +696,7 @@ export async function runOmsInterface(
       render: requestRender,
       close: closeSetup,
       notice: toast,
+      warn: setNotice,
     };
     const pane =
       mode === 'settings'

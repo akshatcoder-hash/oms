@@ -209,3 +209,42 @@ test('copy-on-select drops the glyph gutters of conversation text only', async (
   assert.equal(selectionClipboardText('● item one\n● item two', false), '● item one\n● item two');
   assert.equal(selectionClipboardText('● Read  lib.rs\n  body line', true), 'Read  lib.rs\nbody line');
 });
+
+test('an environment import that may have saved credentials is a warning that stays, not a toast', async () => {
+  const { SetupPane } = await import('../src/tui/setup.ts');
+  const { getTheme } = await import('../src/tui/theme.ts');
+  const notices: string[] = [];
+  const warnings: string[] = [];
+  const pane = new SetupPane(
+    {
+      listProviders: () => [],
+      listModels: () => [],
+      async selectModel() {},
+      async loginProvider() {},
+      async importEnvironment() {
+        return {
+          status: 'completed' as const,
+          outcomes: [
+            { name: 'OPENAI_API_KEY' as const, provider: 'openai', status: 'configured' as const },
+            { name: 'GROQ_API_KEY' as const, provider: 'groq', status: 'may_have_saved' as const },
+          ],
+        };
+      },
+    } as never,
+    {
+      mode: 'connect',
+      query: 'import /private/operator.env',
+      theme: () => getTheme('gruvbox')!,
+      rows: () => 30,
+      render() {},
+      close() {},
+      notice: (message) => notices.push(message),
+      warn: (message) => warnings.push(message),
+      selectTheme: () => false,
+    },
+  );
+  await sleep(20);
+  assert.deepEqual(notices, [], 'no toast: it would vanish after three seconds');
+  assert.match(warnings.join(' '), /GROQ_API_KEY: may have been saved; check configuration before retrying/);
+  pane.dispose();
+});

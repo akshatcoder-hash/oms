@@ -39,6 +39,8 @@ interface SetupOptions {
   render: () => void;
   close: () => void;
   notice: (message: string) => void;
+  /** A warning that stays until dismissed (credentials may be stored); defaults to `notice`. */
+  warn?: (message: string) => void;
   selectTheme: (id: string) => boolean;
   /** The theme picker shows a theme as the cursor reaches it; closing without choosing restores the chosen one. */
   previewTheme?: (id: string) => void;
@@ -574,7 +576,8 @@ export class SetupPane {
         notify: (event) => this.notify(event),
       });
       if (!this.disposed) {
-        this.options.notice(
+        const uncertain = result.outcomes.some((item) => item.status === 'may_have_saved');
+        (uncertain ? (this.options.warn ?? this.options.notice) : this.options.notice)(
           result.outcomes
             .map(
               (item) =>
