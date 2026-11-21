@@ -649,6 +649,8 @@ export async function runOmsInterface(
       maxHeight: '100%',
       nonCapturing: true,
     });
+    // The approval card is never drawn under a panel: the panel waits behind it until the answer.
+    overlayHandle.setHidden(!!hostApproval);
     renderer.setFocus(pane.input);
     requestRender();
   }
@@ -1528,6 +1530,7 @@ export async function runOmsInterface(
           signal?.removeEventListener('abort', abort);
           hostApproval = undefined;
           approvalGuardUntil = Date.now() + 700;
+          overlayHandle?.setHidden(false);
           requestRender();
           resolve(allowed);
         };
@@ -1546,6 +1549,7 @@ export async function runOmsInterface(
           answer: finish,
         });
         signal?.addEventListener('abort', abort, { once: true });
+        overlayHandle?.setHidden(true);
         conversation.note('Host approval required', pending.text);
         requestRender();
       }),
