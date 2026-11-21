@@ -405,3 +405,22 @@ test('sandbox approvals and connector approvals take turns: one question at a ti
     s.cleanup();
   }
 });
+
+test('the connectors panel never covers the composer or the status row', async () => {
+  for (const [columns, rows] of [
+    [100, 30],
+    [120, 36],
+  ] as const) {
+    const s = await open({ columns, rows });
+    try {
+      await command(s, '/connectors');
+      const screen = await s.terminal.until((text) => text.includes('Esc back'));
+      const bottom = screen.split('\n').slice(-4);
+      assert.match(bottom[1]!, /^❯ /, `${columns}x${rows}`);
+      for (const row of bottom) assert.ok(!row.includes('│'), `${columns}x${rows}: ${row}`);
+    } finally {
+      await s.close();
+      s.cleanup();
+    }
+  }
+});

@@ -744,7 +744,10 @@ export async function runOmsInterface(
     overlayWidth = width;
     overlayHandle ??= renderer.showOverlay(setupPanel, {
       width,
-      margin: 1,
+      // pi-tui reads this on every render: the tall connectors list keeps the composer and status row clear from 20 rows.
+      get margin() {
+        return width === 92 && terminal.rows >= 20 ? { top: 1, right: 1, bottom: 4, left: 1 } : 1;
+      },
       anchor: 'center',
       maxHeight: '100%',
       nonCapturing: true,
@@ -1774,14 +1777,13 @@ export async function runOmsInterface(
   const setupInput = component((width) => setup?.input.render(width) ?? []);
   /** The floating panel for the model, connect, theme, settings and account screens: 60% of the rows, 72 columns. */
   const overlayRows = () =>
-    terminal.rows < 24
-      ? // From 20 rows the centered panel stays clear of the composer's rules and the status row; below that every row counts.
-        Math.max(5, terminal.rows - (terminal.rows >= 20 ? 8 : 2))
-      : // The connectors list wants every connector and its next step on screen: up to 34 rows.
-        Math.min(
-          terminal.rows - 2,
-          setup instanceof ConnectorsPane ? 34 : Math.max(14, Math.floor(terminal.rows * 0.6)),
-        );
+    // The connectors list wants every connector and its next step on screen: up to 34 rows above the composer.
+    setup instanceof ConnectorsPane
+      ? Math.min(34, terminal.rows - (terminal.rows >= 20 ? 5 : 2))
+      : terminal.rows < 24
+        ? // From 20 rows the centered panel stays clear of the composer's rules and the status row; below that every row counts.
+          Math.max(5, terminal.rows - (terminal.rows >= 20 ? 8 : 2))
+        : Math.min(terminal.rows - 2, Math.max(14, Math.floor(terminal.rows * 0.6)));
   const setupPanel = new Panel({
     theme: () => theme!,
     glyphs,

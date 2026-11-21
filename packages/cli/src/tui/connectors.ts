@@ -414,7 +414,7 @@ export class ConnectorsPane {
         const { glyph, role } = builtinMark(builtin);
         lines.push(
           truncateToWidth(
-            `  ${paint(role, glyph)} ${paint('foreground', builtin.label.padEnd(LABEL_WIDTH))}${paint('muted', builtin.detail + (builtin.manage ? ` · ${builtin.manage}` : ''))}`,
+            `  ${paint(role, glyph)} ${paint('foreground', builtin.label.padEnd(Math.max(LABEL_WIDTH, builtin.label.length + 2)))}${paint('muted', builtin.detail + (builtin.manage ? ` · ${builtin.manage}` : ''))}`,
             w,
             paint('muted', '…'),
           ),
