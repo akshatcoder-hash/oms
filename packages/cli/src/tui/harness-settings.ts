@@ -29,6 +29,8 @@ export class HarnessSettingsPane {
   private readonly options: HarnessSettingsOptions;
   private list: SettingsList | undefined;
   private listRows = 0;
+  /** The body row the list's search field was drawn on last frame. */
+  private listTop = 0;
   private pending = false;
   private disposed = false;
   private message = '';
@@ -36,7 +38,16 @@ export class HarnessSettingsPane {
   constructor(harness: Pick<HarnessSession, 'settings'>, options: HarnessSettingsOptions) {
     this.harness = harness;
     this.options = options;
-    this.body = { invalidate: () => this.list?.invalidate(), render: (width) => this.renderBody(width) };
+    this.body = {
+      invalidate: () => this.list?.invalidate(),
+      render: (width) => this.renderBody(width),
+      // The list expects a blank row under its search row, which the tidy layout drops: count it back in.
+      handleMouse: (event) =>
+        this.list?.handleMouse?.({
+          ...event,
+          y: event.y - this.listTop + (event.y - this.listTop >= 1 ? 1 : 0),
+        }),
+    };
     this.input = {
       focused: false,
       invalidate() {},
@@ -204,6 +215,7 @@ export class HarnessSettingsPane {
 
   private renderBody(width: number): string[] {
     const palette = this.options.theme();
+    this.listTop = this.message ? 2 : 1;
     const lines = [
       colorText(palette, 'muted', 'Harness settings are private and saved on this device.'),
       ...(this.message ? [colorText(palette, 'warning', this.message)] : []),

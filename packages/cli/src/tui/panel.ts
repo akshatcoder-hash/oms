@@ -1,4 +1,11 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from '@earendil-works/pi-tui';
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
+} from '@earendil-works/pi-tui';
 import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorText, paintSurfaceRow, type OmsTheme, type ThemeRole } from './theme.ts';
 import { displayText, singleLine } from './transcript.ts';
@@ -95,6 +102,14 @@ export class Panel implements Component {
     this.options.body.invalidate();
     this.options.input?.invalidate();
   }
+  /** Mouse events inside the borders and padding go to the body, with coordinates counted from its first row. */
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const padX = 2;
+    const top = 1 + ((this.options.compact?.() ?? false) ? 0 : 1);
+    const y = event.y - top;
+    if (event.type !== 'wheel' && (y < 0 || y >= this.bodyRows() || event.x < 1 + padX)) return undefined;
+    return this.options.body.handleMouse?.({ ...event, x: event.x - 1 - padX, y });
+  }
   render(width: number): string[] {
     const o = this.options;
     const content = Math.max(1, width - 6);
@@ -184,7 +199,9 @@ export function approvalCard(
   rows.push(
     '',
     option('y', locked ? 'Allow once · read the whole command first' : 'Allow once'),
-    ...(request.session ? [option('s', locked ? 'Allow for this session · read it first' : 'Allow for this session')] : []),
+    ...(request.session
+      ? [option('s', locked ? 'Allow for this session · read it first' : 'Allow for this session')]
+      : []),
     `${colorText(theme, 'accent', '\x1b[1mn\x1b[22m')}  Deny${' '.repeat(2)}${colorText(theme, 'faint', 'esc')}`,
   );
   return boxLines({ theme, glyphs, width, title: 'Allow host command?', border: 'warning', rows, padY: 0 });

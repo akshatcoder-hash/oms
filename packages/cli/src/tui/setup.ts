@@ -96,7 +96,13 @@ export class SetupPane {
     } else {
       this.buildTopLevel();
     }
-    this.body = { invalidate() {}, render: (width) => this.renderBody(width) };
+    this.body = {
+      invalidate() {},
+      render: (width) => this.renderBody(width),
+      // A click or the wheel on the list, with y counted from the list's first row.
+      handleMouse: (event) =>
+        this.listTop < 0 || !this.list ? undefined : this.list.handleMouse?.({ ...event, y: event.y - this.listTop }),
+    };
     this.input = {
       focused: false,
       invalidate() {},
@@ -253,6 +259,9 @@ export class SetupPane {
     this.note = '';
   }
 
+  /** The body row the list's first item was drawn on last frame; -1 when no list is on screen. */
+  private listTop = -1;
+
   private bodyHeight(): number {
     return Math.max(1, this.options.bodyRows?.() ?? this.options.rows() - 5);
   }
@@ -309,6 +318,7 @@ export class SetupPane {
   }
 
   private renderBody(width: number): string[] {
+    this.listTop = -1;
     const palette = this.options.theme();
     const title =
       this.stage === 'theme'
@@ -364,6 +374,7 @@ export class SetupPane {
         ].flatMap((text) => wrapTextWithAnsi(colorText(palette, 'muted', text), Math.max(1, width))),
       );
       if (this.prompt?.type === 'select') {
+        this.listTop = 2;
         const fixed = [
           lines[0]!,
           colorText(palette, 'accent', truncateToWidth(line(this.prompt.message), width, '')),
@@ -400,6 +411,7 @@ export class SetupPane {
             ),
           );
       }
+      this.listTop = lines.length;
       lines.push(...list.render(width));
     }
     if (this.stage === 'auth' && this.prompt?.type !== 'select') {

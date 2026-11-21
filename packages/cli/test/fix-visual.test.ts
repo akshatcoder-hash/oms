@@ -471,3 +471,35 @@ test('a panel at 60x20 stays clear of the composer, and /connect always warns ab
     }
   }
 });
+
+test('mouse: a click runs the slash popup row, the theme list row and an approval option', async () => {
+  const { clickText } = await import('../test-support/fake-session.ts');
+  const f = chatFixture();
+  let approve: Approve;
+  f.harness.setHostApproval = (handler) => {
+    approve = handler;
+  };
+  const { terminal, close } = start(f.harness, 100, 40);
+  try {
+    let screen = await terminal.until((s) => s.includes('/ commands'));
+    // The slash popup: type "/" and click a row.
+    terminal.send('/');
+    screen = await terminal.until((s) => s.includes('/theme'));
+    clickText(terminal, screen, '/theme');
+    screen = await terminal.until((s) => /OMS Ember/.test(s) && /Choose a theme/.test(s));
+    // The theme picker: click a theme.
+    clickText(terminal, screen, 'Gruvbox');
+    await terminal.until((s) => s.includes('Theme set to Gruvbox'));
+    // The approval card: click Allow once.
+    const pending = approve!({ command: 'cat ~/.ssh/example', reasons: ['credential files'] });
+    screen = await terminal.until((s) => s.includes('╭─ Allow host command?'));
+    clickText(terminal, screen, 'Allow once');
+    assert.equal(await pending, true);
+    const denied = approve!({ command: 'cat ~/.ssh/other', reasons: ['credential files'] });
+    screen = await terminal.until((s) => s.includes('cat ~/.ssh/other') && s.includes('╭─ Allow host command?'));
+    clickText(terminal, screen, 'Deny');
+    assert.equal(await denied, false);
+  } finally {
+    await close();
+  }
+});

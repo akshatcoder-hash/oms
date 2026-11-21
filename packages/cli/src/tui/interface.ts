@@ -9,6 +9,7 @@ import {
   Input,
   matchesKey,
   isKeyRelease,
+  stripTerminalSequences,
   truncateToWidth,
   getKeybindings,
   setKeybindings,
@@ -50,7 +51,7 @@ import {
 } from './chrome-rows.ts';
 import { glyphsFor, inGlyphs } from './glyphs.ts';
 import { approvalCard, approvalCommandRows, approvalFullyShown, Panel } from './panel.ts';
-import { argumentUsage, POPUP_ROWS, slashChoices, slashPopup } from './slash-popup.ts';
+import { argumentUsage, popupStart, POPUP_ROWS, slashChoices, slashPopup } from './slash-popup.ts';
 import { SpinnerRow, toolVerb } from './spinner.ts';
 import {
   budgetFact,
@@ -1381,19 +1382,30 @@ export async function runOmsInterface(
   // The row above the composer while work runs. On a short terminal it moves into the composer's top rule.
   const spinnerLine = (): string => spinner.compact(Math.max(1, terminal.columns - 8));
 
-  // Slash popup: directly above the composer.
-  const commandMenu = component((width) => {
-    const choices = currentCommands();
-    if (!choices) return [];
-    return slashPopup(
-      theme!,
-      glyphs,
-      choices,
-      commandIndex,
-      width,
-      Math.max(1, Math.min(POPUP_ROWS, terminal.rows - 10)),
-    );
-  });
+  // Slash popup: directly above the composer. A click runs the command under it; the wheel moves the selection.
+  const popupRows = () => Math.max(1, Math.min(POPUP_ROWS, terminal.rows - 10));
+  const commandMenu: Component = {
+    invalidate() {},
+    render(width) {
+      const choices = currentCommands();
+      if (!choices) return [];
+      return slashPopup(theme!, glyphs, choices, commandIndex, width, popupRows());
+    },
+    handleMouse(event) {
+      const choices = currentCommands();
+      if (!choices?.length) return undefined;
+      if (event.type === 'wheel' && event.wheelDelta) {
+        commandIndex = Math.max(0, Math.min(choices.length - 1, commandIndex + (event.wheelDelta < 0 ? -1 : 1)));
+        return { handled: true, focus: false };
+      }
+      if (event.button !== 'left') return undefined;
+      if (event.type === 'press') return { handled: true, focus: false };
+      if (event.type !== 'click') return undefined;
+      const choice = choices[popupStart(commandIndex, choices.length, popupRows()) + event.y];
+      if (choice) completeCommand(choice, true);
+      return { handled: true, focus: false };
+    },
+  };
 
   // The warning that stays until dismissed, and the card for a host command that needs a yes or no.
   const noticeRow = component((width) => warningRows(theme!, notice, width));
@@ -1411,14 +1423,37 @@ export async function runOmsInterface(
     hostApproval.read ||= approvalFullyShown(total, { rows: approvalWindow(), offset: hostApproval.offset });
     return hostApproval.read;
   };
-  const approvalRow = component((width) =>
-    hostApproval
-      ? approvalCard(theme!, glyphs, hostApproval.request, width, {
-          rows: approvalWindow(),
-          offset: hostApproval.read ? Math.min(hostApproval.offset, approvalMaxOffset()) : hostApproval.offset,
-        })
-      : [],
-  );
+  let approvalLines: string[] = [];
+  const approvalRow: Component = {
+    invalidate() {},
+    render(width) {
+      approvalLines = hostApproval
+        ? approvalCard(theme!, glyphs, hostApproval.request, width, {
+            rows: approvalWindow(),
+            offset: hostApproval.read ? Math.min(hostApproval.offset, approvalMaxOffset()) : hostApproval.offset,
+          })
+        : [];
+      return approvalLines;
+    },
+    // A click on an option answers like its key: Allow stays shut until the command has been read.
+    handleMouse(event) {
+      if (!hostApproval || event.button !== 'left') return undefined;
+      if (event.type === 'press') return { handled: true, focus: false };
+      if (event.type !== 'click') return undefined;
+      const letter = /^│ {2}([ysn]) {2}/.exec(stripTerminalSequences(approvalLines[event.y] ?? ''))?.[1];
+      if (letter) answerApproval(letter as 'y' | 's' | 'n');
+      return { handled: true, focus: false };
+    },
+  };
+  /** Answer the approval card as its key does: n always denies; y and s wait for a fully shown command and the guard. */
+  function answerApproval(letter: 'y' | 's' | 'n'): void {
+    const asked = hostApproval;
+    if (!asked) return;
+    if (letter === 'n') asked.answer(false);
+    else if (!approvalRead() || Date.now() < approvalGuardUntil) return;
+    else if (letter === 'y') asked.answer(true);
+    else if (harness.kind === 'chat') asked.answer('session');
+  }
 
   // Status row: key hints (or a toast) on the left, session facts on the right.
   const status = component((width) => {
@@ -1496,7 +1531,11 @@ export async function runOmsInterface(
     ];
   });
 
-  const setupBody = component((width) => setup?.body.render(width) ?? []);
+  const setupBody: Component = {
+    invalidate() {},
+    render: (width) => setup?.body.render(width) ?? [],
+    handleMouse: (event) => setup?.body.handleMouse?.(event),
+  };
   const setupInput = component((width) => setup?.input.render(width) ?? []);
   /** The floating panel for the model, connect, theme, settings and account screens: 60% of the rows, 72 columns. */
   const overlayRows = () =>
@@ -1634,7 +1673,6 @@ export async function runOmsInterface(
       repairHiddenFocus();
       if (isKeyRelease(data)) return { consume: true };
       if (hostApproval) {
-        const allowed = approvalRead() && Date.now() >= approvalGuardUntil;
         const scroll = matchesKey(data, 'up')
           ? -1
           : matchesKey(data, 'down')
@@ -1652,11 +1690,9 @@ export async function runOmsInterface(
           hostApproval.offset = Math.max(0, Math.min(approvalMaxOffset(), hostApproval.offset + scroll));
           approvalRead();
           requestRender();
-        } else if (data.toLowerCase() === 'y') {
-          if (allowed) hostApproval.answer(true);
-        } else if (data.toLowerCase() === 's' && harness.kind === 'chat') {
-          if (allowed) hostApproval.answer('session');
-        } else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) hostApproval.answer(false);
+        } else if (data.toLowerCase() === 'y' || (data.toLowerCase() === 's' && harness.kind === 'chat'))
+          answerApproval(data.toLowerCase() as 'y' | 's');
+        else if (data.toLowerCase() === 'n' || matchesKey(data, 'escape')) answerApproval('n');
         else if (matchesKey(data, 'ctrl+q') || matchesKey(data, 'ctrl+c')) {
           hostApproval.answer(false);
           quit();
