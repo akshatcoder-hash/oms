@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createInMemoryTransportPair } from '@earendil-works/pi-mcp/testing';
 import { ArgumentError } from '../src/connectors/argv.ts';
 import {
   firstFailedRun,
@@ -111,13 +112,66 @@ test('a refusing or missing program becomes a sentence, and a bad reference neve
   assert.equal(injection.calls.length, 0);
 });
 
-test('a Linear issue needs a sign-in; with one its text is fetched by OMS and framed', async () => {
+/** A hosted server answering `tools/call` from memory: no socket is opened. */
+function fakeServer(reply: () => unknown, seen: Array<{ name: string; arguments: unknown }> = []) {
+  return (() => {
+    const { client, server } = createInMemoryTransportPair();
+    server.onMessage((message) => {
+      const request = message as {
+        id?: number;
+        method?: string;
+        params?: { name: string; arguments: unknown; protocolVersion?: string };
+      };
+      if (request.method === 'initialize') {
+        void server.send({
+          jsonrpc: '2.0',
+          id: request.id!,
+          result: {
+            protocolVersion: request.params!.protocolVersion!,
+            capabilities: { tools: {} },
+            serverInfo: { name: 'fake', version: '1' },
+          },
+        });
+      } else if (request.method === 'tools/call') {
+        seen.push({ name: request.params!.name, arguments: request.params!.arguments });
+        void server.send({ jsonrpc: '2.0', id: request.id!, result: reply() as never });
+      }
+    });
+    void server.start();
+    return client;
+  }) as never;
+}
+
+test('a Linear issue needs a sign-in; with one its text is fetched by OMS and framed, without any network', async () => {
   await assert.rejects(loadLinearIssue('LIN-1', undefined, deps([]).deps), /not connected/);
   const credentials = {
     forServer: () => ({ load: () => undefined, save() {}, withRefreshLock: (work: () => Promise<unknown>) => work() }),
   } as unknown as McpCredentials;
+  const seen: Array<{ name: string; arguments: unknown }> = [];
+  const loaded = await loadLinearIssue(
+    'LIN-12',
+    'Plan only',
+    deps([], {
+      credentials,
+      hosted: { transport: fakeServer(() => ({ content: [{ type: 'text', text: 'LIN-12: Fix rent' }] }), seen) },
+    }).deps,
+  );
+  assert.deepEqual(seen, [{ name: 'get_issue', arguments: { id: 'LIN-12' } }]);
+  assert.match(loaded.message, /^Plan only\n\n\[Untrusted reference data from Linear \(hosted connector\)/);
+  assert.match(loaded.message, /LIN-12: Fix rent/);
+  assert.match(loaded.note, /Fetched LIN-12 from Linear/);
+  // The service refusing becomes a plain sentence that carries none of its private detail.
   await assert.rejects(
-    loadLinearIssue('LIN-1', undefined, deps([], { credentials }).deps),
-    /did not answer|Sign in again/,
+    loadLinearIssue(
+      'LIN-1',
+      undefined,
+      deps([], {
+        credentials,
+        hosted: {
+          transport: fakeServer(() => ({ isError: true, content: [{ type: 'text', text: 'private details' }] })),
+        },
+      }).deps,
+    ),
+    (error: Error) => error.message === 'The service answered with an error.' && !/private/.test(error.message),
   );
 });

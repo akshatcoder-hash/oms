@@ -2,7 +2,7 @@ import { wrapUntrusted } from '@oms/engine';
 import { buildCall, type Call, type CliConnector, type Params } from './argv.ts';
 import type { HostRun } from './host.ts';
 import { RESULT_LIMIT, plainOutput } from './extension.ts';
-import { callHostedTool, type McpCredentials } from './mcp.ts';
+import { callHostedTool, type HostedCallDeps, type McpCredentials } from './mcp.ts';
 import { connectorSpec } from './catalog.ts';
 
 export type ContextKind = 'pr' | 'issue' | 'ci';
@@ -41,6 +41,8 @@ export interface ContextDeps {
   env: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   credentials?: McpCredentials;
+  /** How a hosted call reaches its server; tests pass a transport wired to a fake one, so none opens a socket. */
+  hosted?: HostedCallDeps;
 }
 export interface LoadedContext {
   /** One short line for the conversation. */
@@ -138,14 +140,17 @@ export async function loadLinearIssue(
 ): Promise<LoadedContext> {
   const spec = connectorSpec('linear')!;
   if (!deps.credentials) throw new Error('Linear is not connected. Run /connectors.');
-  const text = await callHostedTool({
-    name: spec.mcp!.server,
-    url: spec.mcp!.url,
-    credentials: deps.credentials,
-    tool: 'get_issue',
-    args: { id: key },
-    signal: deps.signal,
-  });
+  const text = await callHostedTool(
+    {
+      name: spec.mcp!.server,
+      url: spec.mcp!.url,
+      credentials: deps.credentials,
+      tool: 'get_issue',
+      args: { id: key },
+      signal: deps.signal,
+    },
+    deps.hosted,
+  );
   return {
     note: `Fetched ${key} from Linear. Sending it to the agent.`,
     message: `${instruction ?? DEFAULT_INSTRUCTION.issue}\n\n${frame('Linear (hosted connector)', 'get_issue', clipText(text, 14_000))}`,
