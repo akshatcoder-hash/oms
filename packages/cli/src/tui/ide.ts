@@ -426,20 +426,35 @@ export class WorkbenchIde {
     else this.showPanel();
   }
 
+  /**
+   * Which areas are on screen: a full-width explorer (under 100 columns) takes the editor's place, and on a very short
+   * terminal an open panel takes both. Keys must never reach an area that is not drawn.
+   */
+  private areaVisible(area: 'explorer' | 'editor' | 'panel'): boolean {
+    if (area === 'explorer') return this.explorerShown() && !this.panelFills();
+    if (area === 'editor') return !this.explorerFull() && !this.panelFills();
+    return this.panelOpen && !this.explorerFull();
+  }
   /** What the focus should be after the layout changed: a hidden area cannot keep it. */
   repairFocus(focus: FocusTarget): FocusTarget {
-    if (focus === 'explorer' && !this.explorerShown()) return 'editor';
-    if ((focus === 'terminal' || focus === 'panel') && !this.panelOpen) return 'editor';
-    if (focus === 'terminal' && this.panel.tab !== 'terminal') return 'panel';
-    if (focus === 'panel' && this.panel.tab === 'terminal') return 'terminal';
+    const panelArea = this.panel.tab === 'terminal' ? 'terminal' : 'panel';
+    const shown = this.areas();
+    if (focus === 'terminal' || focus === 'panel') {
+      if (!this.areaVisible('panel')) return shown[0] ?? 'input';
+      return panelArea;
+    }
+    if ((focus === 'explorer' || focus === 'editor') && !this.areaVisible(focus))
+      return shown.find((area) => area !== focus) ?? shown[0] ?? 'input';
     return focus;
   }
-  /** The areas Tab and F6 cycle through, in order. */
+  /** The areas Tab and F6 cycle through, in order: only the ones on screen. */
   areas(): IdeFocus[] {
     return [
-      ...(this.explorerShown() ? (['explorer'] as const) : []),
-      'editor',
-      ...(this.panelOpen ? [this.panel.tab === 'terminal' ? ('terminal' as const) : ('panel' as const)] : []),
+      ...(this.areaVisible('explorer') ? (['explorer'] as const) : []),
+      ...(this.areaVisible('editor') ? (['editor'] as const) : []),
+      ...(this.areaVisible('panel')
+        ? [this.panel.tab === 'terminal' ? ('terminal' as const) : ('panel' as const)]
+        : []),
     ];
   }
   /** The component keyboard focus rests on for an area. */
