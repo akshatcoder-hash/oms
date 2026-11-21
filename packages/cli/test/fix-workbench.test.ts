@@ -151,7 +151,11 @@ test('on a 15-row terminal an open panel takes the body, and F6 stays on what is
       const screen = await terminal.screen();
       const hints = screen.split('\n').at(-1)!;
       assert.doesNotMatch(screen, /No file open/);
-      assert.doesNotMatch(hints, /enter open|ctrl\+s save|space preview|ctrl\+p open/, `F6 ${press + 1} stopped on a hidden area`);
+      assert.doesNotMatch(
+        hints,
+        /↑↓ move · enter open|ctrl\+s save|space preview|^ *ctrl\+k commands · ctrl\+p open/,
+        `F6 ${press + 1} stopped on a hidden area`,
+      );
     }
   } finally {
     await done();
