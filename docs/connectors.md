@@ -15,11 +15,13 @@ Connectors let the agent use the tools your team already uses: GitHub, GitLab, L
 
 | Level | What the agent can do |
 | --- | --- |
-| read | Look: pull requests, issues, CI, containers, AWS describe/list/get calls. |
+| read | Look: pull requests, issues, CI, containers, and a reviewed list of AWS describe/list/get calls. |
 | ask | Also change things, one approval at a time. Each change appears in the approval row. |
-| allow | Change things without asking. YOLO does not turn this on. |
+| allow | Change things without asking (GitHub, GitLab, Linear and Slack only). YOLO does not turn this on. |
 
-Docker changes (`compose_up`, `compose_down`, `run`) and every AWS call can be approved once only, never for the whole session. AWS is read-only in this version.
+Every change is approved once, never for the whole session: a comment or a new issue goes to other people, a container starts a program as you, and approving one is not approving the next with other text. The approval row shows everything that goes out (the whole comment, the whole container command, every flag), and a call too long to show is refused. Docker and AWS never offer `allow`, whatever `connectors.json` says. AWS is read-only in this version.
+
+Before `compose up` asks, OMS reads the compose file in your folder with `docker compose config` and shows the services, images, ports and mounts. A file that mounts folders outside your project, the Docker socket or host devices, or asks for privileged containers or the host's network, is refused. Docker runs with a short environment (no API keys), and a compose file that changes after you approve it is not started.
 
 ## Commands that use a connected service
 
@@ -31,4 +33,5 @@ Docker changes (`compose_up`, `compose_down`, `run`) and every AWS call can be a
 
 - Programs run on your machine with a fixed set of arguments; values you or the agent supply are checked first, and nothing goes through a shell.
 - Text that comes back from a service is capped at 16 KB and framed so the agent treats it as data, not instructions.
-- Secret-looking values are masked on screen.
+- Secret-looking values are masked on screen, and in what AWS and the hosted connectors send back to the agent.
+- AWS runs only operations OMS has reviewed. Operations that can return a secret (a function's environment variables, a task definition, a cluster token, an instance's user data) are refused, or answer with a fixed list of safe fields.

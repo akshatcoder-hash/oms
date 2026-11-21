@@ -41,7 +41,7 @@ import { copyToClipboard } from '@earendil-works/pi-coding-agent';
 import { HarnessSettingsPane } from './harness-settings.ts';
 import { AccountPane } from './account.ts';
 import { ConnectorsPane, sidebarSection } from './connectors.ts';
-import { createApprovalQueue, type Answer, type ApprovalEntry } from '../connectors/approvals.ts';
+import { APPROVAL_TEXT_LIMIT, createApprovalQueue, type Answer, type ApprovalEntry } from '../connectors/approvals.ts';
 import type { Connectors } from '../connectors/runtime.ts';
 import { ActionBar, PaneFrame } from './chrome.ts';
 import {
@@ -1869,6 +1869,11 @@ export async function runOmsInterface(
   };
   harness.setHostApproval?.((request, signal) => {
     if (closing) return Promise.resolve(false);
+    // The card shows the whole command or none of it: one too long to show is refused, not approved unseen.
+    if (request.command.length > APPROVAL_TEXT_LIMIT) {
+      conversation.note('', 'Denied: that command is too long to show in full for approval.');
+      return Promise.resolve(false);
+    }
     return askApproval({
       text: `Allow host command? ${request.reasons.join(', ')}\n${request.command}`,
       card: hostApprovalCard(request),
@@ -1877,24 +1882,24 @@ export async function runOmsInterface(
       signal,
     });
   });
-  // The agent's connector actions (a pull request comment, a container run) ask on the same card.
-  options.connectors?.setApprover((request, signal) =>
-    closing
-      ? Promise.resolve(false)
-      : askApproval({
-          text: `Allow ${singleLine(request.label, 40)}: ${singleLine(request.summary, 600)}?`,
-          card: {
-            title: `Allow ${singleLine(request.label, 40)}?`,
-            reasons: [],
-            command: singleLine(request.summary, 600),
-            plain: true,
-            session: request.sessionAllowable,
-          },
-          subject: `${singleLine(request.label, 40)}: ${singleLine(request.summary, 300)}`,
-          session: request.sessionAllowable,
-          signal,
-        }),
-  );
+  // The agent's connector actions (a pull request comment, a container run) ask on the same card, with everything that goes out.
+  options.connectors?.setApprover((request, signal) => {
+    if (closing) return Promise.resolve(false);
+    const command = [request.headline ?? request.summary, request.detail].filter(Boolean).join('\n');
+    return askApproval({
+      text: `Allow ${singleLine(request.label, 40)}: ${singleLine(request.summary, 600)}?`,
+      card: {
+        title: `Allow ${singleLine(request.label, 40)}?`,
+        reasons: [],
+        command,
+        plain: true,
+        session: request.sessionAllowable,
+      },
+      subject: `${singleLine(request.label, 40)}: ${command}`,
+      session: request.sessionAllowable,
+      signal,
+    });
+  });
   const removeInput = renderer.addInputListener((data) => {
     try {
       repairHiddenFocus();

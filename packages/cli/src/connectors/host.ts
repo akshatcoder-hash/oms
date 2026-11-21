@@ -48,6 +48,22 @@ export const hostRun: HostRun = (file, args, options = {}) =>
     );
   });
 
+/**
+ * The environment Docker runs with: where programs and settings are, and Docker's own variables, and nothing else. A
+ * compose file interpolates `${NAME}` from it, so the user's API keys must not be in it.
+ */
+export function dockerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(env))
+    if (
+      /^(PATH|HOME|USER|LOGNAME|SHELL|TMPDIR|LANG|LC_[A-Z_]+|TERM|DOCKER_[A-Z_]+|COMPOSE_[A-Z_]+|XDG_[A-Z_]+|DBUS_SESSION_BUS_ADDRESS)$/.test(
+        name,
+      )
+    )
+      out[name] = value;
+  return out;
+}
+
 /** The last `lines` lines of `text`. */
 export function tailLines(text: string, lines: number): string {
   const all = text.replace(/\n+$/, '').split('\n');

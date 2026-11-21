@@ -328,15 +328,16 @@ test('an agent write waits in the approval row; y runs it, and the row names wha
     const pending = a.call('github', { action: 'pr_comment', number: '42', body: 'Looks good' });
     const screen = await s.terminal.until((text) => text.includes('Allow GitHub'));
     assert.match(screen, /Allow GitHub\?/);
-    assert.match(screen, /comment on pull request #42: "Looks good"/);
+    // The card names the action, then shows the whole text that would be posted.
+    assert.match(screen, /comment on pull request #42[^\n]*\n[^\n]*Looks good/);
     assert.match(screen, /y +Allow once/);
-    assert.match(screen, /s +Allow for this session/);
+    assert.doesNotMatch(screen, /this session/, 'a comment goes to other people: approved once, never for the session');
     assert.match(screen, /n +Deny/);
     s.terminal.send('y');
     assert.equal(await pending, undefined);
     await s.terminal.until((text) => !text.includes('Allow GitHub?'));
     const denied = a.call('github', { action: 'issue_create', title: 'x' });
-    await s.terminal.until((text) => text.includes('open issue "x"'));
+    await s.terminal.until((text) => /open issue[^\n]*\n[^\n]*x/.test(text));
     s.terminal.send('n');
     assert.equal((await denied)?.block, true);
   } finally {
@@ -385,7 +386,7 @@ test('sandbox approvals and connector approvals take turns: one question at a ti
     s.terminal.send('y');
     assert.equal(await first, true);
     screen = await s.terminal.until((text) => text.includes('Allow GitHub?'));
-    assert.match(screen, /comment on pull request #1: "hi"/);
+    assert.match(screen, /comment on pull request #1[^\n]*\n[^\n]*hi/);
     assert.doesNotMatch(screen, /Allow host command\?/);
     s.terminal.send('n');
     assert.equal((await second)?.block, true);

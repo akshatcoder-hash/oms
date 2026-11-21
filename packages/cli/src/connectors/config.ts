@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { connectorSpec } from './catalog.ts';
 
 /**
  * What the agent may do through a connector. `off` gives it nothing, `read` lets it look, `ask` lets it act after the user
@@ -45,6 +46,18 @@ export interface ConnectorsConfig {
 
 export const DEFAULT_TIPS: TipState = { launches: 0, shown: 0, lastShown: 0, dismissed: false };
 export const emptyConfig = (): ConnectorsConfig => ({ version: 1, connectors: {}, tips: { ...DEFAULT_TIPS } });
+
+const RANK: Readonly<Record<Access, number>> = { off: 0, read: 1, ask: 2, allow: 3 };
+/**
+ * The level a connector really offers for a saved one: the highest it has that is not above it. Docker and AWS never
+ * offer `allow` (every change or call asks), and the Solana lookup only reads, whatever a hand-edited file says.
+ */
+export function offeredAccess(id: ConnectorId, saved: Access): Access {
+  const spec = connectorSpec(id);
+  if (!spec || saved === 'off') return saved;
+  const offered = spec.levels.filter((level) => RANK[level] <= RANK[saved]).sort((a, b) => RANK[b] - RANK[a])[0];
+  return offered ?? 'off';
+}
 
 /** The option names each connector may carry. Anything else in the file is ignored. */
 export const OPTION_KEYS: Partial<Record<ConnectorId, readonly string[]>> = {
@@ -143,9 +156,16 @@ export function readConnectorsConfig(stateRoot: string): LoadedConnectors {
           }
         }
       }
+      const access = offeredAccess(id, raw.access as Access);
+      if (access !== raw.access) {
+        problems.push(
+          `connectors.json: ${id} cannot be set to ${String(raw.access)}; it is ${access === 'off' ? 'off' : `set to ${access}`}.`,
+        );
+        if (access === 'off') enabled = false;
+      }
       config.connectors[id] = {
         enabled,
-        access: raw.access as Access,
+        access: access === 'off' ? 'read' : access,
         ...(Object.keys(options).length ? { options } : {}),
       };
     }

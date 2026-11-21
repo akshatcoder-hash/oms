@@ -13,7 +13,10 @@ import {
 } from './argv.ts';
 import { CATALOG, CONNECTOR_TOOLS, connectorSpec, type ConnectorSpec } from './catalog.ts';
 import type { Access, ConnectorId } from './config.ts';
-import { tailLines, type HostResult, type HostRun } from './host.ts';
+import { APPROVAL_TEXT_LIMIT } from './approvals.ts';
+import { planCompose } from './compose.ts';
+import { dockerEnv, tailLines, type HostResult, type HostRun } from './host.ts';
+import { maskSecrets } from '../tui/secret-mask.ts';
 import { classifyMcpTool, mcpServerConfig, mcpToolPrefix } from './mcp.ts';
 import { REMOTE_CLUSTERS, remoteRpc, type RemoteCluster } from './solana.ts';
 
@@ -23,8 +26,12 @@ export interface ApprovalRequest {
   label: string;
   /** The action's name, or the hosted tool's. */
   action: string;
-  /** One plain line of what would happen. The text can come from the model: it is clipped and shown as data. */
+  /** One plain line of what would happen. The text can come from the model: it is shown as data. */
   summary: string;
+  /** What the card says before the text, when the summary carries a short preview of it. */
+  headline?: string;
+  /** The text that goes out or runs, in full: the card shows all of it, so what is approved is what is sent. */
+  detail?: string;
   /** False when approving once is the only choice offered. */
   sessionAllowable: boolean;
 }
@@ -123,7 +130,8 @@ export function connectorTool(
       label: spec.label,
       description:
         'Look at AWS resources with one read-only call through the AWS command line, using the profile the user chose. ' +
-        'Only describe-, list- and get- operations of common services work; operations that return secrets are refused. ' +
+        'Only a reviewed list of describe-, list- and get- operations of common services works; anything that can return a secret ' +
+        '(environment variables, tokens, passwords, user data) is refused or answers with a fixed set of fields. ' +
         'Nothing can be changed. ' +
         (access === 'ask' ? 'The user approves every call. ' : '') +
         UNTRUSTED.trim(),
@@ -244,7 +252,13 @@ export function plainOutput(label: string, program: string, call: Call, result: 
 
 /** Text for the model from a finished program: the output, framed as outside data and capped. */
 export function resultText(label: string, program: string, call: Call, result: HostResult): string {
-  return wrapUntrusted(program, plainOutput(label, program, call, result), RESULT_LIMIT, `${label} through ${program}`);
+  // A secret that slips into an answer (an environment line, a key in a log) is masked before the model reads it.
+  return wrapUntrusted(
+    program,
+    maskSecrets(plainOutput(label, program, call, result)),
+    RESULT_LIMIT,
+    `${label} through ${program}`,
+  );
 }
 
 /** The call a tool input stands for, or an ArgumentError. Shared by the approval check and the run, so they can never differ. */
@@ -307,13 +321,15 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
   const hostedServers = new Set<string>();
   /** The last definition registered for each tool, to register it again as hidden when its connector is turned off. */
   const definitions = new Map<ConnectorId, ReturnType<typeof definition>>();
-  /** Actions the user approved for the rest of the session. */
+  /** Actions the user approved for the rest of the session. Only an action that sends nothing out may be offered this. */
   const allowed = new Set<string>();
+  /** The compose file approved for each call, so a file that changed after the answer is not started. */
+  const approvedPlans = new Map<string, string>();
 
   const execute =
     (spec: ConnectorSpec) =>
     async (
-      _id: string,
+      id: string,
       params: unknown,
       signal?: AbortSignal,
     ): Promise<{ content: { type: 'text'; text: string }[]; details: unknown }> => {
@@ -340,11 +356,21 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
       // The hook asked already; this keeps a call that raced a change in /connectors from running.
       if (call.write && !writesOffered(level))
         throw new Error(`${spec.label} cannot change anything at this access level.`);
+      if (spec.id === 'docker' && input.action === 'compose_up') {
+        // The compose file is read again: the agent can write it between the answer and the run.
+        const plan = await planCompose(host.run, host.folder, host.env, signal);
+        if (!plan.ok) throw new Error(plan.reason);
+        const approved = approvedPlans.get(id);
+        approvedPlans.delete(id);
+        if (approved !== undefined && approved !== plan.fingerprint)
+          throw new Error('The compose file changed after you approved it. Ask again.');
+      }
       const result = await host.run(call.program, call.args, {
         cwd: host.folder,
         timeoutMs: call.timeoutMs,
         signal,
-        env: host.env,
+        // Docker gets no API keys: a compose file interpolates what it is given.
+        env: spec.id === 'docker' ? dockerEnv(host.env) : host.env,
       });
       const body = resultText(spec.label, call.program, call, result);
       return { content: [{ type: 'text', text: body }], details: { summary: call.summary } };
@@ -361,6 +387,9 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
     signal: AbortSignal | undefined,
   ): Promise<{ block: true; reason: string } | undefined> {
     const key = `${request.connector}:${request.action}`;
+    // The card shows the whole text, up to a limit: more than it can show is not something to approve unseen.
+    if (`${request.summary}${request.detail ?? ''}`.length > APPROVAL_TEXT_LIMIT)
+      return blocked(`This ${request.label} action is too long to show for approval. Send less text.`);
     if (level === 'allow' || allowed.has(key)) return undefined;
     const approver = host.approver();
     if (!approver) return blocked(`${request.label} needs the user's approval, and no approval is available.`);
@@ -399,14 +428,24 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
           const call = callFor(id, input, host);
           if (call.write) {
             if (!writesOffered(level)) return blocked(`${spec.label} is read-only right now.`);
-            // Docker changes start programs as the user's own: approving once is the only choice.
+            let detail = call.detail;
+            if (id === 'docker' && input.action === 'compose_up') {
+              const plan = await planCompose(host.run, host.folder, host.env, ctx.signal);
+              if (!plan.ok) return blocked(plan.reason);
+              approvedPlans.set(event.toolCallId, plan.fingerprint);
+              detail = plan.text;
+            }
+            // Every change asks every time: a comment or a created issue goes to other people, a container starts a
+            // program as the user, and approving one is not approving the next with other text or another target.
             return authorize(
               {
                 connector: id,
                 label: spec.label,
                 action: String(input.action),
                 summary: call.summary,
-                sessionAllowable: id !== 'docker',
+                ...(call.headline ? { headline: call.headline } : {}),
+                ...(detail ? { detail } : {}),
+                sessionAllowable: false,
               },
               level,
               ctx.signal,
@@ -420,6 +459,7 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
                 label: spec.label,
                 action: `${input.service} ${input.operation}`,
                 summary: call.summary,
+                ...(call.detail ? { detail: call.detail } : {}),
                 sessionAllowable: false,
               },
               level,
@@ -438,14 +478,15 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
       const info = pi?.getAllTools().find((tool) => tool.name === event.toolName);
       if (classifyMcpTool(hosted.spec.mcp, hosted.tool, info?.annotations) === 'read') return undefined;
       if (!writesOffered(level)) return blocked(`${hosted.spec.label} is read-only right now.`);
-      const detail = clip(JSON.stringify(event.input ?? {}), 160);
+      // The whole input is shown, not its first 160 characters: it is what the service receives.
       return authorize(
         {
           connector: hosted.spec.id,
           label: hosted.spec.label,
           action: hosted.tool,
-          summary: `${hosted.tool} ${detail}`,
-          sessionAllowable: true,
+          summary: hosted.tool,
+          detail: JSON.stringify(event.input ?? {}, null, 2),
+          sessionAllowable: false,
         },
         level,
         ctx.signal,
@@ -465,7 +506,12 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
         content: [
           {
             type: 'text',
-            text: wrapUntrusted(hosted.tool, body + extra, RESULT_LIMIT, `${hosted.spec.label} (hosted connector)`),
+            text: wrapUntrusted(
+              hosted.tool,
+              maskSecrets(body) + extra,
+              RESULT_LIMIT,
+              `${hosted.spec.label} (hosted connector)`,
+            ),
           },
         ],
       };
@@ -527,6 +573,8 @@ export function createConnectorExtension(host: ExtensionHost): ConnectorExtensio
   return {
     factory,
     sync() {
+      // A change in /connectors is a new decision: what was approved for the session before it no longer holds.
+      allowed.clear();
       try {
         apply(bound);
       } catch {

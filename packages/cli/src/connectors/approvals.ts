@@ -1,5 +1,8 @@
 import type { ApprovalRequest } from '../tui/panel.ts';
 
+/** The most text an approval card shows, and so the most a call may carry: what is approved is what is sent. */
+export const APPROVAL_TEXT_LIMIT = 16_000;
+
 /** One question for the person, and which answers are offered. */
 export interface ApprovalEntry {
   text: string;

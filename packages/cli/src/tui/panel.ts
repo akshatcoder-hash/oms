@@ -8,6 +8,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorText, paintSurfaceRow, type OmsTheme, type ThemeRole } from './theme.ts';
+import { APPROVAL_TEXT_LIMIT } from '../connectors/approvals.ts';
 import { displayText, singleLine } from './transcript.ts';
 
 export interface BoxOptions {
@@ -143,10 +144,10 @@ export interface ApprovalRequest {
   session: boolean;
 }
 
-/** Every wrapped row of the command, as the card draws it; nothing is cut except the 4096-character sanitizer cap. */
+/** Every wrapped row of the command, as the card draws it: up to the limit callers are held to, so nothing is cut. */
 export function approvalCommandRows(command: string, width: number, plain = false): string[] {
   const content = Math.max(1, width - 6);
-  return displayText(command, 4096)
+  return displayText(command, APPROVAL_TEXT_LIMIT)
     .split('\n')
     .flatMap((line, index) => wrapTextWithAnsi(plain ? line : index === 0 ? `$ ${line}` : `  ${line}`, content));
 }

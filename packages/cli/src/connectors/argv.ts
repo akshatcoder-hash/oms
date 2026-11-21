@@ -21,6 +21,10 @@ export interface Call {
   write: boolean;
   /** One line for the approval row and the transcript. */
   summary: string;
+  /** What the approval row says before the text, when the summary carries a preview of it. */
+  headline?: string;
+  /** The text that goes out in full (a comment, a body, the flags), which the approval shows under the headline. */
+  detail?: string;
   timeoutMs: number;
   /** Keep only the last lines of the output (long CI logs). */
   tail?: number;
@@ -28,7 +32,7 @@ export interface Call {
 export type Params = Readonly<Record<string, unknown>>;
 interface Action {
   write: boolean;
-  build(params: Params): { args: string[]; summary: string; tail?: number };
+  build(params: Params): { args: string[]; summary: string; headline?: string; detail?: string; tail?: number };
 }
 
 const READ_MS = 20_000;
@@ -85,6 +89,8 @@ const preview = (value: string | undefined, max = 60): string => {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 };
 const label = (prefix: string, number?: string) => (number ? `${prefix} #${number}` : prefix);
+/** What a create action sends, all of it: the title, then the body under a blank line. */
+const posted = (title: string, body: string): string => (body ? `${title}\n\n${body}` : title);
 
 // ---------------------------------------------------------------- GitHub (gh)
 
@@ -195,6 +201,8 @@ export const GITHUB_ACTIONS: Readonly<Record<string, Action>> = {
           ...(p.draft === true ? ['--draft'] : []),
         ],
         summary: `open pull request "${preview(title)}"${base ? ` into ${base}` : ''}`,
+        headline: `open pull request${base ? ` into ${base}` : ''}`,
+        detail: posted(title, body),
       };
     },
   },
@@ -206,6 +214,8 @@ export const GITHUB_ACTIONS: Readonly<Record<string, Action>> = {
       return {
         args: ['pr', 'comment', ...(n ? [n] : []), `--body=${body}`],
         summary: `${label('comment on pull request', n)}: "${preview(body)}"`,
+        headline: label('comment on pull request', n),
+        detail: body,
       };
     },
   },
@@ -217,6 +227,8 @@ export const GITHUB_ACTIONS: Readonly<Record<string, Action>> = {
       return {
         args: ['issue', 'create', `--title=${title}`, `--body=${body}`],
         summary: `open issue "${preview(title)}"`,
+        headline: 'open issue',
+        detail: posted(title, body),
       };
     },
   },
@@ -228,6 +240,8 @@ export const GITHUB_ACTIONS: Readonly<Record<string, Action>> = {
       return {
         args: ['issue', 'comment', n!, `--body=${body}`],
         summary: `${label('comment on issue', n)}: "${preview(body)}"`,
+        headline: label('comment on issue', n),
+        detail: body,
       };
     },
   },
@@ -291,6 +305,8 @@ export const GITLAB_ACTIONS: Readonly<Record<string, Action>> = {
           ...(base ? [`--target-branch=${base}`] : []),
         ],
         summary: `open merge request "${preview(title)}"${base ? ` into ${base}` : ''}`,
+        headline: `open merge request${base ? ` into ${base}` : ''}`,
+        detail: posted(title, body),
       };
     },
   },
@@ -302,6 +318,8 @@ export const GITLAB_ACTIONS: Readonly<Record<string, Action>> = {
       return {
         args: ['mr', 'note', ...(n ? [n] : []), `--message=${body}`],
         summary: `${label('comment on merge request', n)}: "${preview(body)}"`,
+        headline: label('comment on merge request', n),
+        detail: body,
       };
     },
   },
@@ -313,6 +331,8 @@ export const GITLAB_ACTIONS: Readonly<Record<string, Action>> = {
       return {
         args: ['issue', 'create', `--title=${title}`, `--description=${body}`, '--yes'],
         summary: `open issue "${preview(title)}"`,
+        headline: 'open issue',
+        detail: posted(title, body),
       };
     },
   },
@@ -324,6 +344,8 @@ export const GITLAB_ACTIONS: Readonly<Record<string, Action>> = {
       return {
         args: ['issue', 'note', n!, `--message=${body}`],
         summary: `${label('comment on issue', n)}: "${preview(body)}"`,
+        headline: label('comment on issue', n),
+        detail: body,
       };
     },
   },
@@ -413,42 +435,148 @@ export const DOCKER_ACTIONS: Readonly<Record<string, Action>> = {
 
 // ---------------------------------------------------------------- AWS
 
-/** Services the agent may look at. Read operations only, and a few operations that return secrets are refused anyway. */
-export const AWS_SERVICES: readonly string[] = [
-  'acm',
-  'apigateway',
-  'apigatewayv2',
-  'cloudformation',
-  'cloudfront',
-  'cloudwatch',
-  'dynamodb',
-  'ec2',
-  'ecr',
-  'ecs',
-  'eks',
-  'elbv2',
-  'iam',
-  'lambda',
-  'logs',
-  'rds',
-  'route53',
-  's3api',
-  'sns',
-  'sqs',
-  'sts',
-];
+/**
+ * The read operations the agent may run, by service. Anything not listed is refused, whatever its name looks like: a
+ * get- or describe- can return a secret (a function's environment, a task definition's variables, a cluster token,
+ * an instance's user data), and a list of names cannot know which. A new operation is added after reading what it returns.
+ */
+const AWS_ALLOWED: Readonly<Record<string, readonly string[]>> = {
+  acm: ['describe-certificate', 'list-certificates'],
+  apigateway: ['get-rest-apis', 'get-rest-api', 'get-stages', 'get-resources', 'get-deployments', 'get-domain-names'],
+  apigatewayv2: ['get-apis', 'get-api', 'get-stages', 'get-routes', 'get-integrations', 'get-domain-names'],
+  cloudformation: [
+    'describe-stacks',
+    'describe-stack-events',
+    'describe-stack-resources',
+    'describe-stack-resource',
+    'list-stacks',
+    'list-stack-resources',
+    'list-exports',
+  ],
+  cloudfront: ['list-distributions', 'list-invalidations', 'get-invalidation'],
+  cloudwatch: [
+    'describe-alarms',
+    'describe-alarm-history',
+    'list-metrics',
+    'get-metric-statistics',
+    'get-metric-data',
+    'list-dashboards',
+  ],
+  dynamodb: ['describe-table', 'list-tables', 'describe-time-to-live', 'describe-continuous-backups', 'list-backups'],
+  ec2: [
+    'describe-instances',
+    'describe-instance-status',
+    'describe-vpcs',
+    'describe-subnets',
+    'describe-security-groups',
+    'describe-security-group-rules',
+    'describe-volumes',
+    'describe-images',
+    'describe-key-pairs',
+    'describe-addresses',
+    'describe-regions',
+    'describe-availability-zones',
+    'describe-route-tables',
+    'describe-internet-gateways',
+    'describe-nat-gateways',
+    'describe-network-interfaces',
+    'describe-snapshots',
+    'describe-tags',
+    'describe-launch-templates',
+  ],
+  ecr: [
+    'describe-repositories',
+    'describe-images',
+    'list-images',
+    'describe-image-scan-findings',
+    'get-lifecycle-policy',
+    'get-repository-policy',
+  ],
+  ecs: [
+    'list-clusters',
+    'describe-clusters',
+    'list-services',
+    'describe-services',
+    'list-tasks',
+    'list-container-instances',
+    'list-task-definitions',
+    'list-task-definition-families',
+  ],
+  eks: [
+    'list-clusters',
+    'describe-cluster',
+    'list-nodegroups',
+    'describe-nodegroup',
+    'list-addons',
+    'describe-addon',
+    'list-fargate-profiles',
+  ],
+  elbv2: [
+    'describe-load-balancers',
+    'describe-target-groups',
+    'describe-target-health',
+    'describe-listeners',
+    'describe-rules',
+    'describe-load-balancer-attributes',
+  ],
+  iam: [
+    'get-account-summary',
+    'list-users',
+    'list-roles',
+    'list-groups',
+    'list-policies',
+    'get-role',
+    'get-policy',
+    'get-user',
+    'list-attached-role-policies',
+    'list-role-policies',
+    'list-attached-user-policies',
+    'list-account-aliases',
+  ],
+  // A function's environment variables are where its secrets live: these two answer with a fixed set of fields.
+  lambda: [
+    'list-functions',
+    'get-function-configuration',
+    'list-aliases',
+    'list-layers',
+    'get-policy',
+    'list-event-source-mappings',
+  ],
+  logs: ['describe-log-groups', 'describe-log-streams', 'get-log-events', 'get-query-results'],
+  rds: [
+    'describe-db-instances',
+    'describe-db-clusters',
+    'describe-db-snapshots',
+    'describe-db-parameter-groups',
+    'describe-events',
+  ],
+  route53: ['list-hosted-zones', 'list-resource-record-sets', 'get-hosted-zone', 'list-health-checks'],
+  s3api: [
+    'list-buckets',
+    'get-bucket-location',
+    'get-bucket-versioning',
+    'list-objects-v2',
+    'list-objects',
+    'get-bucket-policy',
+    'get-bucket-tagging',
+    'get-bucket-encryption',
+    'get-public-access-block',
+    'get-bucket-lifecycle-configuration',
+  ],
+  sns: ['list-topics', 'get-topic-attributes', 'list-subscriptions', 'list-subscriptions-by-topic'],
+  sqs: ['list-queues', 'get-queue-attributes', 'get-queue-url'],
+  sts: ['get-caller-identity'],
+};
+/** Services the agent may look at. */
+export const AWS_SERVICES: readonly string[] = Object.keys(AWS_ALLOWED);
 const AWS_OPERATION = /^(describe|list|get)-[a-z0-9]+(-[a-z0-9]+)*$/;
-/** Operations that return credentials, secrets or file contents, though their names look like reads. */
-const AWS_REFUSED = new Set([
-  'ecr:get-login-password',
-  'ecr:get-authorization-token',
-  'lambda:get-function',
-  'iam:get-credential-report',
-  'dynamodb:get-item',
-  'dynamodb:batch-get-item',
-  's3api:get-object',
-  's3api:get-object-torrent',
-]);
+/** Output fields that are safe, for the operations that also return secrets: the agent cannot ask for others. */
+const AWS_FIXED_QUERY: Readonly<Record<string, string>> = {
+  'lambda:list-functions':
+    'Functions[].{FunctionName:FunctionName,Runtime:Runtime,Handler:Handler,MemorySize:MemorySize,Timeout:Timeout,LastModified:LastModified,Role:Role,State:State}',
+  'lambda:get-function-configuration':
+    '{FunctionName:FunctionName,Runtime:Runtime,Handler:Handler,MemorySize:MemorySize,Timeout:Timeout,LastModified:LastModified,Role:Role,State:State}',
+};
 const AWS_FLAG = /^[a-z][a-z0-9-]{0,40}$/;
 /** Flags that would change where the request goes, whose credentials it uses, or what it reads from disk or reveals. */
 const AWS_REFUSED_FLAGS = new Set([
@@ -463,10 +591,22 @@ const AWS_REFUSED_FLAGS = new Set([
   'cli-input-yaml',
   'generate-cli-skeleton',
   'cli-binary-format',
+  'cli-auto-prompt',
+  'cli-read-timeout',
+  'cli-connect-timeout',
   'with-decryption',
   'include-values',
+  'include-value',
   'no-sign-request',
+  'no-cli-pager',
+  'color',
 ]);
+/**
+ * The AWS CLI accepts a flag by any unambiguous start of its name (`--profil` is `--profile`), so a name that begins one
+ * of the refused ones is refused too.
+ */
+const refusedFlag = (flag: string): boolean =>
+  [...AWS_REFUSED_FLAGS].some((refused) => refused.startsWith(flag) || flag.startsWith(`${refused}=`));
 const AWS_VALUE = /^[^\x00-\x1f\x7f]{1,512}$/;
 const AWS_REGION = /^[a-z]{2}(-[a-z]+)+-\d$/;
 
@@ -476,9 +616,12 @@ export function awsCall(params: Params, profile?: string): Call {
   if (!AWS_SERVICES.includes(service))
     fail(`AWS service ${service || '(none)'} is not available. Choose one of: ${AWS_SERVICES.join(', ')}.`);
   if (!AWS_OPERATION.test(operation)) fail('Only describe-, list- and get- operations are allowed.');
-  if (AWS_REFUSED.has(`${service}:${operation}`))
-    fail(`${service} ${operation} is not available: it can return secrets.`);
-  if (service === 'sts' && operation !== 'get-caller-identity') fail('sts allows only get-caller-identity.');
+  if (!AWS_ALLOWED[service]!.includes(operation))
+    fail(
+      `${service} ${operation} is not available: only reviewed read operations run, and this one can return secrets or is not on the list. ` +
+        `Available for ${service}: ${AWS_ALLOWED[service]!.join(', ')}.`,
+    );
+  const fixedQuery = AWS_FIXED_QUERY[`${service}:${operation}`];
   const extra: string[] = [];
   const flags = params.args === undefined ? {} : params.args;
   if (!flags || typeof flags !== 'object' || Array.isArray(flags))
@@ -486,7 +629,9 @@ export function awsCall(params: Params, profile?: string): Call {
   const entries = Object.entries(flags as Record<string, unknown>);
   if (entries.length > 12) fail('args can have at most 12 flags.');
   for (const [flag, value] of entries) {
-    if (!AWS_FLAG.test(flag) || AWS_REFUSED_FLAGS.has(flag)) fail(`The flag --${flag} is not allowed.`);
+    if (!AWS_FLAG.test(flag) || refusedFlag(flag)) fail(`The flag --${flag} is not allowed.`);
+    if (fixedQuery && 'query'.startsWith(flag) && flag.length >= 1)
+      fail(`${service} ${operation} answers with a fixed set of fields; --${flag} is not allowed there.`);
     if (typeof value !== 'string' || !AWS_VALUE.test(value) || value.startsWith('-'))
       fail(`The value of --${flag} must be short text that does not start with a dash.`);
     // The AWS CLI reads a local file, or fetches an address, when a value starts like this.
@@ -498,12 +643,14 @@ export function awsCall(params: Params, profile?: string): Call {
   if (region !== undefined && !AWS_REGION.test(region)) fail('region must be a region name such as us-east-1.');
   if (profile !== undefined && !/^[A-Za-z0-9_.-]{1,64}$/.test(profile))
     fail('The saved AWS profile name is not valid.');
+  const shownFlags = extra.join(' ');
   return {
     program: 'aws',
     args: [
       service,
       operation,
       ...extra,
+      ...(fixedQuery ? ['--query', fixedQuery] : []),
       '--output',
       'json',
       '--no-cli-pager',
@@ -512,6 +659,15 @@ export function awsCall(params: Params, profile?: string): Call {
     ],
     write: false,
     summary: `aws ${service} ${operation}${region ? ` in ${region}` : ''}`,
+    // What the approval shows beyond the name: every flag with its value, the profile, and the fixed fields.
+    detail: [
+      shownFlags && `flags: ${shownFlags}`,
+      fixedQuery && 'fields: a fixed list without environment variables',
+      `profile: ${profile ?? 'default'}`,
+      `region: ${region ?? 'from the profile'}`,
+    ]
+      .filter(Boolean)
+      .join('\n'),
     timeoutMs: READ_MS,
   };
 }
