@@ -146,8 +146,6 @@ test('on a 15-row terminal an open panel takes the body, and F6 stays on what is
     await terminal.until((screen) => screen.includes('No file open'));
     terminal.send(key.altJ);
     await terminal.until((s) => /terminal\s+problems\s+output/.test(s) && !s.includes('No file open'));
-    terminal.send('\x0c'); // Ctrl+L: the composer
-    await terminal.until((s) => /❯/.test(s));
     for (let press = 0; press < 4; press++) {
       terminal.send(key.f6);
       const screen = await terminal.screen();
