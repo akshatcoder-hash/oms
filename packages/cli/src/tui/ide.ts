@@ -197,6 +197,8 @@ export class WorkbenchIde {
       revert: (change) => this.askRevert(change),
       requestFocus: (tab) => this.showPanel(tab),
       hide: () => this.hidePanel(),
+      open: () => this.panelOpen,
+      show: () => this.showPanel(),
       leave: () => options.focus('editor'),
     });
     this.explorer = new Explorer({

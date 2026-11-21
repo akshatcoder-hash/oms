@@ -258,3 +258,22 @@ test('typing in the composer shows how to send and how to add a line', async () 
     await close();
   }
 });
+
+test('a closed panel strip offers ▴ show, and clicking it opens the panel', async () => {
+  const { clickText } = await import('../test-support/fake-session.ts');
+  const p = project({ 'README.md': 'hello' });
+  const { terminal, done } = open(fixture(), p, 120, 40, 'chat');
+  try {
+    let screen = await terminal.until((s) => /terminal\s+problems\s+output\s+changes/.test(s));
+    assert.match(screen, /▴ show/);
+    assert.doesNotMatch(screen, /▾ hide/);
+    clickText(terminal, screen, '▴ show');
+    screen = await terminal.until((s) => /▾ hide/.test(s));
+    assert.doesNotMatch(screen, /▴ show/);
+    clickText(terminal, screen, '▾ hide');
+    await terminal.until((s) => /▴ show/.test(s));
+  } finally {
+    await done();
+    p.done();
+  }
+});
