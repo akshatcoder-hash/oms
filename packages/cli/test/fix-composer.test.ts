@@ -69,3 +69,31 @@ test('a draft taller than the composer says how many rows are scrolled out above
     await close();
   }
 });
+
+test('Up on the first row recalls earlier messages and Down walks back to the draft', async () => {
+  const f = chatFixture();
+  const { terminal, close } = start(f.harness, 100, 30);
+  try {
+    await terminal.until((screen) => screen.includes('/ commands'));
+    for (const text of ['first message', 'second message']) {
+      terminal.send(text);
+      terminal.send('\r');
+      await terminal.until(() => f.prompts.includes(text));
+      f.promptGate.resolve();
+      await terminal.until((screen) => !/[⠁-⣿] /.test(screen));
+    }
+    terminal.send('half typed');
+    terminal.send('\x1b[A');
+    await terminal.until((screen) => screen.includes('❯ second message'));
+    terminal.send('\x1b[A');
+    await terminal.until((screen) => screen.includes('❯ first message'));
+    terminal.send('\x1b[A');
+    await terminal.until((screen) => screen.includes('❯ first message'));
+    terminal.send('\x1b[B');
+    await terminal.until((screen) => screen.includes('❯ second message'));
+    terminal.send('\x1b[B');
+    await terminal.until((screen) => screen.includes('❯ half typed'), 2000);
+  } finally {
+    await close();
+  }
+});

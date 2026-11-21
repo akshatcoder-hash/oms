@@ -845,6 +845,33 @@ export async function runOmsInterface(
     const model = harness.session.model;
     return model && models().find((choice) => choice.provider === model.provider && choice.id === model.id);
   }
+  // Earlier prompts and commands, for Up and Down in the composer; kept in memory for this session only.
+  const sent: string[] = [];
+  let sentIndex = 0;
+  let unsent = '';
+  function remember(text: string): void {
+    if (sent.at(-1) !== text) sent.push(text);
+    if (sent.length > 100) sent.shift();
+    sentIndex = sent.length;
+  }
+  /** Up on the first row recalls the previous message; Down on the last row goes forward again. True when it did. */
+  function recall(direction: -1 | 1): boolean {
+    const rows = input.rows(Math.max(1, terminal.columns - 2));
+    if (
+      direction < 0
+        ? input.position.line !== 1 || sentIndex === 0
+        : input.position.line < rows || sentIndex >= sent.length
+    )
+      return false;
+    if (sentIndex === sent.length) unsent = input.document.text;
+    sentIndex += direction;
+    const text = sentIndex === sent.length ? unsent : sent[sentIndex]!;
+    input.document.select(0, input.document.text.length);
+    input.document.insert(text);
+    input.focus.invalidate();
+    requestRender();
+    return true;
+  }
   function clearDraft(snapshot: string | undefined): void {
     if (snapshot === undefined || input.document.text !== snapshot) return;
     input.document.select(0, snapshot.length);
@@ -1169,6 +1196,7 @@ export async function runOmsInterface(
     const composerDraft = fromPalette ? undefined : draft;
     if (!draft.trim()) return;
     const trimmed = draft.trim();
+    if (!fromPalette) remember(draft);
     if (trimmed === '/quit' || trimmed === '/exit') {
       quit();
       return;
@@ -1782,6 +1810,12 @@ export async function runOmsInterface(
         changeFocus(matchesKey(data, 'shift+tab'));
         return { consume: true };
       }
+      if (
+        focus === 'input' &&
+        (matchesKey(data, 'up') || matchesKey(data, 'down')) &&
+        recall(matchesKey(data, 'up') ? -1 : 1)
+      )
+        return { consume: true };
       if (focus === 'input') {
         if (data === '?' && !input.document.text) {
           submit('/help keys', true);
