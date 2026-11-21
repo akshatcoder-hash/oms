@@ -84,10 +84,15 @@ import {
   type OmsThemeId,
 } from './theme.ts';
 
+/** Only a selection that began in the conversation loses its glyph gutters; editor and terminal text is copied as it is. */
+export function selectionClipboardText(text: string, inTranscript: boolean): string {
+  return inTranscript ? copyableText(text) : text;
+}
+
 /** Clipboard writer for copy-on-select: true on success, otherwise the reason shown to the user. */
-async function copySelectionText(text: string): Promise<boolean | string> {
+async function copySelectionText(text: string, inTranscript: boolean): Promise<boolean | string> {
   try {
-    await copyToClipboard(copyableText(text));
+    await copyToClipboard(selectionClipboardText(text, inTranscript));
     return true;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
@@ -158,11 +163,26 @@ class InterfaceRenderer extends TuiAltScreen {
     mouseFocus: (component: Component) => Component,
   ) {
     // Selecting text copies it, like most coding CLIs; the terminal's own selection is captured by mouse mode.
-    super(terminal, true, undefined, { mouse: true, copyOnSelect: true, copySelection: copySelectionText });
+    const self: { renderer?: InterfaceRenderer } = {};
+    super(terminal, true, undefined, {
+      mouse: true,
+      copyOnSelect: true,
+      copySelection: (text) => copySelectionText(text, self.renderer?.selectionStartsInTranscript() ?? false),
+    });
+    self.renderer = this;
     this.fail = fail;
     this.palette = palette;
     this.prepareFrame = prepareFrame;
     this.mouseFocus = mouseFocus;
+  }
+  /** The conversation's scroll view, set once it exists. */
+  transcriptView: unknown;
+  /** Whether the current selection began inside the conversation. The renderer keeps its bounds in a private method. */
+  selectionStartsInTranscript(): boolean {
+    const bounds = (
+      this as unknown as { getSelectionBounds(): { start: { scrollView?: unknown } } | undefined }
+    ).getSelectionBounds?.();
+    return !!bounds && this.transcriptView !== undefined && bounds.start.scrollView === this.transcriptView;
   }
   /** Rows painted last frame, by their unpainted text; most rows do not change between frames. */
   private painted = new Map<string, string>();
@@ -1512,6 +1532,7 @@ export async function runOmsInterface(
   ]);
   const composerEntry = layoutRoot[LAYOUT_NODE]().entries.find((entry) => entry.component === composer)!;
   renderer.setLayoutRoot(layoutRoot);
+  renderer.transcriptView = transcript;
   setFocus(focus);
   function changeFocus(backward = false): void {
     const order: Focus[] =

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HarnessSession } from '@oms/engine';
 import { chatFixture, fixture, start } from '../test-support/fake-session.ts';
+import { barrier } from '../test-support/interface-terminal.ts';
 
 type Approve = Parameters<NonNullable<HarnessSession['setHostApproval']>>[0];
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -150,7 +151,7 @@ for (const [place, focusKeys] of [
 
 test('the interrupt hint goes when Esc cannot stop the work: a review runs to its timeout', async () => {
   const f = fixture();
-  const gate = Promise.withResolvers<void>();
+  const gate = barrier<void>();
   const { terminal, close } = start(f.harness, 120, 36, {
     review: async () => {
       await gate.promise;
@@ -200,3 +201,11 @@ for (const [name, text, caps] of [
     }
   });
 }
+
+test('copy-on-select drops the glyph gutters of conversation text only', async () => {
+  const { selectionClipboardText } = await import('../src/tui/interface.ts');
+  const shell = '❯ cargo build\n   Compiling foo v0.1\n    Finished dev';
+  assert.equal(selectionClipboardText(shell, false), shell, 'terminal and editor text is copied exactly');
+  assert.equal(selectionClipboardText('● item one\n● item two', false), '● item one\n● item two');
+  assert.equal(selectionClipboardText('● Read  lib.rs\n  body line', true), 'Read  lib.rs\nbody line');
+});
