@@ -355,7 +355,7 @@ const contrast = (a: [number, number, number], b: [number, number, number]) => {
 
 test('on the 256-color path the line numbers of added and removed diff rows stay readable', async () => {
   const { Conversation } = await import('../src/tui/transcript.ts');
-  const theme = getTheme('oms-ember', { depth: '256', backdrop: 'paint' })!;
+  const theme = getTheme('oms-ember', { depth: '256', backdrop: 'theme' })!;
   const conversation = new Conversation([], undefined, { cwd: '/work/project' });
   conversation.applyTheme(theme);
   const message = {
