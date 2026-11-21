@@ -89,6 +89,9 @@ export function parseRipgrepJson(output: string): TextMatch[] {
   return matches;
 }
 
+/** Smart case, as `rg --smart-case`: a capital letter in the query makes it match case. */
+const caseSensitive = (query: string) => query !== query.toLowerCase();
+
 /** `git grep -n` output (`path:line:text`) as matches. */
 export function parseGitGrep(output: string, query: string): TextMatch[] {
   const matches: TextMatch[] = [];
@@ -98,7 +101,7 @@ export function parseGitGrep(output: string, query: string): TextMatch[] {
     matches.push({
       path: found[1]!,
       line: Number(found[2]),
-      column: Math.max(0, found[3]!.toLowerCase().indexOf(query.toLowerCase())) + 1,
+      column: Math.max(0, caseSensitive(query) ? found[3]!.indexOf(query) : found[3]!.toLowerCase().indexOf(query)) + 1,
       text: found[3]!.trim().slice(0, 200),
     });
     if (matches.length >= MATCH_LIMIT) break;
@@ -240,7 +243,20 @@ export class ProjectIndex {
     try {
       const out = await git(
         this.root,
-        ['grep', '-n', '-I', '-F', '-i', '--no-color', '--max-count', '50', '-e', query, '--', '.'],
+        [
+          'grep',
+          '-n',
+          '-I',
+          '-F',
+          ...(caseSensitive(query) ? [] : ['-i']),
+          '--no-color',
+          '--max-count',
+          '50',
+          '-e',
+          query,
+          '--',
+          '.',
+        ],
         signal,
       ).catch((error: { code?: number | string }) => {
         if (error.code === 1) return '';
