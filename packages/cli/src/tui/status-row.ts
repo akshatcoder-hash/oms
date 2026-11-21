@@ -187,6 +187,8 @@ export interface HintState {
   popup: boolean;
   /** `/error <code> [program]` when the draft is a command that still needs its argument. */
   usage?: string;
+  /** The composer has text: Enter sends it, and the way to a second line is worth saying. */
+  drafting?: boolean;
   view: 'harness' | 'workbench';
   focus: 'input' | 'editor' | 'terminal' | 'conversation' | 'requirements' | 'actions' | 'explorer' | 'panel';
 }
@@ -239,6 +241,12 @@ export function statusHints(state: HintState): readonly Hint[] {
     return [
       ['esc', 'back to chat'],
       ['↑↓', 'scroll'],
+    ];
+  if (state.drafting && state.focus === 'input' && state.view === 'harness')
+    return [
+      ['enter', 'send'],
+      ['shift+enter', 'new line'],
+      ['ctrl+q', 'quit'],
     ];
   return [
     ['/', 'commands'],

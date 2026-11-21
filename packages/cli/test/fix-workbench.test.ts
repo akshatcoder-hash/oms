@@ -213,3 +213,48 @@ test('with the header on screen the hints do not repeat the chat tab', async () 
     p.done();
   }
 });
+
+test('/help and ? open at their first line, and the keys list says how to add a line', async () => {
+  const { chatFixture, start } = await import('../test-support/fake-session.ts');
+  for (const [columns, rows] of [
+    [80, 24],
+    [140, 42],
+  ] as const) {
+    const f = chatFixture();
+    const { terminal, close } = start(f.harness, columns, rows);
+    try {
+      await terminal.until((s) => s.includes('/ commands'));
+      terminal.send('?');
+      const keys = await terminal.until((s) => /shift\+enter/.test(s));
+      const rowsOf = keys.split('\n');
+      assert.match(rowsOf.slice(0, 6).join('\n'), /Keys/i, `the list starts at its first line at ${columns}x${rows}`);
+      terminal.send('/help');
+      terminal.send('\r');
+      const help = await terminal.until((s) => /\/model/.test(s) && /\/cancel|\/connect/.test(s));
+      assert.match(
+        help.split('\n').slice(0, 5).join('\n'),
+        /⎿ +help[^\n]*\n +\/connect/,
+        `help starts at the top at ${columns}x${rows}`,
+      );
+    } finally {
+      await close();
+    }
+  }
+});
+
+test('typing in the composer shows how to send and how to add a line', async () => {
+  const { chatFixture, start } = await import('../test-support/fake-session.ts');
+  const f = chatFixture();
+  const { terminal, close } = start(f.harness, 100, 30);
+  try {
+    await terminal.until((s) => s.includes('/ commands'));
+    terminal.send('fix the bug');
+    const screen = await terminal.until((s) => s.includes('shift+enter new line'));
+    assert.match(screen.split('\n').at(-1)!, /enter send · shift\+enter new line/);
+    terminal.send('\x01');
+    terminal.send('\x7f');
+    await terminal.until((s) => s.includes('/ commands · ? shortcuts'));
+  } finally {
+    await close();
+  }
+});

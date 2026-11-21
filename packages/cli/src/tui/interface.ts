@@ -532,6 +532,8 @@ export async function runOmsInterface(
     return artHidden ? art.block(width, rows, artShown, muted, artHidden) : block;
   }
   let artRows = 0;
+  /** The next frame scrolls the conversation to where its newest note begins. */
+  let noteTopPending = false;
   const transcript = new (class extends ScrollView {
     // The viewport and scroll position are known only after the content renders: render again when they differ from
     // the ones the art was drawn for (the size, and for the real picture which rows are scrolled away).
@@ -556,6 +558,16 @@ export async function runOmsInterface(
         const body = lines.length ? lines : hint;
         const block = artBlock(width, hint.length, body.length);
         artRows = block.length;
+        if (noteTopPending) {
+          noteTopPending = false;
+          const start = conversation.lastEntryStart();
+          // The view lays out after drawing: move it once this frame is done.
+          if (start !== undefined && lines.length)
+            queueMicrotask(() => {
+              transcript.scrollTo(artRows + start);
+              requestRender();
+            });
+        }
         return conversation.withNewOutput(block.length ? [...block, ...body] : body, transcript, width);
       },
       // A click opens or folds the entry under it, or takes the view to the end from the '▼ new output' chip.
@@ -1220,6 +1232,10 @@ export async function runOmsInterface(
       transcript.scrollToEnd();
       requestRender();
     },
+    scrollToNote() {
+      noteTopPending = true;
+      requestRender();
+    },
     editorAction,
     terminalAction,
     setAgentPanel(visible) {
@@ -1642,6 +1658,7 @@ export async function runOmsInterface(
               canInterrupt: canInterrupt(),
               popup: popup || !!paletteInput,
               ...(usageHint ? { usage: usageHint } : {}),
+              ...(input.document.text ? { drafting: true } : {}),
               view,
               focus,
             }),
