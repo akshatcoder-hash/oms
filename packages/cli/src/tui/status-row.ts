@@ -168,6 +168,8 @@ export interface HintState {
   approval?: 'once-or-session' | 'once' | 'read';
   overlay: boolean;
   busy: boolean;
+  /** Esc stops the running work from here (default true); false for a verification or review, or the shell's focus. */
+  canInterrupt?: boolean;
   popup: boolean;
   /** `/error <code> [program]` when the draft is a command that still needs its argument. */
   usage?: string;
@@ -198,7 +200,7 @@ export function statusHints(state: HintState): readonly Hint[] {
       ['usage', state.usage],
       ['enter', 'run'],
     ];
-  if (state.busy)
+  if (state.busy && state.canInterrupt !== false)
     return [
       ['esc', 'interrupt'],
       ['/', 'commands'],

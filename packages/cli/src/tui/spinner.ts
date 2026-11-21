@@ -27,7 +27,8 @@ const lastSegments = (path: string): string => path.split('/').filter(Boolean).s
 export function toolVerb(name: string | undefined, args: unknown): string {
   if (!name) return 'Thinking';
   const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>;
-  const path = lastSegments(clipLine(text(a.path ?? a.file_path ?? a.file), 120));
+  // The last two segments first, then the cut: a long absolute path must not lose its tail.
+  const path = clipLine(lastSegments(text(a.path ?? a.file_path ?? a.file)), 80);
   switch (name) {
     case 'read':
       return path ? `Reading ${path}` : 'Reading';
@@ -64,6 +65,8 @@ export interface SpinnerFacts {
   elapsedMs: number;
   /** Output tokens this turn; hidden when unknown or zero. */
   tokens: number;
+  /** False when Esc does not stop the work here (a verification or review, or the shell has the keys); the hint goes. */
+  canStop?: boolean;
 }
 
 /**
@@ -97,7 +100,7 @@ export class SpinnerRow extends Loader {
   }
   override render(width: number): string[] {
     const theme = this.palette();
-    const { verb, elapsedMs, tokens } = this.facts();
+    const { verb, elapsedMs, tokens, canStop = true } = this.facts();
     // Glyphs sit in the left gutter (column 0), text from column 2; the right edge keeps the row margin.
     const room = Math.max(0, width - edge(width));
     const frame = this.getRenderedIndicator();
@@ -107,7 +110,7 @@ export class SpinnerRow extends Loader {
     let right = stats.join(separator);
     const withStop = `${right}${separator}esc to interrupt`;
     const verbRoom = (candidate: string) => room - visibleWidth(candidate) - 4;
-    if (verbRoom(withStop) >= 12) right = withStop;
+    if (canStop && verbRoom(withStop) >= 12) right = withStop;
     const left = `${frame} ${colorText(theme, 'foreground', truncateToWidth(verb + this.glyphs.ellipsis, Math.max(1, verbRoom(right) - 2), ''))}`;
     const gap = Math.max(1, room - visibleWidth(left) - visibleWidth(right));
     // A single row, so a start with no content yet (empty verb) still shows the frame.

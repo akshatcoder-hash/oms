@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HarnessSession } from '@oms/engine';
-import { chatFixture, start } from '../test-support/fake-session.ts';
+import { chatFixture, fixture, start } from '../test-support/fake-session.ts';
 
 type Approve = Parameters<NonNullable<HarnessSession['setHostApproval']>>[0];
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
@@ -116,3 +116,87 @@ test('an overlay panel steps aside for an approval card and returns after the an
     await close();
   }
 });
+
+const idle = (screen: string): boolean => screen.trim() !== '' && !/(?:^|── )[⠁-⣿] \S/m.test(screen);
+const last = (screen: string) => screen.split('\n').at(-1)!;
+
+for (const [place, focusKeys] of [
+  ['the composer', ''],
+  ['the editor', '\x1b[17~'],
+] as const) {
+  test(`in the workbench Esc stops a running turn from ${place}, and the hints say so`, async () => {
+    const f = chatFixture();
+    const { terminal, close } = start(f.harness, 100, 36, { view: 'workbench' });
+    try {
+      await terminal.until((screen) => screen.includes('No file open'));
+      terminal.send('\x0c'); // ctrl+l: the composer
+      terminal.send('go');
+      terminal.send('\r');
+      await terminal.until((s) => /esc to interrupt/.test(s));
+      if (focusKeys) {
+        terminal.send(focusKeys); // F6: the editor
+        await terminal.until((s) => /^ *Ctrl\+P files/m.test(s) && /esc to interrupt/.test(s));
+      }
+      assert.match(last(await terminal.screen()), /esc interrupt/);
+      terminal.send('\x1b');
+      await terminal.until(() => f.abortRequested());
+    } finally {
+      f.abortGate.resolve();
+      f.promptGate.resolve();
+      await close();
+    }
+  });
+}
+
+test('the interrupt hint goes when Esc cannot stop the work: a review runs to its timeout', async () => {
+  const f = fixture();
+  const gate = Promise.withResolvers<void>();
+  const { terminal, close } = start(f.harness, 120, 36, {
+    review: async () => {
+      await gate.promise;
+      return 0;
+    },
+  });
+  try {
+    await terminal.until((screen) => idle(screen));
+    terminal.send('/review');
+    terminal.send('\r');
+    const screen = await terminal.until((s) => s.includes('Reviewing the code'));
+    assert.doesNotMatch(screen, /esc to interrupt/);
+    assert.doesNotMatch(last(screen), /esc interrupt/);
+  } finally {
+    gate.resolve();
+    await close();
+  }
+});
+
+for (const [name, text, caps] of [
+  ['used up', 'budget used up', { exhausted: true }],
+  ['nearly spent', 'budget 5% left', { remaining: { tokens: 5, spendMicroUsd: 5, wallClockMs: 5 } }],
+] as const) {
+  test(`a budget that is ${name} stays visible in a narrow focused editor, which keeps taking text`, async () => {
+    const f = fixture();
+    const original = f.harness.budget.snapshot();
+    f.harness.budget.snapshot = () => ({
+      ...original,
+      ...(caps as object),
+      caps: { tokens: 100, spendMicroUsd: 100, wallClockMs: 100 },
+    });
+    const { terminal, close } = start(f.harness, 40, 12);
+    try {
+      await terminal.screen();
+      terminal.send('/workbench');
+      terminal.send('\r');
+      const screen = await terminal.until((value) => value.includes(text));
+      assert.ok(screen.includes(text));
+      terminal.send('\x0b');
+      terminal.send('harness');
+      terminal.send('\r');
+      terminal.send('still editable');
+      await terminal.until((value) => value.includes('still editable'));
+      assert.deepEqual(f.prompts, []);
+    } finally {
+      await close();
+    }
+  });
+}

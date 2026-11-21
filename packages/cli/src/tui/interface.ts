@@ -365,6 +365,7 @@ export async function runOmsInterface(
       verb: busyVerb(),
       elapsedMs: busyStartedAt === undefined ? 0 : Date.now() - busyStartedAt,
       tokens: completedTokens + streamingTokens,
+      canStop: canInterrupt(),
     }),
   );
   /** The model catalog is rebuilt on every read; a frame reads it once. */
@@ -373,6 +374,13 @@ export async function runOmsInterface(
   const models = () => (framing ? (frameModels ??= harness.listModels()) : harness.listModels());
   /** The one busy rule: a model turn, a command, or a cancellation still settling. */
   const busy = () => !!active || externalBusy || !!externalCancellation;
+  /** Esc can stop what is running: not a verification or review, nor a cancellation already under way, nor the shell's own keys. */
+  const canInterrupt = () =>
+    busy() &&
+    !closing &&
+    focus !== 'terminal' &&
+    !externalCancellation &&
+    (active ? active.cancellable && !active.cancellation : true);
   const input = createFileEditorPane('', () => {
     if (input.document.text !== dismissedCommands) dismissedCommands = undefined;
     requestRender();
@@ -1414,6 +1422,7 @@ export async function runOmsInterface(
             : {}),
           overlay: !!setup,
           busy: busy(),
+          canInterrupt: canInterrupt(),
           popup: popup || !!paletteInput,
           ...(usageHint ? { usage: usageHint } : {}),
           view,
@@ -1676,6 +1685,11 @@ export async function runOmsInterface(
         shell.focus.handleInput?.(data);
         return { consume: true };
       }
+      // Esc stops running work from the editor too, once it has nothing of its own to close.
+      if (focus === 'editor' && matchesKey(data, 'escape') && canInterrupt() && workbench.atRest) {
+        cancel();
+        return { consume: true };
+      }
       if (focus === 'editor') {
         workbench.handleInput(data);
         return { consume: true };
@@ -1697,6 +1711,7 @@ export async function runOmsInterface(
           dismissedCommands = input.document.text;
           requestRender();
         } else if (focus !== 'input') setFocus('input');
+        else if (canInterrupt()) cancel();
         else if (view === 'workbench') setFocus('editor');
         else if (notice && !busy()) {
           notice = '';
