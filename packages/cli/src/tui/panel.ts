@@ -1,4 +1,11 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from '@earendil-works/pi-tui';
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+  type Component,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
+} from '@earendil-works/pi-tui';
 import { inGlyphs, type Glyphs } from './glyphs.ts';
 import { colorText, paintSurfaceRow, type OmsTheme, type ThemeRole } from './theme.ts';
 import { displayText, singleLine } from './transcript.ts';
@@ -95,6 +102,14 @@ export class Panel implements Component {
     this.options.body.invalidate();
     this.options.input?.invalidate();
   }
+  /** Mouse events inside the borders and padding go to the body, with coordinates counted from its first row. */
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const padX = 2;
+    const top = 1 + ((this.options.compact?.() ?? false) ? 0 : 1);
+    const y = event.y - top;
+    if (event.type !== 'wheel' && (y < 0 || y >= this.bodyRows() || event.x < 1 + padX)) return undefined;
+    return this.options.body.handleMouse?.({ ...event, x: event.x - 1 - padX, y });
+  }
   render(width: number): string[] {
     const o = this.options;
     const content = Math.max(1, width - 6);
@@ -122,10 +137,34 @@ export interface ApprovalRequest {
   session: boolean;
 }
 
-const COMMAND_ROWS = 6;
+/** Every wrapped row of the command, as the card draws it; nothing is cut except the 4096-character sanitizer cap. */
+export function approvalCommandRows(command: string, width: number): string[] {
+  const content = Math.max(1, width - 6);
+  return displayText(command, 4096)
+    .split('\n')
+    .flatMap((line, index) => wrapTextWithAnsi(index === 0 ? `$ ${line}` : `  ${line}`, content));
+}
 
-/** The host-command approval card, drawn between the conversation and the composer. Presentation only. */
-export function approvalCard(theme: OmsTheme, glyphs: Glyphs, request: ApprovalRequest, width: number): string[] {
+/** The window of the command the card shows; the rest is read by scrolling. */
+export interface ApprovalView {
+  rows: number;
+  offset: number;
+}
+
+/** Whether the window has reached the last row of the command, so the whole command has been on screen. */
+export const approvalFullyShown = (total: number, view: ApprovalView): boolean => view.offset + view.rows >= total;
+
+/**
+ * The host-command approval card, drawn between the conversation and the composer. Presentation only. A command taller
+ * than `view.rows` scrolls inside the card, and the Allow options are marked locked until its last row has been shown.
+ */
+export function approvalCard(
+  theme: OmsTheme,
+  glyphs: Glyphs,
+  request: ApprovalRequest,
+  width: number,
+  view?: ApprovalView,
+): string[] {
   const content = Math.max(1, width - 6);
   const reason = request.reasons
     .map((item) => singleLine(item, 200))
@@ -134,16 +173,33 @@ export function approvalCard(theme: OmsTheme, glyphs: Glyphs, request: ApprovalR
   const rows: string[] = [];
   if (request.requester) rows.push(colorText(theme, 'muted', `from ${singleLine(request.requester, 40)}`));
   if (reason) rows.push(...wrapTextWithAnsi(colorText(theme, 'warning', reason), content));
-  const command = displayText(request.command, 4096)
-    .split('\n')
-    .flatMap((line, index) => wrapTextWithAnsi(index === 0 ? `$ ${line}` : `  ${line}`, content));
-  rows.push('', ...command.slice(0, COMMAND_ROWS));
-  if (command.length > COMMAND_ROWS)
-    rows.push(colorText(theme, 'faint', `${glyphs.ellipsis} ${command.length - COMMAND_ROWS} more lines`));
+  const command = approvalCommandRows(request.command, width);
+  const shown = view ? Math.max(1, view.rows) : command.length;
+  const offset = view ? Math.max(0, Math.min(view.offset, command.length - shown)) : 0;
+  const locked = view ? !approvalFullyShown(command.length, { rows: shown, offset }) : false;
+  rows.push('', ...command.slice(offset, offset + shown));
+  if (command.length > shown) {
+    const above = offset;
+    const below = command.length - offset - shown;
+    rows.push(
+      colorText(
+        theme,
+        locked ? 'warning' : 'faint',
+        inGlyphs(
+          glyphs,
+          `${above ? `↑ ${above} above` : ''}${above && below ? ' · ' : ''}${below ? `↓ ${below} more` : ''} · ↑↓ scroll`,
+        ),
+      ),
+    );
+  }
+  const option = (key: string, label: string) =>
+    locked ? `${colorText(theme, 'faint', key)}  ${colorText(theme, 'faint', label)}` : keyOption(theme, key, label);
   rows.push(
     '',
-    keyOption(theme, 'y', 'Allow once'),
-    ...(request.session ? [keyOption(theme, 's', 'Allow for this session')] : []),
+    option('y', locked ? 'Allow once · read the whole command first' : 'Allow once'),
+    ...(request.session
+      ? [option('s', locked ? 'Allow for this session · read it first' : 'Allow for this session')]
+      : []),
     keyOption(theme, 'n', `Deny${' '.repeat(2)}${colorText(theme, 'faint', 'esc')}`),
   );
   return boxLines({ theme, glyphs, width, title: 'Allow host command?', border: 'warning', rows, padY: 0 });

@@ -62,6 +62,8 @@ export interface IdeOptions {
   /** Run a slash command as if chosen from the palette. */
   run: (command: string) => void;
   busy: () => boolean;
+  /** What stops the running work from the editor, if anything does: Esc, or nothing (a review runs to its end). */
+  interrupt: () => 'esc' | 'ctrl+l' | undefined;
   awaiting: () => boolean;
   startedAt: number;
   copy: (text: string) => void;
@@ -390,6 +392,10 @@ export class WorkbenchIde {
   /** Something modal is open (quick open, ask menu, a confirmation): it takes every key. */
   get capturing(): boolean {
     return this.finder.open || !!this.card || !!this.confirm;
+  }
+  /** The editor shows its file with nothing of its own to close: Esc is free to stop running work. */
+  get atRest(): boolean {
+    return !this.capturing && this.workbench.atRest;
   }
   /** Terminal focus is only meaningful while the panel shows the terminal. */
   get terminalFocusable(): boolean {
@@ -807,8 +813,14 @@ export class WorkbenchIde {
         const about = context
           ? ` about ${clean(context.label, 40)}${context.selected ? `:${context.from}${context.to > context.from ? `-${context.to}` : ''}` : ''}`
           : '';
+        const stop = this.options.interrupt();
         const left = busy
-          ? colorText(theme, 'accent', ' ◐ ') + colorText(theme, 'muted', 'The agent is working · Esc cancels')
+          ? colorText(theme, 'accent', ' ◐ ') +
+            colorText(
+              theme,
+              'muted',
+              `The agent is working${stop === 'esc' ? ' · Esc cancels' : stop === 'ctrl+l' ? ' · Ctrl+L then Esc cancels' : ''}`,
+            )
           : colorText(theme, 'accent', ' ❯ ') + colorText(theme, 'muted', `Ask OMS${about}…`);
         const right = colorText(theme, 'muted', busy ? '' : 'Ctrl+L type · Alt+A actions ');
         const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
