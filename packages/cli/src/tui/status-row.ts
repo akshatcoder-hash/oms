@@ -114,6 +114,8 @@ export interface StatusRowInput {
   /** Color of the toast (the accent when absent). */
   toastRole?: ThemeRole;
   facts: readonly StatusFact[];
+  /** How many leading hints must stay on screen, by dropping facts (default 1). */
+  keepHints?: number;
 }
 
 function factText(theme: OmsTheme, glyphs: Glyphs, fact: StatusFact): string {
@@ -134,8 +136,13 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
   const joined = (parts: readonly string[]) => parts.join(separator);
   const toast = input.toast === undefined ? undefined : inGlyphs(glyphs, singleLine(input.toast, 400));
   const hints = input.hints.map(([key, label]) => [inGlyphs(glyphs, key), inGlyphs(glyphs, label)] as const);
-  const first = hints[0];
-  const needed = toast !== undefined ? visibleWidth(toast) : first ? visibleWidth(`${first[0]} ${first[1]}`) : 0;
+  const kept = hints.slice(0, Math.max(1, input.keepHints ?? 1));
+  const needed =
+    toast !== undefined
+      ? visibleWidth(toast)
+      : kept.length
+        ? visibleWidth(joined(kept.map(([key, label]) => `${key} ${label}`)))
+        : 0;
   const shown = [...input.facts];
   const rightWidth = () => visibleWidth(joined(shown.map((fact) => factText(theme, glyphs, fact))));
   for (const key of DROP_ORDER) {
@@ -169,18 +176,28 @@ export function statusRow(theme: OmsTheme, glyphs: Glyphs, input: StatusRowInput
 
 /** What the status row's left side says for the current state. */
 export interface HintState {
-  approval?: 'once-or-session' | 'once';
+  /** `read`: the command is taller than the card and has not been scrolled to its end, so Allow is locked. */
+  approval?: 'once-or-session' | 'once' | 'read';
   /** A yes/no question from a command (/yolo) is waiting for a key. */
   confirm?: boolean;
   overlay: boolean;
   busy: boolean;
+  /** Esc stops the running work from here (default true); false for a verification or review, or the shell's focus. */
+  canInterrupt?: boolean;
   popup: boolean;
   /** `/error <code> [program]` when the draft is a command that still needs its argument. */
   usage?: string;
+  /** The composer has text: Enter sends it, and the way to a second line is worth saying. */
+  drafting?: boolean;
   view: 'harness' | 'workbench';
   focus: 'input' | 'editor' | 'terminal' | 'conversation' | 'requirements' | 'actions' | 'explorer' | 'panel';
 }
 export function statusHints(state: HintState): readonly Hint[] {
+  if (state.approval === 'read')
+    return [
+      ['↑↓', 'read the whole command to allow'],
+      ['n / esc', 'deny'],
+    ];
   if (state.approval)
     return [
       ['y', 'allow once'],
@@ -204,7 +221,7 @@ export function statusHints(state: HintState): readonly Hint[] {
       ['usage', state.usage],
       ['enter', 'run'],
     ];
-  if (state.busy)
+  if (state.busy && state.canInterrupt !== false)
     return [
       ['esc', 'interrupt'],
       ['/', 'commands'],
@@ -224,6 +241,12 @@ export function statusHints(state: HintState): readonly Hint[] {
     return [
       ['esc', 'back to chat'],
       ['↑↓', 'scroll'],
+    ];
+  if (state.drafting && state.focus === 'input' && state.view === 'harness')
+    return [
+      ['enter', 'send'],
+      ['shift+enter', 'new line'],
+      ['ctrl+q', 'quit'],
     ];
   return [
     ['/', 'commands'],

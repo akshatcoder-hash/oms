@@ -141,6 +141,10 @@ export class WorkbenchPane {
     const labels = tabLabels([...this.buffers.keys()]);
     return [...this.buffers.values()].filter(bufferDirty).map((buffer) => buffer.title ?? labels.get(buffer.path)!);
   }
+  /** Showing the editors with no prompt or confirmation open: Esc has nothing here to close. */
+  get atRest(): boolean {
+    return this.mode === 'editor';
+  }
   get acceptsText(): boolean {
     return this.mode !== 'editor' || !!this.slots[this.side];
   }

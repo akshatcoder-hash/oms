@@ -30,7 +30,12 @@ export interface ApprovalQueue {
  * Sandbox approvals and connector approvals share one row on screen, so they are asked one at a time, in the order they
  * arrived, and never overlap. A request that is aborted while it waits leaves the line without ever being shown.
  */
-export function createApprovalQueue(hooks: { changed(): void; shown?(entry: ShownApproval): void }): ApprovalQueue {
+export function createApprovalQueue(hooks: {
+  changed(): void;
+  shown?(entry: ShownApproval): void;
+  /** One was answered (by the person, an abort or a close), before the next comes up. */
+  answered?(): void;
+}): ApprovalQueue {
   const waiting: Array<{ entry: ApprovalEntry; settle(answer: Answer): void }> = [];
   let current: (ShownApproval & { release(): void }) | undefined;
   let closed = false;
@@ -54,6 +59,7 @@ export function createApprovalQueue(hooks: { changed(): void; shown?(entry: Show
         current = undefined;
         // "This session" is only a choice when it is offered; otherwise it is the same as once.
         settle(answer === 'session' && !entry.session ? true : answer);
+        hooks.answered?.();
         next();
       },
     };

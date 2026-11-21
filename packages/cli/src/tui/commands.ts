@@ -51,6 +51,8 @@ export interface CommandContext {
   switchView(view: ViewName): void;
   setFocus(focus: FocusTarget): void;
   scrollToEnd(): void;
+  /** Scroll so the newest note starts at the top of the conversation (a long list is read from its first line). */
+  scrollToNote(): void;
   editorAction(action: () => void | Promise<void>): void;
   terminalAction(action: string): void;
   /** Show or hide the agent beside the workbench; undefined toggles. */
@@ -247,7 +249,8 @@ const help: CommandHandler = (ctx, argument, draft) => {
   ctx.clearDraft(draft);
   ctx.switchView('harness');
   if (!chat) ctx.setFocus('conversation');
-  ctx.scrollToEnd();
+  // Help is long: it opens at its first line, not its last.
+  ctx.scrollToNote();
 };
 
 /** The one table of slash commands: what the menu and /help show, when each may run, and what it does. Order is display order. */
@@ -262,7 +265,7 @@ export const OMS_COMMANDS: readonly CommandSpec[] = [
   {
     name: 'harness',
     group: 'Navigate',
-    description: 'Back to the conversation',
+    description: 'Back to chat',
     whileBusy: 'accepted',
     run: uiCommands.harness,
   },

@@ -11,11 +11,19 @@ export const POPUP_ROWS = 8;
  * The commands the typed name matches, best first: names that start with it, then names that contain it, then fuzzy
  * (in-order letters) name matches, then descriptions. An unfinished name opens it; arguments stay normal input.
  */
-export function slashChoices(draft: string, kind: 'task' | 'chat'): readonly CommandSpec[] | undefined {
+export function slashChoices(
+  draft: string,
+  kind: 'task' | 'chat',
+  /** The view on screen: its own command (go to where you already are) is left out. */
+  view?: 'harness' | 'workbench',
+): readonly CommandSpec[] | undefined {
   const match = /^\/([a-z]*)$/i.exec(draft.trimStart());
   if (!match) return undefined;
   const query = match[1]!.toLowerCase();
-  const available = OMS_COMMANDS.filter((command) => command.availability !== (kind === 'chat' ? 'task' : 'chat'));
+  const here = view === 'workbench' ? 'workbench' : view === 'harness' ? 'harness' : undefined;
+  const available = OMS_COMMANDS.filter(
+    (command) => command.availability !== (kind === 'chat' ? 'task' : 'chat') && command.name !== here,
+  );
   if (!query) return available;
   const tier = (command: CommandSpec): number => {
     if (command.name.startsWith(query)) return 0;
@@ -38,6 +46,12 @@ export function argumentUsage(draft: string, kind: 'task' | 'chat'): string | un
   return `/${command.name} ${singleLine(command.argument, 80)}`;
 }
 
+/** The first choice the popup shows: the window keeps the selected one in view, at its last row when scrolling down. */
+export function popupStart(selected: number, total: number, rows: number): number {
+  const count = Math.max(1, Math.min(rows, total));
+  return Math.max(0, Math.min(selected - count + 1, total - count));
+}
+
 /** The popup rows above the composer: pointer, `/name usage`, description; the selected row on the raised surface. */
 export function slashPopup(
   theme: OmsTheme,
@@ -52,7 +66,7 @@ export function slashPopup(
       colorText(theme, 'faint', truncateToWidth(`  No command matches that. Type / to see them all.`, width, '')),
     ];
   const count = Math.max(1, Math.min(maxRows, choices.length));
-  const start = Math.max(0, Math.min(selected - count + 1, choices.length - count));
+  const start = popupStart(selected, choices.length, maxRows);
   const shown = choices.slice(start, start + count);
   const label = (command: CommandSpec) =>
     `/${command.name}${command.argument ? ' ' + singleLine(command.argument, 60) : ''}`;

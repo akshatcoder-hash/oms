@@ -47,11 +47,15 @@ interface PanelOptions {
   requestFocus: (tab: PanelTab) => void;
   /** The ▾ hide control. */
   hide: () => void;
+  /** Whether the panel is open (default true); closed, only its header strip shows and the control reads ▴ show. */
+  open?: () => boolean;
+  /** The ▴ show control of a closed panel. */
+  show?: () => void;
   leave: () => void;
 }
 interface HeaderHit {
   tab?: PanelTab;
-  action?: 'start' | 'stop' | 'hide';
+  action?: 'start' | 'stop' | 'hide' | 'show';
   start: number;
   end: number;
 }
@@ -327,7 +331,8 @@ export class BottomPanel {
       column += visibleWidth(text);
     };
     const right = this.tab === 'terminal' ? (this.options.terminal.running ? '■ stop' : '▸ start') : '';
-    const hide = '▾ hide';
+    const isOpen = this.options.open?.() ?? true;
+    const hide = isOpen ? '▾ hide' : '▴ show';
     const tail = (right ? right + '  ' : '') + hide + (width >= 36 ? ' ─' : '');
     // On a narrow terminal the tabs that are not showing give way first.
     const tabs = PANEL_TABS.map((tab) => {
@@ -361,7 +366,7 @@ export class BottomPanel {
     if (right)
       put(right, colorText(theme, 'foreground', right), { action: this.options.terminal.running ? 'stop' : 'start' });
     if (right) put('  ', '  ');
-    put(hide, colorText(theme, 'muted', hide), { action: 'hide' });
+    put(hide, colorText(theme, 'muted', hide), { action: isOpen ? 'hide' : 'show' });
     if (width >= 36) put(' ─', colorText(theme, 'border', ' ─'));
     return [truncateToWidth(line, width, '')];
   }
@@ -377,6 +382,7 @@ export class BottomPanel {
       this.tab = hit.tab;
       this.options.requestFocus(hit.tab);
     } else if (hit.action === 'hide') this.options.hide();
+    else if (hit.action === 'show') this.options.show?.();
     else if (hit.action === 'start') {
       this.options.requestFocus('terminal');
       void this.options.terminal.start();

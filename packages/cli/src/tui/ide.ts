@@ -62,6 +62,8 @@ export interface IdeOptions {
   /** Run a slash command as if chosen from the palette. */
   run: (command: string) => void;
   busy: () => boolean;
+  /** What stops the running work from the editor, if anything does: Esc, or nothing (a review runs to its end). */
+  interrupt: () => 'esc' | 'ctrl+l' | undefined;
   awaiting: () => boolean;
   startedAt: number;
   copy: (text: string) => void;
@@ -195,6 +197,8 @@ export class WorkbenchIde {
       revert: (change) => this.askRevert(change),
       requestFocus: (tab) => this.showPanel(tab),
       hide: () => this.hidePanel(),
+      open: () => this.panelOpen,
+      show: () => this.showPanel(),
       leave: () => options.focus('editor'),
     });
     this.explorer = new Explorer({
@@ -391,6 +395,10 @@ export class WorkbenchIde {
   get capturing(): boolean {
     return this.finder.open || !!this.card || !!this.confirm;
   }
+  /** The editor shows its file with nothing of its own to close: Esc is free to stop running work. */
+  get atRest(): boolean {
+    return !this.capturing && this.workbench.atRest;
+  }
   /** Terminal focus is only meaningful while the panel shows the terminal. */
   get terminalFocusable(): boolean {
     return this.panelOpen && this.panel.tab === 'terminal';
@@ -420,20 +428,35 @@ export class WorkbenchIde {
     else this.showPanel();
   }
 
+  /**
+   * Which areas are on screen: a full-width explorer (under 100 columns) takes the editor's place, and on a very short
+   * terminal an open panel takes both. Keys must never reach an area that is not drawn.
+   */
+  private areaVisible(area: 'explorer' | 'editor' | 'panel'): boolean {
+    if (area === 'explorer') return this.explorerShown() && !this.panelFills();
+    if (area === 'editor') return !this.explorerFull() && !this.panelFills();
+    return this.panelOpen && !this.explorerFull();
+  }
   /** What the focus should be after the layout changed: a hidden area cannot keep it. */
   repairFocus(focus: FocusTarget): FocusTarget {
-    if (focus === 'explorer' && !this.explorerShown()) return 'editor';
-    if ((focus === 'terminal' || focus === 'panel') && !this.panelOpen) return 'editor';
-    if (focus === 'terminal' && this.panel.tab !== 'terminal') return 'panel';
-    if (focus === 'panel' && this.panel.tab === 'terminal') return 'terminal';
+    const panelArea = this.panel.tab === 'terminal' ? 'terminal' : 'panel';
+    const shown = this.areas();
+    if (focus === 'terminal' || focus === 'panel') {
+      if (!this.areaVisible('panel')) return shown[0] ?? 'input';
+      return panelArea;
+    }
+    if ((focus === 'explorer' || focus === 'editor') && !this.areaVisible(focus))
+      return shown.find((area) => area !== focus) ?? shown[0] ?? 'input';
     return focus;
   }
-  /** The areas Tab and F6 cycle through, in order. */
+  /** The areas Tab and F6 cycle through, in order: only the ones on screen. */
   areas(): IdeFocus[] {
     return [
-      ...(this.explorerShown() ? (['explorer'] as const) : []),
-      'editor',
-      ...(this.panelOpen ? [this.panel.tab === 'terminal' ? ('terminal' as const) : ('panel' as const)] : []),
+      ...(this.areaVisible('explorer') ? (['explorer'] as const) : []),
+      ...(this.areaVisible('editor') ? (['editor'] as const) : []),
+      ...(this.areaVisible('panel')
+        ? [this.panel.tab === 'terminal' ? ('terminal' as const) : ('panel' as const)]
+        : []),
     ];
   }
   /** The component keyboard focus rests on for an area. */
@@ -533,6 +556,9 @@ export class WorkbenchIde {
   /** Session events: files the agent edits refresh the open buffers, the explorer, the change list and the file index. */
   onSessionEvent(event: AgentSessionEvent): void {
     if (this.disposed) return;
+    // A turn starting, a tool starting or ending, or the turn settling changes what the dashboard shows.
+    if (event.type === 'agent_start' || event.type === 'agent_settled' || event.type.startsWith('tool_execution_'))
+      this.touchDashboard();
     if (event.type === 'agent_start') {
       this.touched.clear();
       return;
@@ -562,6 +588,17 @@ export class WorkbenchIde {
       void this.explorer.refresh();
       void this.changes.refresh();
     }
+  }
+
+  private dashboardTimer: NodeJS.Timeout | undefined;
+  /** The dashboard bakes busy, awaiting and helper states into its rows: read them again soon (once, however often asked). */
+  touchDashboard(): void {
+    if (!this.dashboardOn || this.disposed || this.dashboardTimer) return;
+    this.dashboardTimer = setTimeout(() => {
+      this.dashboardTimer = undefined;
+      if (this.dashboardOn && !this.disposed) void this.dashboard.refresh();
+    }, 100);
+    this.dashboardTimer.unref();
   }
 
   private afterWrite(): void {
@@ -807,8 +844,14 @@ export class WorkbenchIde {
         const about = context
           ? ` about ${clean(context.label, 40)}${context.selected ? `:${context.from}${context.to > context.from ? `-${context.to}` : ''}` : ''}`
           : '';
+        const stop = this.options.interrupt();
         const left = busy
-          ? colorText(theme, 'accent', ' ◐ ') + colorText(theme, 'muted', 'The agent is working · Esc cancels')
+          ? colorText(theme, 'accent', ' ◐ ') +
+            colorText(
+              theme,
+              'muted',
+              `The agent is working${stop === 'esc' ? ' · Esc cancels' : stop === 'ctrl+l' ? ' · Ctrl+L then Esc cancels' : ''}`,
+            )
           : colorText(theme, 'accent', ' ❯ ') + colorText(theme, 'muted', `Ask OMS${about}…`);
         const right = colorText(theme, 'muted', busy ? '' : 'Ctrl+L type · Alt+A actions ');
         const gap = Math.max(1, width - visibleWidth(left) - visibleWidth(right));
@@ -1026,6 +1069,7 @@ export class WorkbenchIde {
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
     this.finder.hide();
+    clearTimeout(this.dashboardTimer);
     this.solana.dispose();
     this.dashboard.dispose();
     this.workbench.dispose();

@@ -390,6 +390,13 @@ test('sandbox approvals and connector approvals take turns: one question at a ti
     s.terminal.send('n');
     assert.equal((await second)?.block, true);
     screen = await s.terminal.until((text) => text.includes('Allow host command?') && text.includes('cat ~/x'));
+    // A card that comes up right after an answer ignores Allow for a moment: a repeated key cannot approve it unseen.
+    let settled = false;
+    void third.then(() => (settled = true));
+    s.terminal.send('s');
+    await flush();
+    assert.equal(settled, false, 'an immediate s did not approve the next card');
+    await new Promise((done) => setTimeout(done, 750));
     s.terminal.send('s');
     assert.equal(await third, 'session');
   } finally {
