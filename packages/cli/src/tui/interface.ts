@@ -1724,6 +1724,7 @@ export async function runOmsInterface(
           conversation.note('', `${outcome}: ${displayText(request.command, 4096)}`);
           approvalGuardUntil = Date.now() + 700;
           overlayHandle?.setHidden(false);
+          ide.touchDashboard();
           requestRender();
           resolve(allowed);
         };
@@ -1741,6 +1742,7 @@ export async function runOmsInterface(
         };
         signal?.addEventListener('abort', abort, { once: true });
         overlayHandle?.setHidden(true);
+        ide.touchDashboard();
         requestRender();
       }),
   );
@@ -2108,6 +2110,8 @@ export async function runOmsInterface(
     // Running work and a bounded budget's wall clock change with time; nothing else on screen does.
     clock = setInterval(() => {
       if (busy() || harness.budget.snapshot().executionMode === 'bounded') requestRender();
+      // Helper states and ages move while the dashboard is open.
+      if (busy()) ide.touchDashboard();
     }, 1000);
     await finished;
   } finally {

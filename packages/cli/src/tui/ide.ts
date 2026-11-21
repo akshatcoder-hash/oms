@@ -554,6 +554,9 @@ export class WorkbenchIde {
   /** Session events: files the agent edits refresh the open buffers, the explorer, the change list and the file index. */
   onSessionEvent(event: AgentSessionEvent): void {
     if (this.disposed) return;
+    // A turn starting, a tool starting or ending, or the turn settling changes what the dashboard shows.
+    if (event.type === 'agent_start' || event.type === 'agent_settled' || event.type.startsWith('tool_execution_'))
+      this.touchDashboard();
     if (event.type === 'agent_start') {
       this.touched.clear();
       return;
@@ -583,6 +586,17 @@ export class WorkbenchIde {
       void this.explorer.refresh();
       void this.changes.refresh();
     }
+  }
+
+  private dashboardTimer: NodeJS.Timeout | undefined;
+  /** The dashboard bakes busy, awaiting and helper states into its rows: read them again soon (once, however often asked). */
+  touchDashboard(): void {
+    if (!this.dashboardOn || this.disposed || this.dashboardTimer) return;
+    this.dashboardTimer = setTimeout(() => {
+      this.dashboardTimer = undefined;
+      if (this.dashboardOn && !this.disposed) void this.dashboard.refresh();
+    }, 100);
+    this.dashboardTimer.unref();
   }
 
   private afterWrite(): void {
@@ -1053,6 +1067,7 @@ export class WorkbenchIde {
     for (const timer of this.timers) clearTimeout(timer);
     this.timers.clear();
     this.finder.hide();
+    clearTimeout(this.dashboardTimer);
     this.solana.dispose();
     this.dashboard.dispose();
     this.workbench.dispose();

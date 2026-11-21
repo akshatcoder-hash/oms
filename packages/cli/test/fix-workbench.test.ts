@@ -162,3 +162,23 @@ test('on a 15-row terminal an open panel takes the body, and F6 stays on what is
     p.done();
   }
 });
+
+test('the tasks dashboard follows the session: working while a turn runs, idle when it settles', async () => {
+  const p = project({ 'a.ts': 'x' });
+  const f = fixture();
+  const { terminal, done } = open(f, p, 120, 30);
+  try {
+    await terminal.until((screen) => screen.includes('No file open'));
+    terminal.send('\x1b[18~'); // F7
+    await terminal.until((s) => /Tasks\s+○ 1 idle/.test(s));
+    f.emit({ type: 'agent_start' });
+    const working = await terminal.until((s) => /Tasks\s+● 1 working/.test(s) || /Agent working/.test(s));
+    assert.match(working, /Agent working/);
+    f.emit({ type: 'agent_settled', aborted: false });
+    const settled = await terminal.until((s) => /Tasks\s+○ 1 idle/.test(s));
+    assert.doesNotMatch(settled, /Agent working/);
+  } finally {
+    await done();
+    p.done();
+  }
+});
