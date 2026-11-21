@@ -392,3 +392,39 @@ test('on the 256-color path the line numbers of added and removed diff rows stay
     );
   }
 });
+
+test('/settings at 80x24 shows several settings, one hint, and a search prompt with a placeholder', async () => {
+  const f = chatFixture();
+  const state = {
+    thinkingLevel: 'off',
+    availableThinkingLevels: ['off', 'low', 'high'],
+    supportsThinking: true,
+    steeringMode: 'one-at-a-time',
+    followUpMode: 'one-at-a-time',
+    httpIdleTimeoutMs: 300_000,
+    defaultModel: 'synthetic/model',
+  };
+  Object.assign(f.harness, {
+    settings: {
+      snapshot: () => ({ ...state }),
+      async setThinkingLevel() {},
+      async setSteeringMode() {},
+      async setFollowUpMode() {},
+      async setHttpIdleTimeoutMs() {},
+    },
+  });
+  const { terminal, close } = start(f.harness, 80, 24);
+  try {
+    await terminal.until((screen) => screen.includes('/ commands'));
+    terminal.send('/settings');
+    terminal.send('\r');
+    const screen = await terminal.until((s) => s.includes('Settings') && s.includes('Search settings'));
+    const items = ['Thinking', 'Steering', 'Follow-up', 'HTTP'].filter((name) => screen.includes(name));
+    assert.ok(items.length >= 3, `${items.length} settings visible\n${screen}`);
+    assert.match(screen, /❯ +Search settings/);
+    assert.doesNotMatch(screen, /Esc to cancel/, 'one hint, in the border');
+    assert.match(screen, /esc close/);
+  } finally {
+    await close();
+  }
+});
